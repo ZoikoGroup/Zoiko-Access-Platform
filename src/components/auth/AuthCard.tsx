@@ -33,7 +33,7 @@ export default function AuthCard() {
   return (
     <>
       {redirecting && <BrandLoader label="Signing in" />}
-      <div className="w-full max-w-[460px] overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_20px_60px_-25px_rgba(36,59,115,0.35)] animate-fade-up">
+      <div className="w-full max-w-[460px] overflow-hidden rounded-2xl border border-slate-200/70 bg-card shadow-[0_20px_60px_-25px_rgba(36,59,115,0.35)] animate-fade-up">
         <div className="relative grid grid-cols-3 border-b border-slate-200">
           {tabs.map((t) => (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
@@ -117,7 +117,7 @@ function LoginForm({ onSuccess, onRegister, onForgot }: { onSuccess: () => void;
       <div className="mt-6 space-y-2.5">
         {providers.map((p) => (
           <button key={p.id} type="button" disabled={!!loading} onClick={() => sso(p.id)}
-            className="group flex w-full items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-navy-900 transition duration-300 hover:-translate-y-0.5 hover:border-brand/40 hover:bg-brand-50/60 hover:shadow-[0_8px_20px_-10px_rgba(106,60,240,0.5)] disabled:opacity-60">
+            className="group flex w-full items-center gap-3 rounded-lg border border-slate-200 bg-card px-4 py-2.5 text-sm font-medium text-navy-900 transition duration-300 hover:-translate-y-0.5 hover:border-brand/40 hover:bg-brand-50/60 hover:shadow-[0_8px_20px_-10px_rgba(106,60,240,0.5)] disabled:opacity-60">
             <span className="grid size-6 place-items-center">{loading === p.id ? <Spinner className="size-4 text-brand" /> : p.icon}</span>
             <span className="flex-1 text-left">{p.label}</span>
             <ChevronRight className="size-4 text-slate-400 transition group-hover:translate-x-1 group-hover:text-brand" />
@@ -255,7 +255,7 @@ function ResetForm({ onLogin }: { onLogin: () => void }) {
 /* ---------------- Primitives ---------------- */
 
 const inputCls =
-  "w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-10 text-sm text-navy-900 outline-none transition placeholder:text-slate-400 hover:border-brand/40 focus:border-brand focus:ring-4 focus:ring-brand/15";
+  "w-full rounded-lg border border-slate-200 bg-card py-2.5 pl-10 pr-10 text-sm text-navy-900 outline-none transition placeholder:text-slate-400 hover:border-brand/40 focus:border-brand focus:ring-4 focus:ring-brand/15";
 
 function Field({ label, icon, error, children }: { label: string; icon: ReactNode; error?: string; children: ReactNode }) {
   return (
@@ -324,7 +324,7 @@ function GoogleIcon() {
 
 function AppleIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="size-5" fill="#0f1b3d" aria-hidden>
+    <svg viewBox="0 0 24 24" className="size-5 text-navy-900" fill="currentColor" aria-hidden>
       <path d="M16.37 12.6c-.02-2.3 1.88-3.4 1.96-3.46-1.07-1.56-2.73-1.78-3.32-1.8-1.41-.14-2.76.83-3.48.83-.72 0-1.82-.81-3-.79-1.54.02-2.96.9-3.76 2.27-1.6 2.78-.41 6.9 1.15 9.16.76 1.1 1.67 2.34 2.86 2.3 1.15-.05 1.58-.74 2.97-.74 1.38 0 1.77.74 2.98.72 1.23-.02 2.01-1.12 2.76-2.23.87-1.28 1.23-2.52 1.25-2.58-.03-.01-2.4-.92-2.42-3.65zM14.1 5.86c.63-.77 1.06-1.83.94-2.89-.91.04-2.01.61-2.66 1.37-.58.67-1.09 1.75-.95 2.79 1.01.08 2.04-.51 2.67-1.27z" />
     </svg>
   );

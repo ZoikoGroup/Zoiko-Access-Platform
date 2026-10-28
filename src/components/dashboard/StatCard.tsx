@@ -19,7 +19,7 @@ export default function StatCard({ title, value, prefix, suffix, decimals, chang
   return (
     <article className={`neu-card neu-hover group relative overflow-hidden p-6 animate-fade-up ring-1 ${tone.ring}`}
       style={{ animationDelay: `${delay}s` }}>
-      <span className="pointer-events-none absolute -right-10 -top-10 size-32 rounded-full bg-white/60 opacity-0 blur-2xl transition duration-500 group-hover:opacity-100" />
+      <span className="pointer-events-none absolute -right-10 -top-10 size-32 rounded-full bg-neu-hi/60 opacity-0 blur-2xl transition duration-500 group-hover:opacity-100" />
       <h3 className={`text-[15px] font-semibold ${tone.text}`}>{title}</h3>
       <div className="mt-4 flex items-center gap-4">
         <span className="grid size-14 shrink-0 place-items-center rounded-full bg-neu shadow-neu-in transition-transform duration-500 group-hover:rotate-[-8deg] group-hover:scale-110">

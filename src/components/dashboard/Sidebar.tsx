@@ -40,12 +40,12 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
     <>
       {signingOut && <BrandLoader label="Signing out" />}
       <div onClick={onCloseMobile}
-        className={`fixed inset-0 z-40 bg-navy-900/30 backdrop-blur-sm transition-opacity lg:hidden ${mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"}`} />
+        className={`fixed inset-0 z-40 bg-midnight/40 backdrop-blur-sm transition-opacity lg:hidden ${mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"}`} />
 
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-neu transition-[width,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] lg:sticky lg:top-0 lg:h-screen lg:translate-x-0
           ${mobileOpen ? "translate-x-0 shadow-neu-lg" : "-translate-x-full"}
-          ${mini ? "w-[96px]" : "w-[288px]"} border-r border-white/70`}>
+          ${mini ? "w-[96px]" : "w-[288px]"} border-r border-neu-hi/70`}>
         <div className={`flex items-center px-6 pb-6 pt-7 ${mini ? "justify-center px-0" : "justify-between"}`}>
           {mini ? <ZaMark /> : <Logo className="h-11 w-auto" priority />}
           <button onClick={mobileOpen ? onCloseMobile : onToggle} aria-label="Toggle sidebar"
@@ -69,7 +69,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
                   <ChevronDown className={`size-4 transition-transform duration-300 ${expanded ? "rotate-180 text-brand" : ""}`} />
                 )}
                 {mini && (
-                  <span className="pointer-events-none absolute left-full ml-4 whitespace-nowrap rounded-lg bg-navy-900 px-2.5 py-1.5 text-xs text-white opacity-0 shadow-lg transition group-hover:opacity-100">
+                  <span className="pointer-events-none absolute left-full ml-4 whitespace-nowrap rounded-lg bg-midnight px-2.5 py-1.5 text-xs text-white opacity-0 shadow-lg transition group-hover:opacity-100">
                     {item.label}
                   </span>
                 )}
@@ -133,7 +133,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onCloseMobile
 
 function ZaMark() {
   return (
-    <div className="grid size-12 place-items-center rounded-2xl bg-navy shadow-glow">
+    <div className="grid size-12 place-items-center rounded-2xl bg-brand-navy shadow-glow">
       <span className="text-lg font-black italic tracking-tighter text-white">
         Z<span className="text-brand-300">A</span>
       </span>

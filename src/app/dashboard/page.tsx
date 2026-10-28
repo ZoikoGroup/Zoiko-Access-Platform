@@ -13,7 +13,7 @@ const stats = [
   { title: "Appointments Booked", value: 8932, change: 8, icon: CalendarCheck,
     tone: { text: "text-sky", icon: "bg-sky", ring: "ring-sky/20" } },
   { title: "Monthly Revenue", value: 1.02, prefix: "$", suffix: "M", decimals: 2, change: 12, icon: DollarSign,
-    tone: { text: "text-navy", icon: "bg-navy", ring: "ring-navy/15" } },
+    tone: { text: "text-navy", icon: "bg-brand-navy", ring: "ring-navy/15" } },
 ];
 
 const integrations = [
@@ -112,7 +112,7 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {users.map((u) => (
-                  <tr key={u.email} className="group transition hover:bg-white/50">
+                  <tr key={u.email} className="group transition hover:bg-neu-hi/50">
                     <td className="rounded-l-2xl py-3 pl-2">
                       <div className="flex items-center gap-3">
                         <span className="grid size-10 place-items-center rounded-xl bg-neu text-xs font-bold text-brand shadow-neu-sm transition group-hover:scale-110">

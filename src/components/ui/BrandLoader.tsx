@@ -17,7 +17,7 @@ export default function BrandLoader({ label = "Loading" }: { label?: string }) {
               <circle cx="50" cy="50" r="44" fill="none" stroke="url(#za-ring)" strokeWidth="6"
                 strokeLinecap="round" strokeDasharray="200 80" />
             </svg>
-            <div className="grid size-14 place-items-center rounded-full bg-navy shadow-glow">
+            <div className="grid size-14 place-items-center rounded-full bg-brand-navy shadow-glow">
               <span className="text-lg font-black italic tracking-tighter text-white">
                 Z<span className="text-brand-300">A</span>
               </span>

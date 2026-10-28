@@ -54,7 +54,7 @@ export default function OrderValueChart() {
                 {ranges.map((r) => (
                   <li key={r}>
                     <button onClick={() => { setRange(r); setMenuOpen(false); }}
-                      className={`w-full rounded-lg px-3 py-2 text-left text-sm transition hover:bg-white/70 hover:text-brand ${r === range ? "font-semibold text-brand" : "text-slate-600"}`}>
+                      className={`w-full rounded-lg px-3 py-2 text-left text-sm transition hover:bg-neu-hi/70 hover:text-brand ${r === range ? "font-semibold text-brand" : "text-slate-600"}`}>
                       {r}
                     </button>
                   </li>
@@ -88,7 +88,7 @@ export default function OrderValueChart() {
                     ${hover !== null && hover !== i ? "opacity-35" : ""} ${hover === i ? "brightness-110" : ""}`}
                   style={{ height: `${(d.value / MAX) * 100}%`, animationDelay: `${0.3 + i * 0.025}s` }} />
                 {hover === i && (
-                  <div className="pointer-events-none absolute z-10 -translate-y-2 whitespace-nowrap rounded-xl bg-navy-900 px-3 py-2 text-xs text-white shadow-xl animate-fade-up [animation-duration:0.2s]"
+                  <div className="pointer-events-none absolute z-10 -translate-y-2 whitespace-nowrap rounded-xl bg-midnight px-3 py-2 text-xs text-white shadow-xl animate-fade-up [animation-duration:0.2s]"
                     style={{ bottom: `${(d.value / MAX) * 100}%` }}>
                     <span className="block text-white/60">{d.label}</span>
                     <span className="font-semibold">${d.value.toLocaleString()}</span>

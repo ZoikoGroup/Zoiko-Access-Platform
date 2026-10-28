@@ -8,6 +8,7 @@ import {
   ShieldAlert, UserPlus, UserRound, Wallet, type LucideIcon,
 } from "lucide-react";
 import BrandLoader from "@/components/ui/BrandLoader";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 type OpenMenu = "notifications" | "profile" | null;
 
@@ -18,7 +19,7 @@ const initialNotifications: Notification[] = [
   { id: 2, icon: Wallet, tone: "bg-brand", title: "Payment received", body: "$1,240.00 from Northwell Health.", time: "18 min ago", unread: true },
   { id: 3, icon: ShieldAlert, tone: "bg-rose-500", title: "Failed sign-in attempts", body: "5 failed logins for d.kim@carepoint.com.", time: "1 hr ago", unread: true },
   { id: 4, icon: CalendarCheck, tone: "bg-sky", title: "Appointments milestone", body: "8,900 appointments booked this month.", time: "3 hr ago", unread: false },
-  { id: 5, icon: CreditCard, tone: "bg-navy", title: "Refund requested", body: "Rohan Patel requested a refund of $49.", time: "Yesterday", unread: false },
+  { id: 5, icon: CreditCard, tone: "bg-brand-navy", title: "Refund requested", body: "Rohan Patel requested a refund of $49.", time: "Yesterday", unread: false },
 ];
 
 export default function Topbar({ onOpenMobile }: { onOpenMobile: () => void }) {
@@ -64,6 +65,7 @@ export default function Topbar({ onOpenMobile }: { onOpenMobile: () => void }) {
       </label>
 
       <div ref={ref} className="ml-auto flex items-center gap-3 sm:relative">
+        <ThemeToggle />
         <button aria-label={`Notifications${unread ? ` (${unread} unread)` : ""}`} aria-expanded={open === "notifications"}
           onClick={() => toggle("notifications")}
           className={`neu-btn group relative grid size-11 place-items-center rounded-xl text-navy ${open === "notifications" ? "!shadow-neu-in-sm text-brand" : ""}`}>
@@ -103,7 +105,7 @@ export default function Topbar({ onOpenMobile }: { onOpenMobile: () => void }) {
                 return (
                   <li key={n.id} className="animate-fade-up" style={{ animationDelay: `${i * 0.04}s`, animationDuration: "0.35s" }}>
                     <button onClick={() => markRead(n.id)}
-                      className={`group flex w-full items-start gap-3 rounded-2xl p-3 text-left transition duration-300 hover:bg-white/70 hover:shadow-neu-sm ${n.unread ? "bg-white/40" : ""}`}>
+                      className={`group flex w-full items-start gap-3 rounded-2xl p-3 text-left transition duration-300 hover:bg-neu-hi/70 hover:shadow-neu-sm ${n.unread ? "bg-neu-hi/40" : ""}`}>
                       <span className={`grid size-9 shrink-0 place-items-center rounded-xl text-white transition group-hover:scale-110 ${n.tone}`}>
                         <Icon className="size-4" />
                       </span>
@@ -122,7 +124,7 @@ export default function Topbar({ onOpenMobile }: { onOpenMobile: () => void }) {
             </ul>
             <div className="mt-2 border-t border-neu-dark/60 p-2">
               <Link href="/dashboard/notifications" onClick={() => setOpen(null)}
-                className="block rounded-xl py-2.5 text-center text-sm font-semibold text-brand transition hover:bg-white/70 hover:shadow-neu-sm">
+                className="block rounded-xl py-2.5 text-center text-sm font-semibold text-brand transition hover:bg-neu-hi/70 hover:shadow-neu-sm">
                 View all notifications
               </Link>
             </div>
@@ -161,7 +163,7 @@ export default function Topbar({ onOpenMobile }: { onOpenMobile: () => void }) {
 function Panel({ className = "", children }: { className?: string; children: ReactNode }) {
   return (
     <div role="menu"
-      className={`absolute inset-x-4 top-full z-40 mt-2 origin-top-right overflow-hidden rounded-3xl bg-neu shadow-neu-lg ring-1 ring-white/70 animate-[pop_0.25s_cubic-bezier(0.22,1,0.36,1)_both] sm:inset-x-auto sm:right-0 sm:mt-3 ${className}`}>
+      className={`absolute inset-x-4 top-full z-40 mt-2 origin-top-right overflow-hidden rounded-3xl bg-neu shadow-neu-lg ring-1 ring-neu-hi/70 animate-[pop_0.25s_cubic-bezier(0.22,1,0.36,1)_both] sm:inset-x-auto sm:right-0 sm:mt-3 ${className}`}>
       {children}
     </div>
   );
@@ -171,7 +173,7 @@ function MenuLink({ href, icon: Icon, onClick, children }: { href: string; icon:
   return (
     <li>
       <Link href={href} onClick={onClick} role="menuitem"
-        className="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-navy-700 transition duration-300 hover:bg-white/70 hover:text-brand hover:shadow-neu-sm">
+        className="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-navy-700 transition duration-300 hover:bg-neu-hi/70 hover:text-brand hover:shadow-neu-sm">
         <Icon className="size-4 text-slate-400 transition group-hover:scale-110 group-hover:text-brand" />
         <span className="transition-transform group-hover:translate-x-0.5">{children}</span>
       </Link>

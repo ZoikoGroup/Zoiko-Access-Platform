@@ -1,21 +1,24 @@
 import Image from "next/image";
 
 type LogoProps = {
-  variant?: "color" | "white";
+  /** "auto" shows the navy logo in light mode and the white one in dark mode. */
+  variant?: "auto" | "color" | "white";
   className?: string;
   priority?: boolean;
 };
 
-export default function Logo({ variant = "color", className = "h-12 w-auto", priority }: LogoProps) {
-  const src = variant === "white" ? "/brand/zoiko-logo-white.png" : "/brand/zoiko-logo.png";
+const color = { src: "/brand/zoiko-logo.png", width: 964, height: 343 };
+const white = { src: "/brand/zoiko-logo-white.png", width: 1213, height: 432 };
+
+export default function Logo({ variant = "auto", className = "h-12 w-auto", priority }: LogoProps) {
+  if (variant !== "auto") {
+    const img = variant === "white" ? white : color;
+    return <Image {...img} alt="Zoiko Access" className={className} priority={priority} />;
+  }
   return (
-    <Image
-      src={src}
-      alt="Zoiko Access"
-      width={variant === "white" ? 1213 : 964}
-      height={variant === "white" ? 432 : 343}
-      className={className}
-      priority={priority}
-    />
+    <>
+      <Image {...color} alt="Zoiko Access" className={`${className} dark:hidden`} priority={priority} />
+      <Image {...white} alt="Zoiko Access" className={`${className} hidden dark:block`} priority={priority} />
+    </>
   );
 }

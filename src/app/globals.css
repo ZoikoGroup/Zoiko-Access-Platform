@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 
@@ -15,16 +17,23 @@
   --color-navy-700: #1b2d5a;
   --color-navy-900: #0f1b3d;
   --color-sky: #4f8bff;
+  /* Fixed brand navies for dark chips/tooltips — these do NOT flip in dark mode */
+  --color-brand-navy: #243b73;
+  --color-midnight: #0f1b3d;
 
   /* Neumorphic surface */
   --color-neu: #eceff7;
   --color-neu-dark: #cfd5e6;
+  --color-neu-hi: #ffffff; /* raised highlight on hover */
+  --color-card: #ffffff;   /* flat cards (login) */
+  --color-canvas: #f6f7fb; /* login page background */
 
-  --shadow-neu-sm: 4px 4px 10px #cdd3e5, -4px -4px 10px #ffffff;
-  --shadow-neu: 9px 9px 20px #cdd3e5, -9px -9px 20px #ffffff;
-  --shadow-neu-lg: 16px 16px 34px #c4cbe0, -16px -16px 34px #ffffff;
-  --shadow-neu-in: inset 5px 5px 10px #cdd3e5, inset -5px -5px 10px #ffffff;
-  --shadow-neu-in-sm: inset 3px 3px 6px #cdd3e5, inset -3px -3px 6px #ffffff;
+  /* Shadow colours go through variables so dark mode can swap them */
+  --shadow-neu-sm: 4px 4px 10px var(--neu-shade), -4px -4px 10px var(--neu-light);
+  --shadow-neu: 9px 9px 20px var(--neu-shade), -9px -9px 20px var(--neu-light);
+  --shadow-neu-lg: 16px 16px 34px var(--neu-shade-strong), -16px -16px 34px var(--neu-light);
+  --shadow-neu-in: inset 5px 5px 10px var(--neu-shade), inset -5px -5px 10px var(--neu-light);
+  --shadow-neu-in-sm: inset 3px 3px 6px var(--neu-shade), inset -3px -3px 6px var(--neu-light);
   --shadow-glow: 0 10px 30px -8px rgb(106 60 240 / 0.55);
 
   --animate-fade-up: fade-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -65,6 +74,63 @@
     60% { width: 70%; }
     100% { width: 88%; }
   }
+}
+
+/* ---------- Theme ---------- */
+
+:root {
+  color-scheme: light;
+  --neu-shade: #cdd3e5;
+  --neu-shade-strong: #c4cbe0;
+  --neu-light: #ffffff;
+  --skeleton-a: #e3e7f2;
+  --skeleton-b: #f5f7fc;
+}
+
+/* Dark: same classes, re-pointed tokens. Ink colours (navy, slate) become light. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --neu-shade: #12151f;
+  --neu-shade-strong: #0d0f17;
+  --neu-light: #2a3049;
+  --skeleton-a: #262b40;
+  --skeleton-b: #31374f;
+
+  --color-neu: #1e2235;
+  --color-neu-dark: #343a56;
+  --color-neu-hi: #2b3150;
+  --color-card: #171b2c;
+  --color-canvas: #0e1120;
+
+  --color-brand: #8a63f6;
+  --color-brand-50: rgb(138 99 246 / 0.14);
+  --color-brand-100: rgb(138 99 246 / 0.22);
+  --color-navy: #b4bde0;
+  --color-navy-700: #c5cbe3;
+  --color-navy-900: #eef0fa;
+
+  --color-slate-100: #262b40;
+  --color-slate-200: #30364f;
+  --color-slate-300: #4a5170;
+  --color-slate-400: #7f87a6;
+  --color-slate-500: #9aa1bc;
+  --color-slate-600: #afb5cd;
+  --color-slate-700: #c6cbe0;
+
+  --color-emerald-50: rgb(16 185 129 / 0.15);
+  --color-emerald-600: #34d399;
+  --color-emerald-700: #6ee7b7;
+  --color-amber-50: rgb(245 158 11 / 0.15);
+  --color-amber-700: #fcd34d;
+  --color-rose-50: rgb(244 63 94 / 0.15);
+  --color-rose-700: #fda4af;
+}
+
+/* Theme switch: the new theme is revealed as a circle growing from the toggle (see ThemeToggle). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
 }
 
 @layer base {
@@ -132,7 +198,7 @@
 }
 
 @utility skeleton {
-  background: linear-gradient(90deg, #e3e7f2 25%, #f5f7fc 50%, #e3e7f2 75%);
+  background: linear-gradient(90deg, var(--skeleton-a) 25%, var(--skeleton-b) 50%, var(--skeleton-a) 75%);
   background-size: 200% 100%;
   @apply animate-shimmer rounded-xl;
 }
