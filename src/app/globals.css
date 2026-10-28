@@ -1,0 +1,167 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* Brand (from the Zoiko Access logo) */
+  --color-brand: #6a3cf0;
+  --color-brand-50: #f3efff;
+  --color-brand-100: #e7defe;
+  --color-brand-300: #b39cfa;
+  --color-brand-400: #8f6af6;
+  --color-brand-600: #5a2fdb;
+  --color-brand-700: #4a23bd;
+  --color-navy: #243b73;
+  --color-navy-700: #1b2d5a;
+  --color-navy-900: #0f1b3d;
+  --color-sky: #4f8bff;
+
+  /* Neumorphic surface */
+  --color-neu: #eceff7;
+  --color-neu-dark: #cfd5e6;
+
+  --shadow-neu-sm: 4px 4px 10px #cdd3e5, -4px -4px 10px #ffffff;
+  --shadow-neu: 9px 9px 20px #cdd3e5, -9px -9px 20px #ffffff;
+  --shadow-neu-lg: 16px 16px 34px #c4cbe0, -16px -16px 34px #ffffff;
+  --shadow-neu-in: inset 5px 5px 10px #cdd3e5, inset -5px -5px 10px #ffffff;
+  --shadow-neu-in-sm: inset 3px 3px 6px #cdd3e5, inset -3px -3px 6px #ffffff;
+  --shadow-glow: 0 10px 30px -8px rgb(106 60 240 / 0.55);
+
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-float-sm: float-sm 5s ease-in-out infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-spin-slow: spin 1.4s linear infinite;
+  --animate-pulse-ring: pulse-ring 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  --animate-bar-grow: bar-grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-progress: progress 1.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  @keyframes float-sm {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+  }
+  @keyframes shimmer {
+    from { background-position: -200% 0; }
+    to { background-position: 200% 0; }
+  }
+  @keyframes pulse-ring {
+    0% { transform: scale(0.85); opacity: 0.7; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+  @keyframes bar-grow {
+    from { transform: scaleY(0); }
+    to { transform: scaleY(1); }
+  }
+  @keyframes progress {
+    0% { width: 0; }
+    60% { width: 70%; }
+    100% { width: 88%; }
+  }
+}
+
+@layer base {
+  html { -webkit-font-smoothing: antialiased; }
+  body { @apply bg-neu text-navy-900; }
+  ::selection { background: rgb(106 60 240 / 0.2); }
+}
+
+/* ---------- Neumorphic primitives ---------- */
+
+@utility neu-card {
+  @apply rounded-3xl bg-neu shadow-neu;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
+}
+
+/* Card that lifts toward the viewer on hover */
+@utility neu-hover {
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-neu-lg);
+  }
+}
+
+@utility neu-btn {
+  @apply bg-neu shadow-neu-sm;
+  transition: box-shadow 0.25s ease, transform 0.25s ease, color 0.25s ease;
+  &:hover { color: var(--color-brand); transform: translateY(-1px); }
+  &:active { box-shadow: var(--shadow-neu-in-sm); transform: translateY(0); }
+}
+
+@utility neu-inset {
+  @apply bg-neu shadow-neu-in;
+}
+
+/* Gradient hairline border (as on the active nav item in the reference) */
+@utility gradient-border {
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--color-neu), var(--color-neu)) padding-box,
+    linear-gradient(120deg, var(--color-brand), var(--color-sky) 55%, #e15ab5) border-box;
+}
+
+@utility text-gradient {
+  background: linear-gradient(100deg, var(--color-brand) 10%, #9b6bff 45%, var(--color-sky));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Light sweep that passes across buttons on hover */
+@utility shine {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 0.35) 50%, transparent 70%);
+    transform: translateX(-120%);
+    transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  &:hover::after { transform: translateX(120%); }
+}
+
+@utility skeleton {
+  background: linear-gradient(90deg, #e3e7f2 25%, #f5f7fc 50%, #e3e7f2 75%);
+  background-size: 200% 100%;
+  @apply animate-shimmer rounded-xl;
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #cdd3e5 transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0); }
+  25% { transform: rotate(-14deg); }
+  75% { transform: rotate(14deg); }
+}
+
+@keyframes grow-x {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes pop {
+  from { opacity: 0; transform: translateY(-6px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
