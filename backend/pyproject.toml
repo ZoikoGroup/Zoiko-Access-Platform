@@ -1,0 +1,66 @@
+[tool.ruff]
+line-length = 100
+target-version = "py310"          # runtime is 3.12 (Docker); stay compatible with 3.10 locally
+extend-exclude = ["**/migrations/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S", "DJ"]   # S = security checks (bandit rules)
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]   # asserts and obviously-fake test passwords are fine
+
+[tool.mypy]
+python_version = "3.10"
+plugins = ["mypy_django_plugin.main"]
+check_untyped_defs = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings.test"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra"
+
+# ---------------------------------------------------------------------------
+# Architecture rules, checked by `lint-imports`.
+# Modules talk to each other ONLY through another module's public `api` module
+# (GHE-11: one write owner per aggregate, bounded contexts).
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = ["foundation", "modules"]
+
+[[tool.importlinter.contracts]]
+name = "Domain modules only reach each other through their public api module"
+type = "independence"
+modules = [
+  "modules.trust",
+  "modules.policy",
+  "modules.catalog",
+  "modules.scheduling",
+  "modules.workflow",
+  "modules.referral",
+  "modules.comms",
+  "modules.evidence",
+]
+ignore_imports = ["modules.** -> modules.*.api"]
+# No module imports another yet, so this allowance matches nothing until B4+. That is fine.
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "Foundation never depends on domain modules"
+type = "forbidden"
+source_modules = ["foundation"]
+forbidden_modules = [
+  "modules.trust",
+  "modules.policy",
+  "modules.catalog",
+  "modules.scheduling",
+  "modules.workflow",
+  "modules.referral",
+  "modules.comms",
+  "modules.evidence",
+]

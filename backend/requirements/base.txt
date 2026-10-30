@@ -1,0 +1,5 @@
+# Runtime dependencies. Ranges for now; a lock file with hashes comes with the CI/supply-chain step.
+Django>=5.2,<5.3
+psycopg[binary]>=3.2,<4
+# Time-zone database. Linux has one built in; Windows does not, and zoneinfo needs it.
+tzdata>=2024.1

@@ -1,6 +1,30 @@
-node_modules
-.next
-out
-*.tsbuildinfo
-next-env.d.ts
-.env*.local
+# Secrets: never commit real environment files
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local data
+*.sqlite3
+pgdata/
+vault_local/
+
+# Frontend
+node_modules/
+dist/

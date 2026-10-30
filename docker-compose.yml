@@ -1,0 +1,60 @@
+# Local development stack for ONE cell (DEV-01). Not a production topology.
+# Usage: copy .env.example to .env, then `docker compose up --build`.
+services:
+  db:
+    image: postgres:16-alpine
+    env_file: .env
+    ports:
+      - "127.0.0.1:5432:5432"   # bound to localhost only
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    image: zoiko-backend:dev     # the worker below reuses this image
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db          # inside the compose network the DB host is "db"
+      EMAIL_HOST: mail           # the development mail inbox below
+      PASSWORD_MIN_LENGTH: "8"    # DEV ONLY, so demo logins can be short. Production keeps the default 10.
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"    # bound to localhost only
+    volumes:
+      - ./backend:/app           # live reload in dev
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+
+  # Delivers queued events to their subscribers (the transactional outbox). Safe to run several.
+  worker:
+    image: zoiko-backend:dev
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      EMAIL_HOST: mail
+    depends_on:
+      db:
+        condition: service_healthy
+      backend:
+        condition: service_started   # migrations run there; the worker also retries until they are done
+    volumes:
+      - ./backend:/app
+    command: python manage.py relay_outbox
+    restart: unless-stopped
+
+  # Development mail inbox: catches every email the system sends and shows it in a web page.
+  # Nothing is ever delivered to a real address. Not for production.
+  mail:
+    image: axllent/mailpit:v1.20
+    ports:
+      - "127.0.0.1:8025:8025"    # the inbox web page (the SMTP port stays inside the network)
+    restart: unless-stopped
+
+volumes:
+  pgdata:

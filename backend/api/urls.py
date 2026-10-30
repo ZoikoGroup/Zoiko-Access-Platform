@@ -1,0 +1,38 @@
+from django.urls import path
+
+from . import views
+
+urlpatterns = [
+    path("auth/login", views.login),
+    path("auth/logout", views.logout),
+    path("auth/register", views.register),
+    path("auth/verify-email", views.auth_verify_email),
+    path("auth/resend-verification", views.auth_resend_verification),
+    path("auth/forgot-password", views.auth_forgot_password),
+    path("auth/reset-password", views.auth_reset_password),
+    path("auth/providers", views.providers),
+    path("me", views.me),
+    path("clinician/schedule", views.clinician_schedule),
+    path("clinician/patients", views.clinician_patients),
+    path("clinician/referrals", views.clinician_referrals),
+    path("referrals", views.my_referrals),
+    path("referrals/incoming", views.referrals_incoming),
+    path("referrals/<str:referral_id>/decide", views.referral_decide),
+    path("platform/overview", views.platform_overview),
+    path("staff/members", views.staff_invite),
+    path("staff/members/<str:member_id>/status", views.staff_member_status),
+    path("staff/members/<str:member_id>/resend-invite", views.staff_member_resend),
+    path("staff/dashboard", views.staff_dashboard),
+    path("staff/compliance", views.staff_compliance),
+    path("staff/directory", views.staff_directory),
+    path("staff/patients", views.staff_patients),
+    path("services", views.services),
+    path("locations", views.locations),
+    path("services/<str:service_id>/status", views.service_status),
+    path("services/<str:service_id>/slots", views.service_slots),
+    path("notifications", views.notifications),
+    path("notifications/<str:notification_id>/read", views.notification_read),
+    path("bookings", views.bookings),
+    path("bookings/<str:booking_id>/confirm", views.booking_confirm),
+    path("bookings/<str:booking_id>/cancel", views.booking_cancel),
+]

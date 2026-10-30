@@ -1,0 +1,39 @@
+/* Sign-in and create-account pages */
+.auth { min-height: 100%; display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr); }
+.auth-brand {
+  background: linear-gradient(160deg, #0f1b3d 0%, #1b3a8a 60%, #2457d6 100%); color: #fff;
+  padding: 48px clamp(24px, 5vw, 72px); display: flex; flex-direction: column; justify-content: center; gap: 22px;
+}
+.auth-brand .brand b { font-size: 22px; }
+.auth-brand .brand small { color: #c6d6ff; }
+.auth-brand h1 { font-size: clamp(28px, 3.4vw, 40px); line-height: 1.15; margin: 18px 0 0; letter-spacing: -0.5px; }
+.auth-brand ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; font-size: 16px; }
+.auth-brand li { display: flex; gap: 10px; align-items: center; color: #e6edff; }
+.auth-brand .fine { margin-top: 12px; font-size: 13px; color: #b9c9f5; }
+.auth-form { display: grid; place-items: center; padding: 32px 20px; }
+.auth-card { width: min(420px, 100%); }
+.auth-card h2 { font-size: 26px; letter-spacing: -0.3px; }
+.auth-card .lead { color: var(--muted); margin: 6px 0 18px; }
+.auth-card label { display: block; margin-top: 14px; color: var(--muted); font-size: 13px; }
+.auth-card .field { margin-top: 6px; padding: 12px 14px; font-size: 15px; }
+.auth-card .field:focus, .auth-card .pw-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.pw { position: relative; }
+.pw .field { padding-right: 70px; }
+.pw-toggle { position: absolute; right: 8px; top: 50%; transform: translateY(-35%); background: transparent;
+  border: 0; color: var(--brand); font-weight: 600; padding: 6px 8px; border-radius: 8px; }
+.btn.wide { width: 100%; margin-top: 18px; padding: 12px 16px; font-size: 15px; }
+.divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: var(--muted); font-size: 13px; }
+.divider::before, .divider::after { content: ""; height: 1px; background: var(--line); flex: 1; }
+.google { width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 11px 16px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--card); font-weight: 600; }
+.google:disabled { opacity: 0.6; cursor: not-allowed; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 6px; text-align: center; }
+.switch { margin-top: 22px; text-align: center; color: var(--muted); }
+.switch button { background: none; border: 0; color: var(--brand); font-weight: 600; padding: 0; }
+.fine-print { color: var(--muted); font-size: 12px; margin-top: 14px; }
+
+@media (max-width: 860px) {
+  .auth { grid-template-columns: 1fr; }
+  .auth-brand { padding: 28px 24px; }
+  .auth-brand ul, .auth-brand .fine { display: none; }
+}

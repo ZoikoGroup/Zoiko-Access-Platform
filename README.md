@@ -1,26 +1,46 @@
-# Zoiko Access — Admin
+# Zoiko Access
 
-Admin console for Zoiko Access, built with Next.js 16 (App Router) and Tailwind CSS 4.
+Global healthcare access and coordination platform. All design here is PROPOSED, not a launch claim.
+Source specifications (GHE-01..23) live outside this repo.
 
-```bash
-npm install
-npm run dev      # http://localhost:3000  → redirects to /login
+## Top-level map
+
+```
+zoikoaccess/
+  backend/             all server code (Python / Django)      -> see backend/README.md
+  frontend/            all web/mobile clients (later)         -> see frontend/README.md
+  docs/                design documents
+    schema/            data-model design pack (tables, relationships, enums, role access)
+    decisions/         where we differ from, or fill gaps in, the spec (and why)
+  docker-compose.yml   local stack for one cell: Postgres + backend
+  .env.example         dev placeholders. Copy to .env. NEVER commit .env
+  .github/workflows/   CI (active when this folder is its own git repo)
 ```
 
-| Route | What it is |
-|---|---|
-| `/login` | Split-screen sign-in with Login / Register / Reset Password tabs |
-| `/dashboard` | Neumorphic admin dashboard |
-| `/dashboard/*` | Section pages linked from the sidebar (placeholders) |
+Backend architecture and decisions: [backend/docs/ARCHITECTURE.md](backend/docs/ARCHITECTURE.md).
+Data model: [docs/schema/README.md](docs/schema/README.md).
 
-## Where things live
+## Run it (Docker)
 
-- `src/app/globals.css` — brand tokens (`#6A3CF0`, `#243B73`), neumorphic shadows and utilities (`neu-card`, `neu-btn`, `neu-inset`, `gradient-border`, `shine`, `skeleton`), keyframes
-- `src/components/auth/` — login hero panel and auth card
-- `src/components/dashboard/` — shell, sidebar, topbar, stat cards, chart
-- `src/lib/nav.ts` — sidebar menu
-- `public/brand/` — logos
+```bash
+cp .env.example .env                  # edit if you like; never commit .env
+docker compose up --build             # Postgres + backend on http://127.0.0.1:8000
+curl http://127.0.0.1:8000/healthz    # {"status":"ok"}
+curl http://127.0.0.1:8000/readyz     # {"status":"ready"} once Postgres is up
+```
 
-Login hero images (doctor, laptop, phone) live in `public/images/`.
+Checks and the no-Docker setup are in [backend/README.md](backend/README.md).
 
-Authentication is simulated (`AuthCard.tsx`, `enterDashboard`) — wire it to your auth provider before going live.
+## Rules to remember
+
+- Never commit `.env` or any real secret. Never print environment variables or health data in logs.
+- Use specific `git add <file>` paths, never `git add -A`.
+- Every change ships with tests, including tests for what must be **denied**.
+
+## Event delivery
+
+`docker compose up` also starts a `worker` service (`python manage.py relay_outbox`) that delivers queued events to their subscribers. Run one pass by hand with `docker compose exec backend python manage.py relay_outbox --once`. See docs/decisions/REGISTER.md (DEV-034).
+
+## Email in development
+
+`docker compose up` also starts Mailpit, a mail catcher. Every email the system sends (verification and password-reset links) appears at http://127.0.0.1:8025 and is never delivered to a real address. The worker sends queued mail; check `docker compose logs worker`. Production needs a real provider (see DEV-036).
