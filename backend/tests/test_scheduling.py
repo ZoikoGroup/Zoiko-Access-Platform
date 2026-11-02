@@ -364,7 +364,8 @@ def test_events_audit_and_listing(clinic):
     with tenant_transaction(clinic.ctx):
         scheduling.confirm(booking_ref=booking, actor_public_id=staff, decision=ok)
         types = list(OutboxEvent.objects.order_by("seq").values_list("event_type", flat=True))
-        assert types == ["booking.requested.v1", "booking.confirmed.v1"]
+        # creating times announces them (the waiting list listens), then the booking steps
+        assert types == ["slot.opened.v1", "booking.requested.v1", "booking.confirmed.v1"]
         payload = OutboxEvent.objects.order_by("seq").last().payload
         assert payload["booking_ref"] == booking and "person" not in str(payload.keys())
         actions = set(AuditEvent.objects.values_list("action", flat=True))

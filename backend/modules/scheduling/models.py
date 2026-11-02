@@ -54,6 +54,13 @@ class BookingStatus(models.TextChoices):
 ACTIVE_BOOKING = (BookingStatus.REQUESTED, BookingStatus.CONFIRMED)
 
 
+class Attendance(models.TextChoices):
+    """What happened at a confirmed appointment, recorded by the clinic after it started."""
+
+    ATTENDED = "attended", "Attended"
+    NO_SHOW = "no_show", "Did not attend"
+
+
 class Booking(CellScopedModel):
     slot = models.ForeignKey(Slot, on_delete=models.PROTECT, related_name="bookings")
     person_ref = models.CharField(max_length=22)       # trust Person.public_id
@@ -62,6 +69,15 @@ class Booking(CellScopedModel):
         max_length=16, choices=BookingStatus.choices, default=BookingStatus.REQUESTED
     )
     cancelled_by_ref = models.CharField(max_length=22, blank=True, default="")
+    # The booking this one replaced, when the patient or the clinic moved an appointment.
+    rescheduled_from_ref = models.CharField(max_length=22, blank=True, default="")
+    reminder_sent_at = models.DateTimeField(null=True, blank=True)   # the patient was reminded
+    # When the clinic confirmed a REQUESTED booking (empty for older bookings and for a move
+    # that staff made already confirmed): used for response-time reports.
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    attendance = models.CharField(max_length=16, choices=Attendance.choices, blank=True, default="")
+    attendance_by_ref = models.CharField(max_length=22, blank=True, default="")
+    attendance_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [

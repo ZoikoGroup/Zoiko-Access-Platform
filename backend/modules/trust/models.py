@@ -153,6 +153,23 @@ class Person(CellScopedModel):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="person_scope_idx")]
 
 
+class PersonProfile(CellScopedModel):
+    """A patient's name, birth date and phone, stored ONLY as ciphertext (foundation/crypto.py).
+
+    Kept apart from `Person` so the identifying details sit in their own table. Each value is bound
+    to this tenant, this field and this person, so it cannot be moved to another row.
+    """
+
+    person = models.OneToOneField(Person, on_delete=models.PROTECT, related_name="profile")
+    legal_name_enc = models.TextField(blank=True, default="")
+    birth_date_enc = models.TextField(blank=True, default="")
+    phone_enc = models.TextField(blank=True, default="")
+    updated_by_ref = models.CharField(max_length=22, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="profile_scope_idx")]
+
+
 class CareBasis(models.TextChoices):
     CARE_TEAM = "care_team", "Care team assignment"
     REFERRAL = "referral", "Referral"

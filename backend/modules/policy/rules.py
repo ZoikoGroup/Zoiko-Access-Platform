@@ -63,9 +63,9 @@ def _v(spec: str) -> frozenset[str]:
 
 RULES: dict[str, dict[str, Rule]] = {
     "R01": {
-        "person": (_v("r"), "OWN"), "booking": (_v("rw"), "OWN"), "referral": (_v("r"), "OWN"),
+        "person": (_v("rw"), "OWN"), "booking": (_v("rw"), "OWN"), "referral": (_v("r"), "OWN"),
         "workflow": (_v("r"), "OWN"), "diagnostic": (_v("r"), "OWN"),
-        "medication": (_v("r"), "OWN"), "coverage": (_v("r"), "OWN"),
+        "medication": (_v("r"), "OWN"), "coverage": (_v("rw"), "OWN"),
         "billing": (_v("r"), "OWN"), "comms": (_v("rw"), "OWN"), "evidence": (_v("r"), "OWN"),
         "catalog": (_v("r"), "ANY"),
     },
@@ -84,9 +84,9 @@ RULES: dict[str, dict[str, Rule]] = {
         "evidence": (_v("r"), "ORG"), "catalog": (_v("r"), "ANY"),
     },
     "R04": {
-        "person": (_v("r"), "ORG"), "booking": (_v("rw"), "ORG"), "referral": (_v("rw"), "ORG"),
+        "person": (_v("rw"), "ORG"), "booking": (_v("rw"), "ORG"), "referral": (_v("rw"), "ORG"),
         "workflow": (_v("rw"), "ORG"), "diagnostic": (_v("r"), "ORG"),
-        "billing": (_v("rw"), "ORG"), "comms": (_v("rw"), "ORG"),
+        "billing": (_v("rw"), "ORG"), "comms": (_v("rw"), "ORG"), "coverage": (_v("rw"), "ORG"),
         "catalog": (_v("rw"), "ORG"), "analytics": (_v("r"), "ORG"),
         "evidence": (_v("r"), "ORG"), "directory": (_v("r"), "ORG"),
     },
@@ -121,7 +121,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "catalog": (_v("rw"), "ORG"), "evidence": (_v("r"), "ORG"),
         "billing": (_v("rw"), "ORG"), "comms": (_v("r"), "ORG"),
         "directory": (_v("r"), "ORG"), "analytics": (_v("r"), "ORG"),
-        "platform": (_v("r"), "ORG"),
+        "platform": (_v("rw"), "ORG"),      # support may add a customer (DEV-040)
     },
     "R12": {
         "workflow": (_v("r"), "ORG"), "diagnostic": (_v("r"), "ORG"),

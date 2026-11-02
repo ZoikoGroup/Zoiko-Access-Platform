@@ -139,6 +139,7 @@ def test_delivering_twice_never_creates_a_second_notification(web):
 
 def test_an_event_for_a_booking_that_is_gone_or_an_unknown_event_is_just_delivered(web):
     web.patient("pat")
+    deliver()                                   # setting up the clinic announced its new times
     with tenant_transaction(web.clinic.ctx):
         emit(event_type="booking.confirmed.v1", aggregate_type="booking",
              aggregate_ref="missing", payload={"booking_ref": "does-not-exist"})

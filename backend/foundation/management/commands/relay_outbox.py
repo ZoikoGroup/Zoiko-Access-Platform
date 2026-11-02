@@ -18,6 +18,7 @@ from django.db import OperationalError, ProgrammingError, close_old_connections
 from foundation.dispatch import dispatch
 from foundation.mail import send_due
 from foundation.outbox import RelayResult, relay_once
+from foundation.periodic import run_due
 
 DATABASE_RETRY_SECONDS = 5.0
 
@@ -46,6 +47,12 @@ def run_loop(
                 mail = None
             if mail and (mail.sent or mail.retrying or mail.failed):
                 log(f"mail sent={mail.sent} retrying={mail.retrying} failed={mail.failed}")
+            try:
+                for name, outcome in run_due().items():
+                    if outcome not in (0, None):
+                        log(f"job {name}: {outcome}")
+            except (OperationalError, ProgrammingError):
+                pass                    # the next pass tries again
             total += result.published
             busy = result.published + result.retrying + result.quarantined
             if busy:

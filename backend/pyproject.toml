@@ -43,6 +43,9 @@ modules = [
   "modules.scheduling",
   "modules.workflow",
   "modules.referral",
+  "modules.waitlist",
+  "modules.coverage",
+  "modules.messaging",
   "modules.comms",
   "modules.evidence",
 ]
@@ -61,6 +64,9 @@ forbidden_modules = [
   "modules.scheduling",
   "modules.workflow",
   "modules.referral",
+  "modules.waitlist",
+  "modules.coverage",
+  "modules.messaging",
   "modules.comms",
   "modules.evidence",
 ]

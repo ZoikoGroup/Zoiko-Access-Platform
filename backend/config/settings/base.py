@@ -43,6 +43,9 @@ INSTALLED_APPS = [
     "modules.scheduling",
     "modules.workflow",
     "modules.referral",
+    "modules.waitlist",
+    "modules.coverage",
+    "modules.messaging",
     "modules.comms",
     "modules.evidence",
 ]
@@ -109,6 +112,18 @@ EMAIL_USE_TLS = env("EMAIL_USE_TLS", "") == "1"
 EMAIL_TIMEOUT = 10
 DEFAULT_FROM_EMAIL = env("EMAIL_FROM", "Zoiko Access <no-reply@zoiko.example>")
 # Where the links in emails point (the patient web app).
+# Field-level encryption (foundation/crypto.py). "id:base64(32 bytes),id:base64(...)". No default:
+# a deployment without a key must not start. FIELD_KEY_ID picks the key that encrypts (default:
+# the first listed); the others stay valid for reading while keys are rotated.
+FIELD_KEYS = env("ZOIKO_FIELD_KEYS", required=True)
+FIELD_KEY_ID = env("ZOIKO_FIELD_KEY_ID", "")
+
+# Patients are reminded about a confirmed appointment this many hours ahead.
+REMINDER_LEAD_HOURS = int(env("REMINDER_LEAD_HOURS", "24"))
+# A waiting-list offer nobody used goes back to waiting after this many hours.
+WAITLIST_OFFER_HOURS = int(env("WAITLIST_OFFER_HOURS", "24"))
+# The clinic's response target: a booking or message waiting longer than this is flagged late.
+RESPONSE_TARGET_HOURS = int(env("RESPONSE_TARGET_HOURS", "24"))
 PATIENT_APP_URL = env("PATIENT_APP_URL", "http://localhost:5174").rstrip("/")
 STAFF_APP_URL = env("STAFF_APP_URL", "http://localhost:5173").rstrip("/")
 CLINICIAN_APP_URL = env("CLINICIAN_APP_URL", "http://localhost:5176").rstrip("/")

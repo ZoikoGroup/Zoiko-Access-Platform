@@ -215,6 +215,26 @@ def recent_decisions(limit: int = 50) -> list[dict[str, object]]:
     ]
 
 
+def decisions_about(
+    subject_refs: list[str], *, exclude_actors: list[str] | None = None, limit: int = 100
+) -> list[dict[str, object]]:
+    """Newest access decisions that were ABOUT these patients (allowed and refused), as plain dicts.
+    Used to show a patient who looked at their information. The caller has authorized the read."""
+    if not subject_refs:
+        return []
+    ctx = require_context()
+    rows = AccessDecision.objects.filter(
+        cell_id=ctx.cell_id, tenant_id=ctx.tenant_id, subject_ref__in=subject_refs)
+    if exclude_actors:
+        rows = rows.exclude(actor_ref__in=exclude_actors)
+    return [
+        {"at": r.created_at.isoformat(), "actor": r.actor_ref, "operation": r.operation,
+         "purpose": r.purpose_code, "allowed": r.allowed, "role": r.role_code,
+         "subject": r.subject_ref}
+        for r in rows.order_by("-created_at")[: max(1, min(limit, 200))]
+    ]
+
+
 RECEIPT_MAX_AGE = dt.timedelta(minutes=2)
 
 

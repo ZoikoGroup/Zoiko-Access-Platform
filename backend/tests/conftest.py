@@ -34,7 +34,9 @@ def rls_probe(django_db_setup, django_db_blocker):
                       "trust_roleassignment", "trust_person", "trust_carerelationship",
                       "trust_proxygrant", "catalog_location", "catalog_service", "scheduling_slot",
                       "scheduling_booking", "trust_credential", "comms_notification",
-                      "referral_referral", "trust_authtoken"):
+                      "referral_referral", "waitlist_waitentry", "trust_personprofile",
+                      "coverage_coverage", "messaging_thread", "messaging_message",
+                      "trust_authtoken"):
             cursor.execute(f'GRANT SELECT, INSERT, UPDATE ON "{table}" TO zoiko_app')
         # Audit rows are append-only: the app role may read and add, never change or remove.
         cursor.execute('GRANT SELECT, INSERT ON "evidence_auditevent" TO zoiko_app')

@@ -7,9 +7,11 @@ Every change is audited and emits an outbox event in the same transaction.
 """
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
 from django.db import IntegrityError, transaction
+from django.db.models import Count
 
 from foundation.cell_context import require_context
 from foundation.errors import ErrorCode, ZoikoError
@@ -153,3 +155,13 @@ def list_referrals(
 def referral_counts() -> dict[str, int]:
     rows = Referral.objects.filter(**_scope())
     return {"total": rows.count(), "open": rows.filter(state__in=OPEN_STATES).count()}
+
+
+def report(organization_ref: str, since: dt.datetime, until: dt.datetime) -> dict[str, int]:
+    """Counts of referrals SENT TO this organization in the period, by where they stand now."""
+    rows = Referral.objects.filter(
+        destination_organization_ref=organization_ref, created_at__gte=since, created_at__lt=until,
+        **_scope())
+    counts = {r["state"]: r["n"] for r in rows.values("state").annotate(n=Count("id"))}
+    return {"received": sum(counts.values()), **{
+        k: counts.get(k, 0) for k in ("issued", "accepted", "needs_info", "declined")}}

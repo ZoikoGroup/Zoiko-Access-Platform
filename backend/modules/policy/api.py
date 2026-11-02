@@ -13,10 +13,12 @@ from .engine import (
     check_receipt,
     decide,
     decision_counts,
+    decisions_about,
     recent_decisions,
 )
 
 __all__ = [
     "Decision", "NoRelationships", "Reason", "RelationshipChecker", "TrustRelationships",
-    "authorize", "check_receipt", "decide", "decision_counts", "recent_decisions",
+    "authorize", "check_receipt", "decide", "decision_counts", "decisions_about",
+    "recent_decisions",
 ]

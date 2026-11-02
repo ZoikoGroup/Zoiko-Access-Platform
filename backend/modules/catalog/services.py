@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from django.db import IntegrityError, transaction
+from django.db.models import Count, Q
 
 from foundation.cell_context import require_context
 from foundation.errors import ErrorCode, ZoikoError
@@ -153,15 +154,42 @@ def get_location(location_ref: str) -> dict[str, Any]:
     return location_dict(_own(Location, location_ref))
 
 
-def list_services(*, query: str = "", active_only: bool = True) -> list[dict[str, Any]]:
+def _category_key(text: str) -> str:
+    """Categories are stored like `general_physician`; people type "General physician"."""
+    return re.sub(r"\s+", "_", text.strip().lower())
+
+
+def list_services(
+    *, query: str = "", active_only: bool = True, category: str = "", mode: str = "",
+    organization_ref: str = "",
+) -> list[dict[str, Any]]:
+    """Services of the bound tenant. `query` looks in the name, description and category;
+    `category`, `mode` and `organization_ref` narrow the result exactly."""
     ctx = require_context()
     rows = Service.objects.filter(cell_id=ctx.cell_id, tenant_id=ctx.tenant_id)
     if active_only:
         rows = rows.filter(status=Status.ACTIVE)
-    if query.strip():
-        rows = rows.filter(name__icontains=query.strip()) | rows.filter(
-            category__icontains=query.strip().replace(" ", "_"))
+    word = query.strip()
+    if word:
+        rows = rows.filter(
+            Q(name__icontains=word) | Q(description__icontains=word)
+            | Q(category__icontains=_category_key(word)))
+    if category.strip():
+        rows = rows.filter(category=_category_key(category))
+    if mode:
+        rows = rows.filter(mode=mode)
+    if organization_ref:
+        rows = rows.filter(organization_ref=organization_ref)
     return [service_dict(r) for r in rows.order_by("name")]
+
+
+def list_categories() -> list[dict[str, Any]]:
+    """The categories that have at least one ACTIVE service, with how many, for filter menus."""
+    ctx = require_context()
+    rows = (Service.objects.filter(cell_id=ctx.cell_id, tenant_id=ctx.tenant_id,
+                                   status=Status.ACTIVE)
+            .values("category").annotate(count=Count("id")).order_by("category"))
+    return [{"category": r["category"], "count": r["count"]} for r in rows]
 
 
 def list_locations(*, organization_ref: str = "") -> list[dict[str, Any]]:

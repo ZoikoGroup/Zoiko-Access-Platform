@@ -142,6 +142,25 @@ def care_patients(actor_public_id: str, *, at: dt.datetime | None = None) -> lis
     ]
 
 
+def care_team_of(person_public_id: str, *, at: dt.datetime | None = None) -> list[dict[str, str]]:
+    """The people treating this patient right now: active, uncontested care relationships. The
+    caller has already been allowed to read this patient."""
+    when = utc_now() if at is None else _aware(at, "at")
+    ctx = require_context()
+    scope = {"cell_id": ctx.cell_id, "tenant_id": ctx.tenant_id}
+    rows = _in_window(
+        CareRelationship.objects.filter(
+            person__public_id=person_public_id, person__status=Status.ACTIVE,
+            actor__status=Status.ACTIVE, status=Status.ACTIVE, contested=False, **scope),
+        when, "valid_from", "valid_until",
+    ).select_related("actor").order_by("created_at")
+    return [
+        {"actor_ref": r.actor.public_id, "basis": r.basis, "since": r.valid_from.isoformat(),
+         "until": r.valid_until.isoformat() if r.valid_until else ""}
+        for r in rows
+    ]
+
+
 def end_care_relationship(
     link_public_id: str, *, by: str, clock: Clock | None = None
 ) -> CareRelationship:
@@ -262,6 +281,23 @@ def relationship_verified(
             when, "valid_from", "valid_until",
         ).exists()
     return False
+
+
+def own_person_of(actor_public_id: str) -> str:
+    """The patient record this login IS (its own, not one it acts for), or "" if none."""
+    ctx = require_context()
+    found = Person.objects.filter(
+        linked_actor__public_id=actor_public_id, status=Status.ACTIVE, cell_id=ctx.cell_id,
+        tenant_id=ctx.tenant_id).values_list("public_id", flat=True).first()
+    return found or ""
+
+
+def person_exists(person_public_id: str) -> bool:
+    """Is there an active patient record with this id in the bound tenant?"""
+    ctx = require_context()
+    return Person.objects.filter(
+        public_id=person_public_id, status=Status.ACTIVE, cell_id=ctx.cell_id,
+        tenant_id=ctx.tenant_id).exists()
 
 
 def reachable_persons(actor_public_id: str, *, at: dt.datetime | None = None) -> list[str]:

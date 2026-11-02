@@ -8,6 +8,7 @@ from .services import (
     create_service,
     get_location,
     get_service,
+    list_categories,
     list_locations,
     list_services,
     service_counts,
@@ -15,6 +16,6 @@ from .services import (
 )
 
 __all__ = [
-    "create_location", "create_service", "get_location", "get_service", "list_locations",
-    "list_services", "service_counts", "set_service_status",
+    "create_location", "create_service", "get_location", "get_service", "list_categories",
+    "list_locations", "list_services", "service_counts", "set_service_status",
 ]

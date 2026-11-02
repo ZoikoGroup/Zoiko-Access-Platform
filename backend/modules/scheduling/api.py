@@ -14,9 +14,16 @@ from .services import (
     list_bookings,
     list_bookings_for_provider,
     list_open_slots,
+    mark_attendance,
+    overdue_requests,
+    report,
+    reschedule,
+    usual_confirmation_hours,
 )
 
 __all__ = [
     "book", "booking_counts", "cancel", "confirm", "create_slots", "get_booking", "get_slot",
-    "list_bookings", "list_bookings_for_provider", "list_open_slots",
+    "list_bookings", "list_bookings_for_provider", "list_open_slots", "mark_attendance",
+    "overdue_requests", "report", "reschedule",
+    "usual_confirmation_hours",
 ]

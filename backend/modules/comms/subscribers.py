@@ -12,9 +12,11 @@ from foundation.dispatch import subscribe, subscriptions
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.outbox import PublishedEvent
 from modules.catalog import api as catalog
+from modules.messaging import api as messaging
 from modules.referral import api as referral
 from modules.scheduling import api as scheduling
 from modules.trust import api as trust
+from modules.waitlist import api as waitlist
 
 from .models import Notification
 
@@ -24,6 +26,9 @@ _KINDS = {
     "booking.requested.v1": "booking_requested",
     "booking.confirmed.v1": "booking_confirmed",
     "booking.cancelled.v1": "booking_cancelled",
+    "booking.rescheduled.v1": "booking_rescheduled",
+    "booking.attendance.v1": "booking_attendance",
+    "booking.reminder.v1": "booking_reminder",
 }
 
 
@@ -41,6 +46,14 @@ def on_booking_event(event: PublishedEvent) -> None:
         if isinstance(exc, ZoikoError) and exc.code != ErrorCode.NOT_FOUND:
             raise
         return                                   # the booking no longer exists: nothing to say
+    if kind == "booking_attendance":
+        # Worded from what the EVENT recorded, so a late worker still tells each step as it was.
+        kind = {"attended": "booking_attended", "no_show": "booking_no_show"}.get(
+            str(event.payload.get("attendance")), "")
+        if not kind:
+            return
+    if kind == "booking_reminder" and booking["status"] != "confirmed":
+        return                                       # cancelled since: do not remind
     slot = booking["slot"]
     service = catalog.get_service(slot["service_ref"])["name"]
     org = (trust.get_organization(slot["organization_ref"]) or {}).get("name", "the clinic")
@@ -53,6 +66,19 @@ def on_booking_event(event: PublishedEvent) -> None:
             "Appointment confirmed", f"{org} confirmed your {service} on {when}."),
         "booking_cancelled": (
             "Appointment cancelled", f"Your {service} on {when} at {org} was cancelled."),
+        "booking_reminder": (
+            "Appointment reminder", f"Reminder: your {service} at {org} is on {when}."),
+        "booking_attended": (
+            "Visit recorded", f"{org} recorded that you attended your {service} on {when}."),
+        "booking_no_show": (
+            "Missed appointment",
+            f"{org} recorded that you did not attend your {service} on {when}. "
+            "Contact the clinic to book again."),
+        "booking_rescheduled": (
+            "Appointment moved",
+            f"Your {service} at {org} was moved to {when}." + (
+                " It is confirmed." if booking["status"] == "confirmed"
+                else " The clinic will confirm the new time.")),
     }[kind]
     Notification.objects.create(
         person_ref=booking["person_ref"], kind=kind, title=title, body=body[:300],
@@ -96,10 +122,92 @@ def on_referral_event(event: PublishedEvent) -> None:
         source_event_id=event.event_id)
 
 
+WAITLIST_CONSUMER = "comms.waitlist_notifier"
+
+
+def on_waitlist_event(event: PublishedEvent) -> None:
+    """Tell a waiting patient a time opened up. Skipped if they already booked or left."""
+    if event.event_type != "waitlist.offered.v1":
+        return
+    try:
+        entry = waitlist.get_entry(str(event.payload["entry_ref"]))
+    except (KeyError, ZoikoError) as exc:
+        if isinstance(exc, ZoikoError) and exc.code != ErrorCode.NOT_FOUND:
+            raise
+        return
+    if entry["state"] != "offered":
+        return
+    service = catalog.get_service(entry["service_ref"])["name"]
+    org = (trust.get_organization(entry["organization_ref"]) or {}).get("name", "the clinic")
+    Notification.objects.create(
+        person_ref=entry["person_ref"], kind="waitlist_offer", title="A time opened up",
+        body=f"A time opened up for {service} at {org}. Book it soon, before it is taken."[:300],
+        source_event_id=event.event_id)
+
+
+FAMILY_CONSUMER = "comms.family_notifier"
+
+
+def on_family_event(event: PublishedEvent) -> None:
+    """Tell a patient the clinic decided on their request to act for a family member. The text
+    names nobody: it is written in the patient's cell, not sent with the event."""
+    if event.event_type != "family.decided.v1":
+        return
+    outcome = str(event.payload.get("outcome"))
+    if outcome not in ("approved", "rejected"):
+        return
+    try:
+        grant = trust.get_family_grant(str(event.payload["grant_ref"]))
+    except (KeyError, ZoikoError) as exc:
+        if isinstance(exc, ZoikoError) and exc.code != ErrorCode.NOT_FOUND:
+            raise
+        return
+    own = trust.own_person_of(grant["delegate_ref"])
+    if not own:
+        return                                    # the requester no longer has a patient record
+    title, body = {
+        "approved": ("Family request approved",
+                     "The clinic approved your request. You can now book and see appointments "
+                     "for that person under Find Healthcare."),
+        "rejected": ("Family request not approved",
+                     "The clinic could not approve your request. Please speak to the clinic "
+                     "and bring proof of identity."),
+    }[outcome]
+    Notification.objects.create(
+        person_ref=own, kind=f"family_{outcome}", title=title, body=body,
+        source_event_id=event.event_id)
+
+
+MESSAGE_CONSUMER = "comms.message_notifier"
+
+
+def on_message_event(event: PublishedEvent) -> None:
+    """Tell a patient the clinic wrote to them. The notice never contains the message."""
+    if event.event_type != "message.sent.v1" or event.payload.get("side") != "staff":
+        return
+    try:
+        thread = messaging.get_thread(str(event.payload["thread_ref"]))
+    except (KeyError, ZoikoError) as exc:
+        if isinstance(exc, ZoikoError) and exc.code != ErrorCode.NOT_FOUND:
+            raise
+        return
+    org = (trust.get_organization(thread["organization_ref"]) or {}).get("name", "the clinic")
+    Notification.objects.create(
+        person_ref=thread["person_ref"], kind="message_received", title="New message",
+        body=f"{org} sent you a message. Open Messages to read it."[:300],
+        source_event_id=event.event_id)
+
+
 def register_subscribers() -> None:
     """Idempotent: safe to call at start-up and again from tests."""
     if not any(s.consumer == CONSUMER for s in subscriptions()):
         subscribe(CONSUMER, "booking.", on_booking_event)
     if not any(s.consumer == REFERRAL_CONSUMER for s in subscriptions()):
         subscribe(REFERRAL_CONSUMER, "referral.", on_referral_event)
+    if not any(s.consumer == WAITLIST_CONSUMER for s in subscriptions()):
+        subscribe(WAITLIST_CONSUMER, "waitlist.", on_waitlist_event)
+    if not any(s.consumer == FAMILY_CONSUMER for s in subscriptions()):
+        subscribe(FAMILY_CONSUMER, "family.", on_family_event)
+    if not any(s.consumer == MESSAGE_CONSUMER for s in subscriptions()):
+        subscribe(MESSAGE_CONSUMER, "message.", on_message_event)
 
