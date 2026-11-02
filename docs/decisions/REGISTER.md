@@ -117,7 +117,8 @@ Seeded 2026-10-29 from the work so far. Entries are PROPOSED unless stated. "Eng
 - **Docs:** `trust.person_subject` (docs/schema 02 B) lists legal name, birth date, sex or gender "encrypted, D2"; GHE-06 separates login, identity proof, record match, delegation and purpose.
 - **We do:** `Person` is only an id, a language and a link status. **No name, birth date or contact details are stored**, because the docs require field-level encryption and key handling that is not built. Three link types feed the access decision: OWN (the patient's login), REL (a care relationship for a clinician or home-care role), PROXY (a guardian grant). A link counts only while active, inside its dates, not contested, and with both people active. A proxy needs approval by a different person than the delegate. Ended links keep their history.
 - **Risk:** the care-relationship rule is ours: any R03 or R09 role holder can be given a link, and nothing yet checks that the clinician is licensed, at the right facility, or that the patient agreed. A proxy approver can be any active person; the real rule (legal instrument, proof of authority, who may approve) is not defined in the docs. Matching a person to a source record (match cases), identity proofing and merges are not built.
-- **Not yet done:** encrypted demographics, identity proofing, record matching, professional qualifications, facility privileges, consent and purpose grants, and the HTTP endpoints that return a person's data (today a check only says allowed or denied; nothing returns patient data).
+- **Update (DEV-048):** name, birth date and phone are now stored encrypted.
+- **Not yet done:** other demographics, identity proofing, record matching, professional qualifications, facility privileges, consent and purpose grants, and the HTTP endpoints that return a person's data (today a check only says allowed or denied; nothing returns patient data).
 
 ### DEV-025: first frontend is a Vite single-page app, built in parallel with the backend
 - **Kind:** CONFLICT (with our own plan) | **Status:** PROPOSED | **Owner:** lead / CTO (ties to DEV-010, stack not approved)
@@ -309,6 +310,161 @@ Seeded 2026-10-29 from the work so far. Entries are PROPOSED unless stated. "Eng
 - **Differences from the docs (GHE-03 C):** a simple 4-state set (sent, accepted, needs information, declined) instead of the full 10-state list; the latest decision is stored on the referral row (the audit chain keeps the history) instead of an append-only decision table; destinations are our own services, not the `referral_destination` catalog, so no referrals to other customers or outside partners; no documents attached; self-referral not built.
 - **Limits:** the doctor cannot withdraw or edit a referral; "needs information" has no reply channel yet (messages are not built); an accepted referral does not yet create a booking by itself.
 
+### DEV-040: Zoiko support adds a customer by invitation (ADD)
+
+- **What:** In the platform console, Customers page, support staff (R11) fill in a customer name, a first site and the first administrator's email. The system creates the customer, the site and an administrator (R13), and emails the administrator the usual invitation link to choose their own password. Endpoint: `POST /api/v1/platform/customers`. Before this, only the developer console could create a customer.
+- **Rules we added:**
+  - R11 now has WRITE on the `platform` resource (it had read). R12 (safety) stays read only. The rule is checked three ways: platform tenant, role R11 or R12, and a policy receipt for `write:platform`.
+  - Everything is checked BEFORE the customer exists (names 2 to 120 characters, no line breaks, a clean email address), so a bad request never leaves a half-made customer. A name already in use gives 409 and sends no email.
+  - The customer starts of type `provider_org`, active, with self sign-up closed. Other types (payer, employer, partner) cannot be created here yet.
+  - Zoiko staff never see the administrator's address again: it is not returned and the platform audit entry has no personal detail. The new customer's own audit chain records the setup.
+- **Limits:** if the database fails after the customer is created but before the invitation is queued, a customer without an administrator remains (the steps are not one transaction, because creating a tenant commits on its own); support would have to remove it by hand. No second approval step: one support login can add a customer (the docs call for two people on tenant-level actions, not built). No way to suspend, rename or delete a customer, and no re-send of the first invitation from the platform console (the administrator can use "Forgot password"). The first site's time zone and address are not asked.
+
+### DEV-041: clinical notes and results are deferred (ESCALATE)
+
+- **What:** We did not build doctor notes and results, although they were planned next.
+- **Why:** The docs describe Zoiko Access as a coordination platform, not an electronic health record, and they require encrypted storage of health data with key handling (DEV-024). That is not built. Free-text clinical notes would make us store health records without those protections, and no one has decided whether Zoiko is a record keeper or only a link to the provider's own system (ADR-06, DEV-012).
+- **Needed first:** a decision on Zoiko's role for clinical data, field-level encryption and key handling, retention rules, and the clinical exchange design (docs 03 section D).
+
+### DEV-042: rescheduling an appointment (ADD)
+
+- **What:** A patient (or guardian with the right) can change the time of an upcoming appointment, and clinic staff (R04, R13) can move one too. Endpoint: `POST /api/v1/bookings/<id>/reschedule` with the new slot. The patient app has "Change time" on the Appointments page, and the staff console has "Move".
+- **Rules we added:**
+  - A move is ONE step: the old booking is cancelled and a new one made together. If the new time was taken a moment before, nothing changes (409).
+  - The new time must be a free, future time of the SAME service at the SAME organization. Anything else is refused (422) and the old booking is left alone. A cancelled or past booking cannot be moved (409).
+  - A move by the patient needs the clinic to confirm again (the new booking is "requested"). A move by clinic staff of a confirmed appointment stays confirmed, and the doctor is linked to the patient as with any confirmation. A move by staff of a waiting one stays waiting.
+  - The new booking records the one it replaced (`rescheduled_from`), so history is kept: the old row stays as cancelled.
+  - The patient gets ONE notification, "Appointment moved" (not a cancel plus a new request).
+- **Limits:** a move is limited to the same service (no switching to a different doctor service); there is no reason field and no clinic-side notification; no limit on how many times it can be moved; a doctor cannot move or ask to move a booking; the confirmed doctor link from the OLD booking is not removed (it lasts until 30 days after the visit it was made for).
+
+### DEV-043: shared frontend code, and a build fix (FIX)
+
+- **What:** `frontend/shared/` now holds the code that four apps had copied: `ui.tsx` (cards, tables, pills, icons, logo), `AuthShell.tsx` (sign-in frame, password field, Google button) and `auth.css`. Each app reaches it as `@shared/...` and keeps one-line `ui.tsx` and `AuthShell.tsx` files that re-export it, so no page import changed. There is no install step and no package manager change: the shared files use each app's own React (set up in `frontend/shared/vite.shared.ts`, each `vite.config.ts` and `tsconfig.json`).
+- **Why:** a fix to a shared piece used to be made four times and the copies could drift (the patient app already had one extra icon).
+- **Build fix found on the way:** the repository root holds another team's Next.js app, including a Tailwind `postcss.config.mjs`. Vite searches parent folders for a PostCSS config and loaded it, so all four builds failed with "Cannot find module @tailwindcss/postcss". Each app now declares an empty PostCSS config inline, which stops the search. The same would happen to any new app, so it is in the shared config.
+- **Not shared yet:** `useLoad.tsx` (the copies differ in polling default and a reload key) and `styles.css` (small per-app differences). The API client files stay per app on purpose (each app has its own login and storage key).
+- **Limit:** the apps still cannot be built from one command and share no tests; there are still no frontend tests.
+
+### DEV-044: attendance at a confirmed appointment (ADD)
+
+- **What:** Journey J1 in the docs is "discover, book, **attend**". Clinic staff (R04, R13) can now record whether the patient attended or did not attend a CONFIRMED appointment whose start time has passed. Endpoint: `POST /api/v1/bookings/<id>/attendance` with `attended` or `no_show`. The staff console shows "Attended" and "Did not come" buttons on past confirmed bookings; the patient app shows "Attended" or "Missed"; the doctor's schedule shows the same.
+- **Rules we added:**
+  - Only clinic operations staff may record it. The patient and the doctor cannot (the doctor's own attestation of a visit is clinical and belongs to a later phase).
+  - Only after the start time, and only for a confirmed booking. Before that, or for a waiting or cancelled booking, the answer is 409.
+  - It can be corrected, and saying the same thing twice changes nothing. Every change is audited; the audit chain keeps the earlier answer.
+  - The patient is told with one notification per recorded change ("Visit recorded" or "Missed appointment"), worded from what the event recorded, so a slow worker still tells each step.
+  - A past booking that has a recorded attendance can no longer be cancelled or moved from the staff console (the buttons are hidden; moving a past booking is refused anyway).
+- **Limits:** this is administrative only. Nothing here says anything about the visit itself (no notes, no outcome, no diagnosis; see DEV-041). There is no automatic no-show after a deadline, no late-arrival state, no partner (`ATTENDANCE_SUPPORTED`) feed, and no effect yet on billing or reminders. A no-show is recorded with no consequence for the patient.
+
+### DEV-045: appointment reminders, and a recurring-job hook for the worker (ADD)
+
+- **What:** A patient is reminded once about each CONFIRMED appointment that starts within the next 24 hours ("Appointment reminder" in the patient app's notifications). The lead time is a setting (`REMINDER_LEAD_HOURS`, default 24), not a number in code. The docs list reminders under secure communications (GHE-16) but give no timing.
+- **How it runs:** a new, small hook `foundation/periodic.py`. A module registers a job at start-up and the worker calls the due jobs on every pass, after events and email. The scheduling module registers `scheduling.reminders` (checked every 5 minutes) which visits every active customer. The foundation depends on no domain module, so the module registers itself.
+- **Rules:**
+  - One reminder per booking: the "reminded" mark and the event are written together, and rows another worker holds are skipped, so two workers never send two.
+  - Only confirmed bookings that have not started. Waiting, cancelled and past bookings get none. A booking cancelled after the reminder was queued but before delivery produces no message.
+  - A moved appointment is a new booking and gets its own reminder.
+  - The event carries only the booking id, never the service, clinic or time; the text is written from the booking when delivered.
+  - A job that fails never stops the worker or other jobs, and only the error CLASS is logged.
+- **Limits:** the reminder is an in-app notification only (no email, SMS or push; the mail queue exists but reminders do not use it yet). One fixed lead time for everybody: no per-patient preference, no "remind me earlier", no second reminder, no time-zone or quiet-hours rule. A booking confirmed less than 24 hours before the visit is reminded right away. The recurring-job hook has no persistence: after a restart every job runs once at once.
+
+### DEV-046: provider directory search and filters (ADD)
+
+- **What:** The docs (GHE-14) describe a provider directory for discovery. Our directory is the service catalog, so "Find Healthcare" now filters it: search text (name, description or category), specialty (the categories that have services, with counts), in person or video, "only with free times", and sort by name or soonest free time. API: `GET /api/v1/services?q=&category=&mode=&available=1&sort=name|soonest`, which now also returns the list of categories.
+- **Rules:** filters combine; the category filter is exact (spelling and case forgiving, "General physician" equals `general_physician`); an unknown mode or sort is refused (422); inactive services never appear (also in the category menu); only the patient's own customer is searched; search text is cut at 100 characters. With "soonest", services with no free time come last.
+- **Limits:** this is a search of the services of ONE customer, not a national directory: no provider (doctor) profiles, no location or distance, no language, price, insurance or rating filter, no ranking beyond the two sorts, no paging, and no partner or outside listings (listing states and evidence in GHE-14 are not built). The filter lists categories as the staff typed them (`general_physician` shown as "general physician"), so inconsistent staff spelling shows as separate entries.
+
+### DEV-047: a waiting list for services with no free time (ADD)
+
+- **What:** The docs list a waitlist capability for partners (`WAITLIST_SUPPORTED`, GHE-14) but give no rules. When a service has no free time, the patient app offers "Tell me when one opens". The patient is told ("A time opened up") when a time appears, sees the list under Appointments, and can leave it. The staff Services page shows how many are waiting for each service. API: `GET/POST /api/v1/waitlist`, `POST /api/v1/waitlist/<id>/leave`; a new module `modules/waitlist`.
+- **How it works:** the scheduling module now announces `slot.opened.v1` (carrying only the service id) when times are added, and when a booking is cancelled or moved and its time is free again. The waiting list listens in the worker. Joining and leaving use the same right as booking (`write:booking`), so the patient, or a guardian with a proxy, can do it and nobody else can.
+- **Rules we added:**
+  - A patient can join only a service that has NO free time right now (otherwise they should just book), once at a time (database constraint), and only an active service.
+  - When times open, the people waiting longest are offered them: ONE person for each free time that nobody was told about, so a time is not promised to ten people. Each person is told once per offer.
+  - The entry closes when the patient books that service (or moves a booking into it), or leaves. A stale notification is skipped if the entry closed before delivery.
+  - An offer nobody uses goes back to waiting after `WAITLIST_OFFER_HOURS` (default 24), so the next opening can be offered again. A recurring job does this (same hook as DEV-045).
+  - Events carry only ids; the text is written from the data when delivered.
+- **Limits:** an offer is only a message: it does NOT hold the time, so someone else may still book it first (the patient is told to book soon). First come, first served by joining time: no priority, urgency or referral weighting (a referred patient waits like anyone else). One list entry per service, not per doctor or place. Staff have a Waiting list screen (queue order, place per service, remove someone), but cannot add a patient to the list, and a removed patient is not told. Staff removal is recorded in the audit chain under the staff login. No email or SMS for offers. Existing tests that counted events were updated because creating times now emits an event.
+
+### DEV-048: encrypted storage of health data, and patient names (ADD, closes the first half of DEV-024)
+
+- **What:** DEV-024 said names and birth dates were not stored because field-level encryption was not built. It now is (`foundation/crypto.py`), and the first data to use it is a patient's **legal name, birth date and phone**, kept in their own table (`trust_personprofile`). Patients enter their own under "My Profile"; clinic staff can enter or correct a patient's under Patients > Details. Staff screens, the doctor's screens, referrals and the waiting list now show the NAME where the viewer is allowed to see it, and fall back to the id otherwise.
+- **How the encryption works:** AES-256-GCM (library `cryptography`; we do not write our own crypto). One master key per key id comes from `ZOIKO_FIELD_KEYS`; each customer gets its own data key derived from it (HKDF); each stored value is bound to its customer, table, field and row, so a ciphertext copied to another row, field or customer fails to decrypt (a test pastes one patient's name into another's row: it shows nothing). A fresh random nonce every time. Keys can be rotated (add a new key id; old values still open and are flagged `needs_rotation`). Errors reveal nothing; a value that cannot be decrypted shows as blank, not as junk.
+- **Rules we added:**
+  - Patients may read and write their OWN details (`person` is now read+write for R01); clinic operations staff (R04, and R13 who copies R04) may read and write details of patients of their organization. Doctors may READ the details of patients they have a care relationship with, never write. Zoiko support and safety staff, employers and others stay locked out of `person`.
+  - Every read passes the policy engine for that patient (and is recorded as an access decision); the audit entry for a save says who changed it, never what it contains. Input is checked: a name of 1 to 120 characters without control characters; a birth date that is a real date between 1900 and today; a phone of 6 to 20 digits and simple punctuation.
+  - Saving replaces all three fields together (the staff form loads the current values first, so nothing is blanked by accident).
+- **Needs a decision from you or your lead (DEV-016):** where the production master key lives. Today it is an environment variable (`.env`, never committed; `.env.example` has a placeholder). That is only as safe as the server it sits on. The docs expect a managed key service, a rotation schedule and a plan for losing a key (a lost key means lost data). Until then this is good for development and demos, NOT a production claim.
+- **Limits:** no search by name (values are random per encryption, so they cannot be looked up; a "blind index" would be needed); no sex or gender, address, national id or email-as-identity; no identity proofing or matching (DEV-024's other half is still open); a guardian cannot edit a child's details yet (read only through the proxy); existing rows are not re-encrypted automatically when keys rotate (`needs_rotation` exists, the job does not); backups contain the ciphertext but also depend on the key backup. The Docker image gained one dependency (`cryptography`); if a full image rebuild fails on a slow network, retry it.
+
+### DEV-049: a patient's insurance coverage (ADD, first slice of D12 / GHE-17)
+
+- **What:** A patient can record the insurance they hold (insurer, plan, member number, valid from and until) under Insurance & Claims, and the front desk can record or correct it for them (staff console, Patients > Details). This follows the docs' `finance.coverage_policy` (person, payer, plan, member reference, valid dates, several policies per person) and nothing more. API: `GET/POST /api/v1/coverage`, `GET /api/v1/people/<id>/coverage`, `POST /api/v1/coverage/<id>/end`; a new module `modules/coverage`.
+- **Rules we added:**
+  - The member or policy number is stored ONLY encrypted (DEV-048), bound to its own row. Lists show just its last four characters; the full number is never returned by any endpoint.
+  - Patients may read and write their own coverage (`coverage` is now read+write for R01); clinic operations staff (R04, R13) may read and write it for patients of their organization. Doctors cannot read or change insurance (they have no `coverage` right), nor can Zoiko support, safety, or employers (R08 and R11 stay hard-prohibited).
+  - A patient can hold up to 5 active policies at once; ending one makes room. A coverage past its end date is shown as expired, not deleted. Ending is a status change (history kept); repeating it is harmless.
+  - Every add and end is audited with who did it, never what it contains.
+- **Not built, and not claimed:** the insurer is just a name (insurers are not customers of the platform yet, so there is no payer organization, no insurer login, and no payer portal, role R07 has rules but no app). No eligibility check (we never ask the insurer whether the policy is valid), no claims, no pre-authorisation, no billing or quotes, no coordination of benefits order, no disputed-policy flag, no copy of the insurance card, and no use of insurance in booking or pricing. A patient's entry is self-declared and unverified.
+- **Needs a decision from you or your lead:** the commercial model (who the insurers are, whether they join as customers, how a policy is verified, who pays whom, which markets) before anything beyond recording can be built.
+
+### DEV-050: "My Care Team" and "who looked at my information" for patients (ADD)
+
+- **What:** Two patient pages that were marked "soon". **My Care Team** lists the doctors who can see the patient right now (active, uncontested care relationships) and why (an appointment, a care-team assignment, a referral), with the dates. **Privacy & Consent** shows an access log: every time ANOTHER person looked at, or tried to look at, the patient's information, newest first, with who, when, the plain-words action ("Looked at your details") and the purpose ("to treat you"), and whether it was allowed or blocked. The sign-in page already promised "See who has looked at your information". API: `GET /api/v1/care-team`, `GET /api/v1/access-log`.
+- **Rules we added:** the log is built from the access decisions the policy engine already records (nothing new is stored), only for patients this login may read (the patient, or a guardian with an approved proxy); the patient's OWN visits are left out, so the list is about other people; refused attempts are shown, because a blocked attempt is something a patient may want to know about. The log says nothing about WHAT was read, only that an access happened. It is capped at the latest 100.
+- **Limits:**
+  - People appear by login (an email address for staff and doctors), not by real name or role title: staff names are not stored (DEV-024 covered patients only).
+  - The log only holds checks the system made: a read the policy engine never saw (for example a database administrator) is not there; this is evidence of application use, not a guarantee against misuse.
+  - Every list read by staff creates one decision per patient shown, so a clinic receptionist opening a list fills the patient's log with "looked at your details" lines; a smarter grouping (one line per day per person) is not built.
+  - The patient cannot dispute an access, ask who it was, or change who may see what: consent choices are still not built (the page says so).
+  - A care team member is listed for as long as the care link is valid (30 days after the visit); there is no way for the patient to end it.
+
+### DEV-051: family members: a patient acts for a child or relative, after the clinic approves (ADD)
+
+- **What:** The docs (GHE-06) describe delegation: a guardian may act for someone else, only after proof and approval by a different person. The backend already had the building blocks (a guardian grant that is proposed, then approved by someone else). This adds the whole flow. A patient (a login with its own patient record) asks to add a family member under **Family Members**: relationship, full name, birth date. A patient record is created for that person and the request is **waiting**: nothing is shared. Clinic staff (R04, R13) see it under **Family requests**, check proof of identity and authority at the desk, tick a box saying so, optionally set an end date, and approve or reject. API: `GET/POST /api/v1/family`, `POST /api/v1/family/<id>/withdraw`, `GET /api/v1/staff/family-requests`, `POST .../approve`, `POST .../reject`.
+- **Rules we added:**
+  - Only a patient with a record of their own may ask (a doctor or receptionist cannot). At most 5 requests may wait at once. The relationship is one of parent, guardian, caregiver. The person's name and a real past birth date are required, and stored encrypted (DEV-048).
+  - Approval requires the staff member to confirm they checked proof (the request is refused without it), and the approver can never be the person who asked (403). A request is approved or rejected only once (409 after).
+  - Approval gives the patient the guardian role (R02). R02 can read the family member's details and book and see their appointments, never edit their details (read-only). It does not give access to the family member's insurance, which the guardian rule also leaves as read-only (`coverage` stays read for R02, read-write only for the patient's own).
+  - The requester can withdraw a waiting request, or stop acting for an approved person, at any time; history stays. A rejected or withdrawn request closes the empty patient record that was made for it (it is ended, not deleted).
+  - "Book for" now shows people by name, defaults to the patient themselves, and "My Profile" labels family members by name.
+  - Audit entries say who requested, approved, rejected or withdrew, never the person's details.
+- **Needs a decision from you or your lead (privacy, legal, clinical safety):** what counts as proof of identity and of authority in each market; whether a minor's own login or consent changes at some age (an adolescent may be entitled to privacy even from a parent; the docs list "adolescent services" as an exclusion, not built); how long approval should last by default (today: no end date unless staff set one); who may act for an adult who cannot decide for themselves; and what happens when two people each claim to be the guardian.
+- **Limits:** there is no way for a guardian to add a family member who already has their own record or login (a new empty record is always made, so a duplicate record can exist); the clinic is not notified that a request is waiting (staff see it when they open the page); the patient IS told when the clinic approves or declines (an in-app notice that names nobody, written from an event that carries only the request id and the outcome), but not when a request is withdrawn; the guardian cannot edit the family member's phone or details; no documents are uploaded or stored (the check happens at the desk and is only recorded as a tick); and the family member has no login of their own.
+
+### DEV-052: secure messages between a patient and their clinic (ADD, first slice of D16 / GHE-16)
+
+- **What:** A patient (or a guardian, for the person they act for) writes to their clinic under **Messages**; clinic staff answer under **Messages** in the staff console and close a conversation when it is finished. A conversation is a THREAD with a subject and a list of messages. API: `GET/POST /api/v1/messages/threads`, `GET /api/v1/messages/threads/<id>`, `POST .../reply`, `POST .../close`; a new module `modules/messaging`.
+- **Rules we added:**
+  - The subject and every message are stored ONLY encrypted (DEV-048), each bound to its own row. Events, audit entries and notices carry ids only, never text.
+  - Only patients and guardians (R01, R02) start a thread, and only to a clinic they belong to. Only clinic operations staff (R04, R13) answer, and only for threads of their OWN organization, which is checked twice (in the HTTP layer and again in the domain). Doctors and Zoiko staff are not part of this version (a doctor gets 403).
+  - Unread is counted per side. Opening a thread marks it read for the side that opened it. The staff dashboard counts conversations with a new patient message; the patient is told ("New message") when the clinic writes, without saying what.
+  - A closed thread cannot be replied to (409). A person is limited to 30 messages an hour (429). A message is 1 to 2000 characters, a subject 1 to 120; control characters are refused.
+  - The patient page states plainly that messaging is NOT for emergencies or urgent medical problems.
+- **Needs a decision from you or your lead (clinical safety, legal, privacy):** whether free-text messages with a clinic are allowed at all in each market and under what notice; what the clinic must do when a message describes a medical problem (who reads it, how fast, what is recorded); how long messages are kept and who may delete them; whether doctors may message patients directly (a message that gives advice may count as a clinical service); and whether patients may attach photos or documents.
+- **Limits:** no attachments; no doctor messages; no patient-to-patient or staff-to-staff chat; no assigning a thread to a particular staff member or showing who answered by name (staff appear by login); no reply-by-email or push alert (a notice appears in the app); a closed thread cannot be reopened (the patient starts a new one); messages cannot be edited or deleted; nothing detects or escalates a message that mentions an emergency; the patient list does not refresh by itself except when the page is opened; the 30-per-hour limit is per person across all threads.
+
+### DEV-053: clinic reports, counts only (ADD)
+
+- **What:** The staff **Reports** page (it was marked "soon") shows operational numbers for the staff member's own organization over the last 7, 30 or 90 days: bookings made each day, where those bookings stand now, how many past confirmed appointments were attended, missed or not yet recorded (with an attendance rate), the busiest services, referrals received and how they stand, waiting-list activity, and conversation activity. API: `GET /api/v1/staff/reports?days=`; each module (scheduling, referral, waiting list, messaging) supplies its own `report` function and the endpoint combines them. It needs the `analytics` right, which only clinic operations staff hold.
+- **Rules we added:** the result holds COUNTS ONLY: no patient id, name, message text or subject appears (a test checks this); numbers are for one organization, so another customer, or another site of the same customer, sees none of them; a period outside 7 to 90 days is refused (422); the attendance rate uses only confirmed visits whose time has passed.
+- **Response times (added after the first version):** the system now records when a booking is confirmed (`confirmed_at`) and when the clinic first answers a message (`first_reply_at`), and Reports shows the middle value and the average of each. Only confirmations of waiting bookings count (a confirmed booking staff moved is not counted as a quick confirmation, and confirming twice changes nothing); only the FIRST reply counts. Earlier bookings and messages have no recorded time and are left out, so the figures start from this change. Hours are shown as minutes, hours or days; with no data the page shows a dash, never a zero.
+- **Limits:** days are UTC dates, not the clinic's local days, so a booking made late in the evening can fall on the next day; there is no comparison with a previous period, no export, no per-doctor or per-service filter (a single response target with a dashboard warning exists, see DEV-054; no per-service targets); counts are not suppressed when small, which is acceptable for a clinic's own staff but would not be for any wider audience; the page does not show money, claims or clinical outcomes, because none are stored.
+
+### DEV-054: "running late" warning on the staff dashboard (ADD)
+
+- **What:** the staff Dashboard shows a red-flag line when work has waited longer than the clinic's response target: bookings still waiting for confirmation, and conversations whose newest patient message the clinic has not opened. The target is one setting for the whole deployment, `RESPONSE_TARGET_HOURS` (default 24). API: the `late` block of `GET /api/v1/staff/dashboard` (`hours`, `bookings`, `messages`: numbers only).
+- **Rules we added:** a booking counts only after it has waited MORE than the target, counted from when it was made; a message counts only when the clinic has not opened it and its newest message is older than the target; confirming or opening clears it at once.
+- **Appointments list:** each booking in the staff list carries `late` (true only for a booking still waiting for confirmation after the target) and the page shows a red "Late: needs confirmation" label, so staff can see WHICH bookings the dashboard count refers to.
+- **Usual confirmation time for patients:** the service list (`GET /services`) now carries `usual_confirmation_hours` per service: the middle value of how long that clinic took to confirm bookings made in the last 90 days, shown on Find care as "Usually confirms within about N hours". It appears only when the clinic has at least 5 confirmations in that window, so a few bookings can never be traced to one patient; below that it is null and nothing is shown. It is clinic-wide, not per service, and uses the existing `read:catalog` right (it is aggregate numbers only). Bookings made before response times were recorded are not counted.
+- **Limits:** the target is not per clinic or per service (choosing the right number is a business decision, so 24 is only a starting value); a message is timed from the newest patient message, so a thread that has waited long but just got another message is not flagged until that one is old too; no email or push alert, only the dashboard line; bookings are counted for the whole customer, like the existing "to confirm" count.
+
+### DEV-055: add an appointment to the patient's calendar (ADD)
+
+- **What:** an "Add to calendar" button on each upcoming appointment in the patient app. API: `GET /api/v1/bookings/<id>/calendar` returns a standard `.ics` file (service and clinic, place, start and end in UTC, `CONFIRMED` or `TENTATIVE`).
+- **Rules we added:** it needs the same `read:booking` right as viewing the booking (the patient who owns it, or the clinic's staff); a cancelled booking has no file (404); the file holds no patient name, id or message text, and no calendar alarm (the system's own reminder does that job).
+- **Limits:** it is a one-time download, not a live calendar feed, so it does not update if the appointment is moved (the patient downloads it again; the same booking id as UID lets most calendars replace the old entry); no doctor name in the file (names are not stored, DEV-024); the file is only checked by tests, not opened in every calendar app.
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |
@@ -319,6 +475,7 @@ Seeded 2026-10-29 from the work so far. Entries are PROPOSED unless stated. "Eng
 | DEV-014 | One incident-severity scale: SEV-C/1..4 (GHE-18) vs SEV-0..3 (GHE-20) vs P0..P3 (GHE-09) | GHE-09/18/20 | Security + SRE + Clinical Safety |
 | DEV-015 | Statuses the docs never enumerate: qualification status, JIT-grant status, claim verification status, partner operation full list, webhook subscription full list, rights-case state, actor status | GHE-06/09/13/05 | Module owners |
 | DEV-016 | Cloud provider, IAM vendor, message broker | ADR-08 | CTO |
+| DEV-041 | May Zoiko store clinical notes and results at all, and with what encryption | ADR-06, DEV-024 | Board + Legal + Privacy |
 
 ## C. Verification debt (things we have not checked ourselves)
 

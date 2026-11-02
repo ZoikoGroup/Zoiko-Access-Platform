@@ -44,3 +44,10 @@ Checks and the no-Docker setup are in [backend/README.md](backend/README.md).
 ## Email in development
 
 `docker compose up` also starts Mailpit, a mail catcher. Every email the system sends (verification and password-reset links) appears at http://127.0.0.1:8025 and is never delivered to a real address. The worker sends queued mail; check `docker compose logs worker`. Production needs a real provider (see DEV-036).
+
+## One-time setup: the field encryption key
+
+Patient details are stored encrypted, so the backend will not start without a key. Copy `.env.example`
+to `.env` and put a real key in `ZOIKO_FIELD_KEYS` (the command to make one is in the file). Never commit
+`.env`. If you change the key, details saved with the old one can no longer be read: add the new key
+to the list instead and keep the old one until values are re-encrypted.

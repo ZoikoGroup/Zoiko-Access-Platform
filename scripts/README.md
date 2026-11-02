@@ -50,3 +50,10 @@ Physician times three days from now (creates `appolodoctor@gmail.com` if missing
 
 A patient books one of those times, a receptionist confirms it, and it appears in the doctor app
 (http://localhost:5176/).
+
+### Adding a customer
+
+Sign in to the platform console (http://localhost:5175/) as support (`vikram@zoiko.example`,
+organization `Zoiko Platform`), open **Customers** and use **Add a customer**. The new
+administrator's invitation appears in the dev inbox (http://127.0.0.1:8025/); its link opens the
+staff console (http://localhost:5173/), where they choose a password.
