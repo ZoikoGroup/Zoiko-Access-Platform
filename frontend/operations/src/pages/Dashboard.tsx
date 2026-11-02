@@ -1,25 +1,38 @@
 import { getDashboard } from "../api";
 import type { Dashboard as DashboardData, Health } from "../types";
 import { Gate, useLoad } from "../useLoad";
+import type { PageId } from "../nav";
 import { Card, Donut, Icon, Pill, StatCard, Table, timeOf } from "../ui";
 
 const PLANNED = [
-  { title: "Appointments", note: "Open the Appointments screen for live bookings." },
-  { title: "Referrals", note: "Arrives with the workflow engine (B8)." },
   { title: "Claims processed", note: "A later commercial phase." },
   { title: "Patients by region", note: "Needs more than one cell; not planned yet." },
 ];
 
-export function Dashboard({ tenantName, api, database }: { tenantName: string; api: Health; database: Health }) {
+export function Dashboard({ tenantName, api, database, onGo }: {
+  tenantName: string; api: Health; database: Health; onGo: (page: PageId) => void;
+}) {
   const result = useLoad(getDashboard);
   return (
     <Gate result={result}>
-      {(d) => <View d={d} tenantName={tenantName} api={api} database={database} />}
+      {(d) => <View d={d} tenantName={tenantName} api={api} database={database} onGo={onGo} />}
     </Gate>
   );
 }
 
-function View({ d, tenantName, api, database }: { d: DashboardData; tenantName: string; api: Health; database: Health }) {
+const ATTENTION: { key: keyof DashboardData["attention"]; text: (n: number) => string; page: PageId }[] = [
+  { key: "bookings_to_confirm", page: "appointments", text: (n) => `${n} appointment${n === 1 ? "" : "s"} waiting for you to confirm` },
+  { key: "messages", page: "messages", text: (n) => `${n} conversation${n === 1 ? "" : "s"} with a new message from a patient` },
+  { key: "referrals_to_decide", page: "referrals", text: (n) => `${n} referral${n === 1 ? "" : "s"} waiting for a decision` },
+  { key: "family_requests", page: "family", text: (n) => `${n} family request${n === 1 ? "" : "s"} waiting for proof to be checked` },
+  { key: "waiting_list", page: "waitlist", text: (n) => `${n} ${n === 1 ? "person" : "people"} on a waiting list` },
+];
+
+function View({ d, tenantName, api, database, onGo }: {
+  d: DashboardData; tenantName: string; api: Health; database: Health; onGo: (page: PageId) => void;
+}) {
+  const late = d.late.bookings + d.late.messages;
+  const open = ATTENTION.filter((a) => d.attention[a.key] > 0);
   const allowed = d.decisions.filter((x) => x.allowed).length;
   const denied = d.decisions.length - allowed;
   const chain = d.chain;
@@ -32,6 +45,23 @@ function View({ d, tenantName, api, database }: { d: DashboardData; tenantName: 
         </div>
         <span className="spacer" />
         <div className="mono" title="Your computer's clock">{new Date().toLocaleString()}</div>
+      </div>
+
+      <div className="grid">
+        <Card title="Needs your attention" sub={open.length === 0 ? "Nothing is waiting for you." : "Work waiting for someone at the clinic."}>
+          {late > 0 && (
+            <div className="appt" role="alert">
+              <div className="info"><b>{late} item{late === 1 ? " is" : "s are"} running late</b>
+                <span className="sub">{d.late.bookings} booking{d.late.bookings === 1 ? "" : "s"} and {d.late.messages} message{d.late.messages === 1 ? "" : "s"} waiting more than {d.late.hours} hours</span></div>
+            </div>
+          )}
+          {open.length === 0 ? <div className="empty">All clear.</div> : open.map((a) => (
+            <div className="appt" key={a.key}>
+              <div className="info"><b>{a.text(d.attention[a.key])}</b></div>
+              <button className="btn" onClick={() => onGo(a.page)}>Open</button>
+            </div>
+          ))}
+        </Card>
       </div>
 
       <div className="grid stats">

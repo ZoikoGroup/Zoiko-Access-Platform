@@ -9,7 +9,11 @@ import { Appointments } from "./pages/Appointments";
 import { Dashboard } from "./pages/Dashboard";
 import { Organizations, Patients } from "./pages/Lists";
 import { Planned } from "./pages/Planned";
+import { FamilyRequests } from "./pages/FamilyRequests";
+import { Messages } from "./pages/Messages";
 import { Referrals } from "./pages/Referrals";
+import { Reports } from "./pages/Reports";
+import { WaitingList } from "./pages/WaitingList";
 import { Services } from "./pages/Services";
 import { Team } from "./pages/Team";
 import { SignIn } from "./pages/SignIn";
@@ -57,8 +61,12 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "organizations") body = <Organizations />;
   else if (page === "team") body = <Team />;
   else if (page === "referrals") body = <Referrals />;
+  else if (page === "reports") body = <Reports staff={staff} />;
+  else if (page === "messages") body = <Messages staff={staff} />;
+  else if (page === "family") body = <FamilyRequests staff={staff} />;
+  else if (page === "waitlist") body = <WaitingList staff={staff} />;
   else if (page === "compliance") body = <Compliance />;
-  else body = <Dashboard tenantName={session.tenantName} api={health.api} database={health.database} />;
+  else body = <Dashboard tenantName={session.tenantName} api={health.api} database={health.database} onGo={setPage} />;
 
   return (
     <div className="shell">

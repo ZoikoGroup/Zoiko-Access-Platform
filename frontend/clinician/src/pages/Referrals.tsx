@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { getPatients, getReferrals, getServices, sendReferral } from "../api";
 import { Gate, useLoad } from "../useLoad";
-import { Card, Pill, Table, shortId, type PillKind } from "../ui";
+import { Card, Patient, Pill, Table, shortId, type PillKind } from "../ui";
 
 const STATE: Record<string, { text: string; kind: PillKind }> = {
   issued: { text: "Sent, waiting for the clinic", kind: "warn" },
@@ -43,7 +43,7 @@ function NewReferral({ onSent }: { onSent: () => void }) {
         <label>Patient
           <select value={patient} onChange={(e) => setPatient(e.target.value)} required>
             <option value="">Choose one of your patients</option>
-            {(patients.data ?? []).map((p) => <option key={p.id} value={p.id}>{shortId(p.id)}</option>)}
+            {(patients.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.patient_name ?? shortId(p.id)}</option>)}
           </select>
         </label>
         <label>Send to
@@ -81,7 +81,7 @@ function SentList() {
           <Table headers={["Patient", "Sent to", "Urgency", "Status", "Clinic's note", "Sent"]}
             empty="You have not referred anyone yet."
             rows={rows.map((r) => [
-              <span key="p" className="mono">{shortId(r.patient)}</span>,
+              <Patient key="p" name={r.patient_name} id={r.patient} />,
               `${r.service.name} - ${r.organization.name}`,
               <Pill key="u" kind={r.urgency === "urgent" ? "bad" : "info"}>{r.urgency}</Pill>,
               <Pill key="s" kind={STATE[r.state]?.kind ?? "info"}>{STATE[r.state]?.text ?? r.state}</Pill>,
@@ -100,7 +100,7 @@ export function Referrals() {
     <>
       <div className="hero"><div>
         <h1>Referrals</h1>
-        <p>Send a patient to another service and follow what the clinic decides. The patient is told at each step. Patients show as ids: names are not stored yet.</p>
+        <p>Send a patient to another service and follow what the clinic decides. The patient is told at each step. Patients show by name once their details are entered.</p>
       </div></div>
       <div className="grid">
         <NewReferral onSent={() => setVersion((v) => v + 1)} />

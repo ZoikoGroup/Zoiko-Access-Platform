@@ -1,6 +1,6 @@
 // The only file that talks to the backend. Pages call these functions, never fetch().
 import type {
-  IncomingReferral,
+  CoverageRow, FamilyRequest, FreeTime, IncomingReferral, MessageThread, Profile, Reports, ThreadView, WaitingRow,
   BookingRow, Dashboard, Directory, Evidence, Health, LocationRow, Me, PatientRow, ServiceRow,
 } from "./types";
 
@@ -139,6 +139,36 @@ const post = <T,>(path: string, body: unknown = {}) =>
 export const listBookings = async () => (await v1<{ bookings: BookingRow[] }>("bookings")).bookings;
 export const confirmBooking = (id: string) => post(`bookings/${encodeURIComponent(id)}/confirm`);
 export const cancelBooking = (id: string) => post(`bookings/${encodeURIComponent(id)}/cancel`);
+export const markAttendance = (id: string, outcome: "attended" | "no_show") =>
+  post(`bookings/${encodeURIComponent(id)}/attendance`, { outcome });
+export const listWaitlist = async () => (await v1<{ entries: WaitingRow[] }>("staff/waitlist")).entries;
+export const removeFromWaitlist = (id: string) => post(`waitlist/${encodeURIComponent(id)}/leave`);
+export const getProfile = async (person: string) =>
+  (await v1<{ profile: Profile }>(`people/${encodeURIComponent(person)}/profile`)).profile;
+export const saveProfile = (person: string, body: { name: string; birth_date: string; phone: string }) =>
+  post(`people/${encodeURIComponent(person)}/profile`, body);
+export const listPatientCoverage = async (person: string) =>
+  (await v1<{ coverage: CoverageRow[] }>(`people/${encodeURIComponent(person)}/coverage`)).coverage;
+export const addPatientCoverage = (person: string, body: {
+  insurer: string; plan: string; member_id: string; valid_until: string;
+}) => post("coverage", { person, ...body });
+export const endPatientCoverage = (id: string) => post(`coverage/${encodeURIComponent(id)}/end`);
+export const listFamilyRequests = async () =>
+  (await v1<{ requests: FamilyRequest[] }>("staff/family-requests")).requests;
+export const approveFamily = (id: string, validUntil: string) =>
+  post(`staff/family-requests/${encodeURIComponent(id)}/approve`, { verified: true, valid_until: validUntil });
+export const rejectFamily = (id: string) => post(`staff/family-requests/${encodeURIComponent(id)}/reject`);
+export const listMessageThreads = async () => (await v1<{ threads: MessageThread[] }>("messages/threads")).threads;
+export const getMessageThread = async (id: string) =>
+  (await v1<{ thread: ThreadView }>(`messages/threads/${encodeURIComponent(id)}`)).thread;
+export const replyMessageThread = (id: string, body: string) =>
+  post(`messages/threads/${encodeURIComponent(id)}/reply`, { body });
+export const closeMessageThread = (id: string) => post(`messages/threads/${encodeURIComponent(id)}/close`);
+export const getReports = (days: number) => v1<Reports>(`staff/reports?days=${days}`);
+export const listFreeTimes = async (serviceId: string) =>
+  (await v1<{ slots: FreeTime[] }>(`services/${encodeURIComponent(serviceId)}/slots`)).slots;
+export const rescheduleBooking = (id: string, slot: string) =>
+  post(`bookings/${encodeURIComponent(id)}/reschedule`, { slot });
 export const listStaffServices = async () => (await v1<{ services: ServiceRow[] }>("services?all=1")).services;
 export const listLocations = async () => (await v1<{ locations: LocationRow[] }>("locations")).locations;
 

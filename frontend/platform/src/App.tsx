@@ -4,10 +4,16 @@ import { NAV, type PageId } from "./nav";
 import { Sidebar, Topbar } from "./Shell";
 import type { Health, Overview } from "./types";
 import { Card } from "./ui";
+import { AddCustomer } from "./pages/AddCustomer";
 import { CustomersTable } from "./pages/Customers";
 import { OverviewPage } from "./pages/Overview";
 import { Planned } from "./pages/Planned";
 import { SignIn } from "./pages/SignIn";
+
+function startPage(): PageId {
+  const wanted = new URLSearchParams(window.location.search).get("page");
+  return NAV.find((n) => n.id === wanted)?.id ?? "overview";
+}
 
 export default function App() {
   const [session, setSessionState] = useState<Session | null>(loadSession());
@@ -19,7 +25,7 @@ export default function App() {
 }
 
 function Console({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
-  const [page, setPage] = useState<PageId>("overview");
+  const [page, setPage] = useState<PageId>(startPage());
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState("");
   const [denied, setDenied] = useState(false);
@@ -55,7 +61,10 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
           <span className="spacer" />
           <button className="btn" onClick={() => void refresh()} disabled={busy}>Refresh</button>
         </div>
-        <div className="grid"><Card title={`${data.tenants.length} customers`}><CustomersTable rows={data.tenants} detailed /></Card></div>
+        <div className="grid">
+          {session.roles.some((r) => r.role === "R11") && <AddCustomer onAdded={refresh} />}
+          <Card title={`${data.tenants.length} customers`}><CustomersTable rows={data.tenants} detailed /></Card>
+        </div>
       </>
     );
   } else {

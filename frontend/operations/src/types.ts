@@ -41,6 +41,8 @@ export interface Evidence {
 export interface Dashboard extends Evidence {
   tenant: string;
   counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
+  late: { hours: number; bookings: number; messages: number };
+  attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number };
 }
 
 export interface Directory {
@@ -57,6 +59,7 @@ export interface Directory {
 
 export interface PatientRow {
   id: string;
+  patient_name?: string | null;
   status: string;
   identity_status: string;
   has_login: boolean;
@@ -84,6 +87,99 @@ export interface BookingRow {
   ends_at: string;
   local_start: string;
   local_zone: string;
+  rescheduled_from: string | null;
+  attendance: "attended" | "no_show" | null;
+  late?: boolean;
+  patient_name?: string | null;
+}
+
+export interface CoverageRow {
+  id: string;
+  person: string;
+  insurer: string;
+  plan: string;
+  member_last4: string;
+  valid_from: string | null;
+  valid_until: string | null;
+  status: "active" | "ended";
+  in_force: boolean;
+}
+
+export interface FamilyRequest {
+  id: string;
+  status: string;
+  relationship: string;
+  person: string;
+  name: string;
+  birth_date: string;
+  requested_at: string;
+  requested_by: string;
+  requested_by_name: string | null;
+}
+
+export interface MessageThread {
+  id: string;
+  subject: string;
+  status: "open" | "closed";
+  patient: string;
+  patient_name?: string | null;
+  last_message_at: string;
+  unread: number;
+}
+
+export interface ThreadView extends MessageThread {
+  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; from: string }[];
+}
+
+export interface Timing {
+  count: number;
+  median: number | null;               // hours
+  average: number | null;              // hours
+}
+
+export interface Reports {
+  days: number;
+  from: string;
+  to: string;
+  bookings: {
+    per_day: { date: string; count: number }[];
+    total: number;
+    status: { requested: number; confirmed: number; cancelled: number };
+    attendance: { attended: number; no_show: number; not_recorded: number };
+    busiest_services: { name: string; count: number }[];
+    hours_to_confirm: Timing;
+  };
+  referrals: { received: number; issued: number; accepted: number; needs_info: number; declined: number };
+  waiting_list: { joined: number; booked: number; left: number; waiting_now: number };
+  messages: { started: number; closed: number; waiting_for_clinic: number; hours_to_first_reply: Timing };
+}
+
+export interface Profile {
+  person: string;
+  name: string;
+  birth_date: string;
+  phone: string;
+}
+
+export interface WaitingRow {
+  id: string;
+  patient: string;                       // an id: names are not stored yet
+  state: "waiting" | "offered";
+  patient_name?: string | null;
+  place: number;                         // 1 = waiting longest for that service
+  joined_at: string;
+  offered_at: string | null;
+  service: { id: string; name: string };
+  organization: { id: string; name: string };
+}
+
+export interface FreeTime {
+  id: string;
+  starts_at: string;
+  local_start: string;
+  local_zone: string;
+  location: string;
+  provider: { id: string; name: string } | null;
 }
 
 export interface ServiceRow {
@@ -97,6 +193,7 @@ export interface ServiceRow {
   organization: { id: string; name: string };
   next_slot_local: string | null;
   next_slot_zone: string | null;
+  waiting?: number;                 // people on the waiting list for this service
 }
 
 export interface LocationRow {
@@ -116,6 +213,7 @@ export interface IncomingReferral {
   decision_reason: string;
   decided_at: string | null;
   created_at: string;
+  patient_name?: string | null;
   referrer: { id: string; name: string };
   from_organization: { id: string; name: string };
   service: { id: string; name: string };

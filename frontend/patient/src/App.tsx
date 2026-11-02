@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, resendVerification, getBookings, getMe, getReferrals, getNotifications, loadSession, setSession, signOutEverywhere, type Booking, type Me, type Notice, type Referral, type Session } from "./api";
+import { ApiError, resendVerification, getBookings, getCoverage, getMe, getProfiles, getReferrals, getWaitlist, getNotifications, loadSession, setSession, signOutEverywhere, type Booking, type Me, type Notice, type CoverageRow, type ProfileRow, type Referral, type Session, type WaitEntry } from "./api";
 import { displayName } from "./format";
 import { Appointments } from "./pages/Appointments";
+import { CareTeam } from "./pages/CareTeam";
 import { Dashboard } from "./pages/Dashboard";
+import { Family } from "./pages/Family";
 import { FindCare } from "./pages/FindCare";
+import { Insurance } from "./pages/Insurance";
+import { Messages } from "./pages/Messages";
 import { clearLink, LinkPage, readLinkAction } from "./pages/LinkActions";
 import { Notifications } from "./pages/Notifications";
 import { Planned } from "./pages/Planned";
+import { Privacy } from "./pages/Privacy";
+import { Profile } from "./pages/Profile";
 import { Referrals } from "./pages/Referrals";
 import { SignIn } from "./pages/SignIn";
 import { Icon, Logo } from "./ui";
@@ -23,17 +29,17 @@ const NAV: NavItem[] = [
   { id: "appointments", label: "Appointments", icon: "appointments" },
   { id: "referrals", label: "My Referrals", icon: "referrals" },
   { id: "records", label: "My Health Records", icon: "services", waitsFor: "Health records need the clinical record service, a later phase." },
-  { id: "careteam", label: "My Care Team", icon: "providers", waitsFor: "The backend already records which clinicians treat you (care relationships); a screen for it is not built, and clinician names need provider profiles." },
-  { id: "family", label: "Family Members", icon: "patients", waitsFor: "The backend rules for guardians and proxies exist; the screen to manage them is not built." },
+  { id: "careteam", label: "My Care Team", icon: "providers" },
+  { id: "family", label: "Family Members", icon: "patients" },
   { id: "bills", label: "Bills & Payments", icon: "billing", waitsFor: "Bills and payments are a later commercial phase." },
-  { id: "insurance", label: "Insurance & Claims", icon: "compliance", waitsFor: "Coverage and claims are a later commercial phase." },
-  { id: "messages", label: "Messages", icon: "messages", waitsFor: "Messages arrive with comms (backend step B9)." },
+  { id: "insurance", label: "Insurance & Claims", icon: "compliance" },
+  { id: "messages", label: "Messages", icon: "messages" },
   { id: "notifications", label: "Notifications", icon: "bell" },
-  { id: "privacy", label: "Privacy & Consent", icon: "shield", waitsFor: "Consent and purpose grants are a later policy step; today access is decided by roles and relationships only." },
-  { id: "profile", label: "My Profile", icon: "settings", waitsFor: "Profiles need encrypted patient details (DEV-024), not built yet." },
+  { id: "privacy", label: "Privacy & Consent", icon: "shield" },
+  { id: "profile", label: "My Profile", icon: "settings" },
   { id: "help", label: "Help & Support", icon: "integrations", waitsFor: "Support tooling is not built yet." },
 ];
-const LIVE: PageId[] = ["dashboard", "find", "appointments", "referrals", "notifications"];
+const LIVE: PageId[] = ["dashboard", "find", "appointments", "referrals", "notifications", "profile", "insurance", "careteam", "privacy", "family", "messages"];
 
 function startPage(): PageId {
   const wanted = new URLSearchParams(window.location.search).get("page");
@@ -45,6 +51,9 @@ export default function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
+  const [waiting, setWaiting] = useState<WaitEntry[]>([]);
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [coverage, setCoverage] = useState<CoverageRow[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [unread, setUnread] = useState(0);
   const [page, setPage] = useState<PageId>(startPage());
@@ -57,16 +66,24 @@ export default function App() {
     setMe(null);
     setBookings([]);
     setReferrals([]);
+    setWaiting([]);
+    setProfiles([]);
+    setCoverage([]);
     setNotices([]);
     setUnread(0);
   }, []);
 
   const refresh = useCallback(async () => {
     try {
-      const [who, list, inbox, sent] = await Promise.all([getMe(), getBookings(), getNotifications(), getReferrals()]);
+      const [who, list, inbox, sent, queue, mine, cover] = await Promise.all([
+        getMe(), getBookings(), getNotifications(), getReferrals(), getWaitlist(), getProfiles(),
+        getCoverage()]);
       setMe(who);
       setBookings(list);
       setReferrals(sent);
+      setWaiting(queue);
+      setProfiles(mine);
+      setCoverage(cover);
       setNotices(inbox.notifications);
       setUnread(inbox.unread);
       setError("");
@@ -97,8 +114,14 @@ export default function App() {
   let body;
   if (!me) body = <div className="notice">Loading…</div>;
   else if (!LIVE.includes(page)) body = <Planned title={item.label} waitsFor={item.waitsFor ?? ""} />;
-  else if (page === "find") body = <FindCare me={me} onBooked={refresh} goTo={setPage} />;
-  else if (page === "appointments") body = <Appointments bookings={bookings} onChanged={refresh} />;
+  else if (page === "find") body = <FindCare me={me} waiting={waiting} profiles={profiles} onBooked={refresh} goTo={setPage} />;
+  else if (page === "appointments") body = <Appointments bookings={bookings} waiting={waiting} onChanged={refresh} />;
+  else if (page === "messages") body = <Messages onChanged={refresh} />;
+  else if (page === "family") body = <Family onChanged={refresh} />;
+  else if (page === "careteam") body = <CareTeam />;
+  else if (page === "privacy") body = <Privacy />;
+  else if (page === "insurance") body = <Insurance coverage={coverage} hasPatient={me.persons.length > 0} onChanged={refresh} />;
+  else if (page === "profile") body = <Profile key={profiles.map((x) => x.name).join("|")} profiles={profiles} onSaved={refresh} />;
   else if (page === "referrals") body = <Referrals referrals={referrals} />;
   else if (page === "notifications") body = <Notifications notices={notices} unread={unread} onChanged={refresh} />;
   else body = <Dashboard name={name} me={me} bookings={bookings} notices={notices} goTo={setPage} />;

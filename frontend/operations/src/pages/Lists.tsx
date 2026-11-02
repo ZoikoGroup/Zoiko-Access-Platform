@@ -1,33 +1,60 @@
+import { useState } from "react";
 import { getDirectory, getPatients } from "../api";
 import { Gate, useLoad } from "../useLoad";
-import { Card, Pill, Table, shortId } from "../ui";
+import { Card, Patient, Pill, Table } from "../ui";
+import { PatientCoverage } from "./PatientCoverage";
+import { PatientDetails } from "./PatientDetails";
 
 export function Patients() {
-  const result = useLoad(getPatients);
+  const [version, setVersion] = useState(0);        // a new number reloads the list
+  const [editing, setEditing] = useState("");
+  const [search, setSearch] = useState("");
+  const result = useLoad(getPatients, 10_000, version);
   return (
     <Gate result={result}>
-      {(patients) => (
+      {(all) => {
+        const word = search.trim().toLowerCase();
+        const patients = word
+          ? all.filter((p) => (p.patient_name ?? "").toLowerCase().includes(word) || p.id.toLowerCase().startsWith(word))
+          : all;
+        return (
         <>
           <div className="hero"><div>
             <h1>Patients</h1>
-            <p>Patient records and who can reach each one. Names, birth dates and emails are not shown: patients appear as ids (DEV-024).</p>
-          </div></div>
+            <p>Patient records and who can reach each one. A patient shows by name once their details are entered (encrypted); emails are never shown.</p>
+          </div>
+          <span className="spacer" />
+          <input aria-label="Search patients by name" placeholder="Search by name" value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ padding: "9px 12px", border: "1px solid var(--line)", borderRadius: 10, background: "var(--bg)", minWidth: 220 }} />
+          </div>
           <div className="grid">
-            <Card title={`${patients.length} patient${patients.length === 1 ? "" : "s"}`}>
-              <Table headers={["Patient", "Status", "Identity", "Own login", "Clinicians with a care relationship", "Guardians with a proxy"]}
-                empty="No patients yet."
+            <Card title={word ? `${patients.length} of ${all.length} patients` : `${all.length} patient${all.length === 1 ? "" : "s"}`}>
+              <Table headers={["Patient", "Status", "Identity", "Own login", "Clinicians with a care relationship", "Guardians with a proxy", "Details"]}
+                empty={word ? "No patient matches that name." : "No patients yet."}
                 rows={patients.map((p) => [
-                  <span key="i" className="mono">{shortId(p.id)}</span>,
+                  <Patient key="i" name={p.patient_name} id={p.id} />,
                   <Pill key="s" kind={p.status === "active" ? "ok" : "bad"}>{p.status}</Pill>,
                   <Pill key="v" kind={p.identity_status === "verified" ? "ok" : "warn"}>{p.identity_status}</Pill>,
                   p.has_login ? "yes" : <Pill key="n" kind="warn">no login</Pill>,
                   p.care.filter((c) => c.status === "active" && !c.contested).map((c) => c.clinician).join(", ") || "none",
                   p.proxies.filter((g) => g.status === "active").map((g) => `${g.guardian} (${g.type})`).join(", ") || "none",
+                  <button key="d" className="btn ghost" onClick={() => setEditing(p.id)}>
+                    {p.patient_name ? "Edit" : "Add details"}
+                  </button>,
                 ])} />
             </Card>
           </div>
+          {editing && (
+            <div className="grid">
+              <PatientDetails person={editing} onClose={() => setEditing("")}
+                onSaved={() => { setEditing(""); setVersion((v) => v + 1); }} />
+              <PatientCoverage person={editing} />
+            </div>
+          )}
         </>
-      )}
+        );
+      }}
     </Gate>
   );
 }

@@ -10,7 +10,7 @@ frontend/
   operations/   staff and operations console (dashboard, patients, organizations, services, appointments, compliance)
   patient/      patients and guardians            (R01, R02)    dashboard, Find Care, Appointments
   clinician/    doctors: schedule and patients    (R03)         built (port 5176)
-  shared/       design system, API client         (extract when a second app needs it)
+  shared/       code used by all four apps (see shared/README.md)
 ```
 
 ## Run the operations console
@@ -41,7 +41,7 @@ developing: `http://localhost:5174/?tenant=<tenant id>&as=<patient login id>&pag
 Seed demo data first (dev console at http://localhost:8000/, "Load demo data", then add a
 catalog with its API actions `location`, `service`, `slots`).
 
-The two apps copy `styles.css` and `ui.tsx`. Extract `frontend/shared/` when a third app needs them.
+The apps share `ui.tsx`, `AuthShell.tsx` and `auth.css` through `frontend/shared/` (see its README). `styles.css`, `useLoad.tsx` and the API client are still per app.
 
 ## Run the platform console
 

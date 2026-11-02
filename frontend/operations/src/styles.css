@@ -183,3 +183,11 @@ td.mono, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-siz
 .signin label { display: block; margin-top: 14px; color: var(--muted); font-size: 13px; }
 .field { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--bg); margin-top: 6px; }
+
+/* A row with text on the left and actions on the right (attention items, family requests). */
+.appt { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 12px 0;
+  border-bottom: 1px solid var(--line); }
+.appt:last-child { border-bottom: 0; }
+.appt .info { flex: 1; min-width: 220px; }
+.appt .info small { color: var(--muted); display: block; }
+.appt .pill { flex: none; }

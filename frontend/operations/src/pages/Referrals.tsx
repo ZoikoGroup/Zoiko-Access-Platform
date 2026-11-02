@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { decideReferral, listIncomingReferrals } from "../api";
 import type { IncomingReferral } from "../types";
-import { Card, Pill, Table, shortId, type PillKind } from "../ui";
+import { Card, Patient, Pill, Table, type PillKind } from "../ui";
 
 const STATE: Record<IncomingReferral["state"], { text: string; kind: PillKind }> = {
   issued: { text: "Needs a decision", kind: "warn" },
@@ -80,7 +80,7 @@ export function Referrals() {
             <Table headers={["Patient", "For service", "From", "Urgency", "Reason", "Status", "Your decision"]}
               empty="No referrals have been sent to your services yet."
               rows={rows.map((r) => [
-                <span key="p" className="mono">{shortId(r.patient)}</span>,
+                <Patient key="p" name={r.patient_name} id={r.patient} />,
                 r.service.name,
                 `${r.referrer.name} (${r.from_organization.name})`,
                 <Pill key="u" kind={r.urgency === "urgent" ? "bad" : "info"}>{r.urgency}</Pill>,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { cancelBooking, confirmBooking, listBookings, type Staff } from "../api";
-import type { BookingRow } from "../types";
-import { Card, Pill, Table, shortId, type PillKind } from "../ui";
+import { cancelBooking, confirmBooking, listBookings, listFreeTimes, markAttendance, rescheduleBooking, type Staff } from "../api";
+import type { BookingRow, FreeTime } from "../types";
+import { Card, Patient, Pill, Table, shortId, type PillKind } from "../ui";
 
 const STATUS: Record<BookingRow["status"], { text: string; kind: PillKind }> = {
   requested: { text: "Needs confirmation", kind: "warn" },
@@ -20,6 +20,7 @@ export function Appointments({ staff }: { staff: Staff | null }) {
   const [busy, setBusy] = useState("");
   const [asking, setAsking] = useState("");
   const [error, setError] = useState("");
+  const [moving, setMoving] = useState<{ booking: BookingRow; times: FreeTime[] } | null>(null);
 
   const load = useCallback(async () => {
     if (!staff) return;
@@ -39,6 +40,22 @@ export function Appointments({ staff }: { staff: Staff | null }) {
     try { await work(id); await load(); }
     catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
     finally { setBusy(""); setAsking(""); }
+  }
+
+  async function openMove(b: BookingRow) {
+    setError("");
+    try {
+      const times = (await listFreeTimes(b.service.id)).filter((t) => t.starts_at !== b.starts_at);
+      setMoving({ booking: b, times });
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load free times"); }
+  }
+
+  async function moveTo(t: FreeTime) {
+    if (!moving) return;
+    setBusy(moving.booking.id); setError("");
+    try { await rescheduleBooking(moving.booking.id, t.id); setMoving(null); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : "That time could not be used. Pick another."); await openMove(moving.booking); }
+    finally { setBusy(""); }
   }
 
   if (!staff) return <NoStaff />;
@@ -63,6 +80,23 @@ export function Appointments({ staff }: { staff: Staff | null }) {
         </label>
       </div>
       {error && <div className="error">{error}</div>}
+      {moving && (
+        <div className="grid">
+          <Card title={`Move ${moving.booking.service.name} (${moving.booking.patient_name ?? shortId(moving.booking.person)})`}
+            sub={`Now ${when(moving.booking.local_start, moving.booking.local_zone)}. A confirmed appointment stays confirmed; a waiting one stays waiting.`}>
+            {moving.times.length === 0 ? <div className="empty">No other free times for this service.</div> : (
+              <div className="row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {moving.times.map((t) => (
+                  <button key={t.id} className="btn ghost" disabled={busy === moving.booking.id} onClick={() => void moveTo(t)}>
+                    {when(t.local_start, t.local_zone)}{t.provider ? ` - ${t.provider.name}` : ""}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop: 12 }}><button className="btn ghost" onClick={() => setMoving(null)}>Close</button></div>
+          </Card>
+        </div>
+      )}
       <div className="grid">
         <Card title={`${shown.length} booking${shown.length === 1 ? "" : "s"}`} sub="Patients appear as ids: names are not stored yet (DEV-024).">
           {rows === null ? <div className="empty">Loading…</div> : (
@@ -70,14 +104,36 @@ export function Appointments({ staff }: { staff: Staff | null }) {
               empty="No bookings match."
               rows={shown.map((b) => [
                 when(b.local_start, b.local_zone), b.service.name, b.location.name,
-                <span key="p" className="mono">{shortId(b.person)}</span>,
-                <Pill key="s" kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>,
+                <Patient key="p" name={b.patient_name} id={b.person} />,
+                b.attendance === "attended" ? <Pill key="s" kind="ok">Attended</Pill>
+                  : b.attendance === "no_show" ? <Pill key="s" kind="bad">Did not attend</Pill>
+                  : b.late ? <Pill key="s" kind="bad">Late: needs confirmation</Pill>
+                  : <Pill key="s" kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>,
                 <span key="a">
+                  {b.status === "confirmed" && b.starts_at <= new Date().toISOString() && (
+                    <>
+                      {b.attendance !== "attended" && (
+                        <button className="btn" disabled={busy === b.id}
+                          onClick={() => void run(b.id, (id) => markAttendance(id, "attended"))}>Attended</button>
+                      )}{" "}
+                      {b.attendance !== "no_show" && (
+                        <button className="btn ghost" disabled={busy === b.id}
+                          onClick={() => void run(b.id, (id) => markAttendance(id, "no_show"))}>Did not come</button>
+                      )}{" "}
+                    </>
+                  )}
                   {b.status === "requested" && (
                     <button className="btn" disabled={busy === b.id} onClick={() => void run(b.id, confirmBooking)}>Confirm</button>
                   )}{" "}
                   {b.status !== "cancelled" && asking !== b.id && (
-                    <button className="btn ghost" onClick={() => setAsking(b.id)}>Cancel</button>
+                    <>
+                      {b.starts_at > new Date().toISOString() && (
+                        <><button className="btn ghost" onClick={() => void openMove(b)}>Move</button>{" "}</>
+                      )}
+                      {!b.attendance && (
+                        <button className="btn ghost" onClick={() => setAsking(b.id)}>Cancel</button>
+                      )}
+                    </>
                   )}
                   {asking === b.id && (
                     <>

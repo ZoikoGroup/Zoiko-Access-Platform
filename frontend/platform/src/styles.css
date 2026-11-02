@@ -183,3 +183,8 @@ td.mono, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-siz
 .signin label { display: block; margin-top: 14px; color: var(--muted); font-size: 13px; }
 .field { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--bg); margin-top: 6px; }
+
+.add-form { display: grid; gap: 12px; max-width: 560px; }
+.add-form label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.add-form input { padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.success { padding: 12px 14px; border-radius: 10px; background: var(--ok-bg); color: var(--ok); margin-top: 12px; }

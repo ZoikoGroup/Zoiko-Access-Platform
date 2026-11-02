@@ -1,7 +1,7 @@
 import { getSchedule } from "../api";
 import type { Appointment } from "../types";
 import { Gate, useLoad } from "../useLoad";
-import { Card, Pill, shortId } from "../ui";
+import { Card, Patient, Pill } from "../ui";
 
 function parts(local: string): Date {
   const [d, t = "00:00:00"] = local.split("T");
@@ -28,7 +28,7 @@ export function Schedule() {
           <>
             <div className="hero"><div>
               <h1>My schedule</h1>
-              <p>Your confirmed appointments. A patient appears here once the clinic confirms the booking. Patients show as ids: names are not stored yet.</p>
+              <p>Your confirmed appointments. A patient appears here once the clinic confirms the booking. Patients show by name once their details are entered.</p>
             </div></div>
             <div className="grid">
               <Card title={`Upcoming (${upcoming.length})`}>
@@ -57,9 +57,11 @@ function Row({ a }: { a: Appointment }) {
       <div className="info">
         <b>{a.service.name}</b>
         <small>{a.organization.name}, {a.location.name} - {a.service.mode === "video" ? "Video" : "In person"}</small>
-        <small>Patient <span className="mono">{shortId(a.person)}</span></small>
+        <small>Patient <Patient name={a.patient_name} id={a.person} /></small>
       </div>
-      <Pill kind="ok">Confirmed</Pill>
+      {a.attendance === "attended" ? <Pill kind="ok">Attended</Pill>
+        : a.attendance === "no_show" ? <Pill kind="bad">Did not attend</Pill>
+        : <Pill kind="info">Confirmed</Pill>}
     </div>
   );
 }

@@ -28,6 +28,7 @@ export interface Service {
   next_slot: string | null;
   next_slot_local: string | null;
   next_slot_zone: string | null;
+  usual_confirmation_hours?: number | null;
 }
 
 export interface Slot {
@@ -53,6 +54,8 @@ export interface Booking {
   local_start: string;
   local_zone: string;
   provider: { id: string; name: string } | null;
+  rescheduled_from: string | null;     // the appointment this one replaced
+  attendance: "attended" | "no_show" | null;   // recorded by the clinic after the visit time
 }
 
 export interface Referral {
@@ -63,6 +66,73 @@ export interface Referral {
   decision_reason: string;
   created_at: string;
   referrer: { id: string; name: string };
+  service: { id: string; name: string };
+  organization: { id: string; name: string };
+}
+
+export interface ProfileRow {
+  person: string;
+  own: boolean;                      // this is the login's own record, not a family member's
+  editable: boolean;
+  name: string;
+  birth_date: string;
+  phone: string;
+}
+
+export interface CoverageRow {
+  id: string;
+  person: string;
+  insurer: string;
+  plan: string;
+  member_last4: string;               // the member number is never sent in full
+  valid_from: string | null;
+  valid_until: string | null;
+  status: "active" | "ended";
+  in_force: boolean;
+}
+
+export interface CareTeamPerson {
+  person: string;
+  team: { clinician: string; basis: string; since: string; until: string | null }[];
+}
+
+export interface AccessEntry {
+  at: string;
+  who: string;
+  role: string | null;
+  operation: string;
+  purpose: string;
+  allowed: boolean;
+  person: string;
+}
+
+export interface FamilyRow {
+  id: string;
+  status: "proposed" | "active";       // proposed = waiting for the clinic to approve
+  relationship: string;
+  person: string;
+  name: string;
+  birth_date: string;
+  valid_until: string | null;
+}
+
+export interface MessageThread {
+  id: string;
+  subject: string;
+  status: "open" | "closed";
+  last_message_at: string;
+  unread: number;
+}
+
+export interface ThreadView extends MessageThread {
+  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean }[];
+}
+
+export interface WaitEntry {
+  id: string;
+  state: "waiting" | "offered";            // offered = a time opened up for you
+  joined_at: string;
+  offered_at: string | null;
   service: { id: string; name: string };
   organization: { id: string; name: string };
 }
@@ -195,10 +265,44 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<{ body:
   return { body, replayed: res.headers.get("Idempotent-Replayed") === "true" };
 }
 
+/** Download one appointment as a calendar file (.ics). The browser cannot send the login with a
+ *  plain link, so the file is fetched here and saved from memory. */
+export async function downloadCalendar(id: string): Promise<void> {
+  const res = await fetch(`/api/v1/bookings/${id}/calendar`, { headers: { ...authHeader() } });
+  if (!res.ok) throw new ApiError("Could not make the calendar file", "ERROR", res.status);
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "appointment.ics";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export const getMe = async () => (await request<Me>("me")).body;
 
-export const getServices = async (q = "") =>
-  (await request<{ services: Service[] }>(`services${q ? `?q=${encodeURIComponent(q)}` : ""}`)).body.services;
+export interface ServiceFilters {
+  q?: string;
+  category?: string;
+  mode?: "" | "in_person" | "video";
+  available?: boolean;          // only services that have a free time
+  sort?: "name" | "soonest";
+}
+
+export interface CategoryOption { category: string; count: number }
+
+/** Search the directory. Also returns the categories that have services, for the filter menu. */
+export async function searchServices(f: ServiceFilters = {}): Promise<{ services: Service[]; categories: CategoryOption[] }> {
+  const p = new URLSearchParams();
+  if (f.q?.trim()) p.set("q", f.q.trim());
+  if (f.category) p.set("category", f.category);
+  if (f.mode) p.set("mode", f.mode);
+  if (f.available) p.set("available", "1");
+  if (f.sort && f.sort !== "name") p.set("sort", f.sort);
+  const query = p.toString();
+  return (await request<{ services: Service[]; categories: CategoryOption[] }>(`services${query ? `?${query}` : ""}`)).body;
+}
+
+export const getServices = async (q = "") => (await searchServices({ q })).services;
 
 export const getSlots = async (serviceId: string) =>
   (await request<{ slots: Slot[] }>(`services/${encodeURIComponent(serviceId)}/slots`)).body.slots;
@@ -224,6 +328,73 @@ export async function cancelBooking(id: string): Promise<Booking> {
     body: "{}",
   });
   return body.booking;
+}
+
+export async function rescheduleBooking(id: string, slot: string): Promise<Booking> {
+  const { body } = await request<{ booking: Booking }>(`bookings/${encodeURIComponent(id)}/reschedule`, {
+    method: "POST",
+    body: JSON.stringify({ slot }),
+  });
+  return body.booking;
+}
+
+export const getProfiles = async () => (await request<{ profiles: ProfileRow[] }>("profile")).body.profiles;
+
+export async function saveProfile(person: string, body: { name: string; birth_date: string; phone: string }) {
+  await request(`people/${encodeURIComponent(person)}/profile`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export const getCoverage = async () => (await request<{ coverage: CoverageRow[] }>("coverage")).body.coverage;
+
+export async function addCoverage(body: {
+  insurer: string; plan: string; member_id: string; valid_from: string; valid_until: string;
+}): Promise<void> {
+  await request("coverage", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function endCoverage(id: string): Promise<void> {
+  await request(`coverage/${encodeURIComponent(id)}/end`, { method: "POST", body: "{}" });
+}
+
+export const getCareTeam = async () => (await request<{ people: CareTeamPerson[] }>("care-team")).body.people;
+export const getAccessLog = async () => (await request<{ entries: AccessEntry[] }>("access-log")).body.entries;
+
+export const getFamily = async () => (await request<{ family: FamilyRow[] }>("family")).body.family;
+
+export async function requestFamily(body: { relationship: string; name: string; birth_date: string }) {
+  await request("family", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function withdrawFamily(id: string): Promise<void> {
+  await request(`family/${encodeURIComponent(id)}/withdraw`, { method: "POST", body: "{}" });
+}
+
+export const getThreads = async () => (await request<{ threads: MessageThread[] }>("messages/threads")).body.threads;
+export const getThread = async (id: string) =>
+  (await request<{ thread: ThreadView }>(`messages/threads/${encodeURIComponent(id)}`)).body.thread;
+
+export async function startThread(body: { subject: string; body: string }): Promise<string> {
+  const { body: made } = await request<{ thread: { id: string } }>("messages/threads", {
+    method: "POST", body: JSON.stringify(body),
+  });
+  return made.thread.id;
+}
+
+export async function replyToThread(id: string, body: string): Promise<void> {
+  await request(`messages/threads/${encodeURIComponent(id)}/reply`, { method: "POST", body: JSON.stringify({ body }) });
+}
+
+export const getWaitlist = async () => (await request<{ entries: WaitEntry[] }>("waitlist")).body.entries;
+
+export async function joinWaitlist(service: string, person?: string): Promise<WaitEntry> {
+  const { body } = await request<{ entry: WaitEntry }>("waitlist", {
+    method: "POST", body: JSON.stringify({ service, ...(person ? { person } : {}) }),
+  });
+  return body.entry;
+}
+
+export async function leaveWaitlist(id: string): Promise<void> {
+  await request(`waitlist/${encodeURIComponent(id)}/leave`, { method: "POST", body: "{}" });
 }
 
 export async function getNotifications(): Promise<{ notifications: Notice[]; unread: number }> {

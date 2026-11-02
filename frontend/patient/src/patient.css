@@ -74,3 +74,19 @@
 
 .linklike { background: none; border: 0; color: var(--brand); font-weight: 600; padding: 0; margin-top: 10px; text-align: left; }
 .linklike:hover { text-decoration: underline; }
+
+.filters { display: flex; gap: 14px; flex-wrap: wrap; align-items: end; margin: 0 0 16px; }
+.filters label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.filters select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.filters label.check { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
+
+.link { color: var(--brand); font-weight: 600; cursor: pointer; text-decoration: underline; font-size: 13px; }
+
+.profile-form { display: grid; gap: 12px; max-width: 460px; }
+.profile-form label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.profile-form input { padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.success { padding: 12px 14px; border-radius: 10px; background: var(--ok-bg); color: var(--ok); }
+
+.appt .pill { flex: none; }
+
+.profile-form select { padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }

@@ -2,7 +2,7 @@
 // placeholders that say which backend step they wait for.
 export type PageId =
   | "dashboard" | "patients" | "providers" | "organizations" | "team" | "services" | "appointments"
-  | "referrals" | "workflows" | "messages" | "billing" | "compliance" | "reports"
+  | "waitlist" | "family" | "referrals" | "workflows" | "messages" | "billing" | "compliance" | "reports"
   | "integrations" | "settings";
 
 export interface NavItem {
@@ -22,16 +22,16 @@ export const NAV: NavItem[] = [
   { id: "team", label: "Team", icon: "providers", live: true },
   { id: "services", label: "Services", icon: "services", live: true },
   { id: "appointments", label: "Appointments", icon: "appointments", live: true },
+  { id: "waitlist", label: "Waiting list", icon: "appointments", live: true },
+  { id: "family", label: "Family requests", icon: "patients", live: true },
   { id: "referrals", label: "Referrals", icon: "referrals", live: true },
   { id: "workflows", label: "Workflows", icon: "workflows", live: false,
     waitsFor: "The workflow engine and task queues: planned (B8)." },
-  { id: "messages", label: "Messages", icon: "messages", live: false,
-    waitsFor: "Notifications and secure messages: planned (B9, comms)." },
+  { id: "messages", label: "Messages", icon: "messages", live: true },
   { id: "billing", label: "Billing & Claims", icon: "billing", live: false,
     waitsFor: "Entitlements, invoices and claims: a later phase." },
   { id: "compliance", label: "Compliance", icon: "compliance", live: true },
-  { id: "reports", label: "Reports", icon: "reports", live: false,
-    waitsFor: "Analytics and reports: a later phase." },
+  { id: "reports", label: "Reports", icon: "reports", live: true },
   { id: "integrations", label: "Integrations", icon: "integrations", live: false,
     waitsFor: "Partner connectors and webhooks: planned (B8, partner simulator)." },
   { id: "settings", label: "Settings", icon: "settings", live: false,

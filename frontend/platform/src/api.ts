@@ -82,9 +82,12 @@ export async function signOutEverywhere(): Promise<void> {
   setSession(null);
 }
 
-async function v1<T>(path: string): Promise<T> {
+async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
-  const res = await fetch(`/api/v1/${path}`, { headers: { Authorization: `Bearer ${current.token}` } });
+  const res = await fetch(`/api/v1/${path}`, {
+    ...init,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.token}` },
+  });
   if (!(res.headers.get("Content-Type") ?? "").includes("json")) {
     throw new ApiError("The server sent something that is not JSON (is the backend reachable?)");
   }
@@ -94,6 +97,12 @@ async function v1<T>(path: string): Promise<T> {
 }
 
 /** Each call is recorded in the platform tenant's own audit chain, so the page does not poll. */
+/** Support adds a customer; its first administrator is emailed an invitation. */
+export const addCustomer = (body: { customer: string; site: string; admin_email: string }) =>
+  v1<{ customer: { id: string; name: string; site: string } }>("platform/customers", {
+    method: "POST", body: JSON.stringify(body),
+  });
+
 export const getOverview = () => v1<Overview>("platform/overview");
 
 async function ping(path: string): Promise<Health> {

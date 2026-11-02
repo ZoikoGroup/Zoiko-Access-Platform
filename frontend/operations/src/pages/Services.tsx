@@ -99,12 +99,13 @@ export function Services({ staff }: { staff: Staff | null }) {
       <div className="grid">
         <Card title={`${services?.length ?? 0} service${services?.length === 1 ? "" : "s"}`}>
           {services === null ? <div className="empty">Loading…</div> : (
-            <Table headers={["Service", "Category", "Length", "Mode", "Status", "Next free time", "Actions"]}
+            <Table headers={["Service", "Category", "Length", "Mode", "Status", "Next free time", "Waiting", "Actions"]}
               empty="No services yet. Add one above."
               rows={services.map((s) => [
                 s.name, s.category, `${s.duration_minutes} min`, s.mode === "video" ? "Video" : "In person",
                 <Pill key="s" kind={s.status === "active" ? "ok" : "bad"}>{s.status === "active" ? "Visible" : "Hidden"}</Pill>,
                 s.next_slot_local ? `${s.next_slot_local.replace("T", " ").slice(0, 16)} (${s.next_slot_zone})` : <Pill key="n" kind="warn">no free times</Pill>,
+                s.waiting ? <Pill key="w" kind="info">{s.waiting} waiting</Pill> : "",
                 <span key="a">
                   <button className="btn ghost" disabled={busy}
                     onClick={() => void run(() => setServiceStatus(s.id, s.status === "active" ? "inactive" : "active"), s.status === "active" ? "Service hidden from patients" : "Service visible to patients")}>
