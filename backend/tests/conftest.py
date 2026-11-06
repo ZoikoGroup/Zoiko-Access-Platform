@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import connection
 
 from foundation.cell_context import CellContext
+from foundation.dbgrants import grant_statements
 from foundation.rls import enable_rls_sql
 
 APP_ROLE = "zoiko_app"
@@ -21,27 +22,10 @@ def rls_probe(django_db_setup, django_db_blocker):
             "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'zoiko_app') "
             "THEN CREATE ROLE zoiko_app NOLOGIN; END IF; END $$"
         )
-        cursor.execute("GRANT USAGE ON SCHEMA public TO zoiko_app")
-        for table in (
-            "probe_probe",
-            "foundation_outboxevent",
-            "foundation_inboxmessage",
-            "foundation_idempotencykey",
-            "foundation_queuedemail",
-        ):
-            cursor.execute(f'GRANT SELECT, INSERT, UPDATE, DELETE ON "{table}" TO zoiko_app')
-        for table in ("trust_tenant", "trust_organization", "trust_role", "trust_actor",
-                      "trust_roleassignment", "trust_person", "trust_carerelationship",
-                      "trust_proxygrant", "catalog_location", "catalog_service", "scheduling_slot",
-                      "scheduling_booking", "trust_credential", "comms_notification",
-                      "referral_referral", "waitlist_waitentry", "trust_personprofile",
-                      "coverage_coverage", "messaging_thread", "messaging_message",
-                      "trust_authtoken"):
-            cursor.execute(f'GRANT SELECT, INSERT, UPDATE ON "{table}" TO zoiko_app')
-        # Audit rows are append-only: the app role may read and add, never change or remove.
-        cursor.execute('GRANT SELECT, INSERT ON "evidence_auditevent" TO zoiko_app')
-        cursor.execute('GRANT SELECT, INSERT ON "policy_accessdecision" TO zoiko_app')
-        cursor.execute("GRANT USAGE ON SEQUENCE foundation_outbox_seq TO zoiko_app")
+        # The rights come from the same list production uses (foundation/dbgrants.py), so the tests
+        # run with exactly the permissions the real application role will have.
+        for statement in grant_statements(APP_ROLE):
+            cursor.execute(statement)
         for statement in enable_rls_sql("probe_probe"):
             cursor.execute(statement)
 

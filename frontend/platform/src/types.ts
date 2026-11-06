@@ -25,4 +25,11 @@ export interface Overview {
   outbox: { pending: number; quarantined: number; oldest_pending_seconds: number | null };
   mail: { queued: number; failed: number };
   tenants: TenantRow[];
+  /** What the platform team itself has open: counts only (titles are on the Incidents page). */
+  work: {
+    open_incidents: number;
+    high_incidents: number;
+    suspensions_waiting: number;
+    latest_release: { version: string; released_on: string } | null;
+  };
 }

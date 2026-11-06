@@ -25,6 +25,16 @@ SECRET_KEY = env("DJANGO_SECRET_KEY", required=True)
 DEBUG = False
 ALLOWED_HOSTS = [h.strip() for h in env("DJANGO_ALLOWED_HOSTS", "").split(",") if h.strip()]
 
+# With DEBUG off, the web server and the worker refuse to start if their database login is a
+# superuser or has BYPASSRLS (PostgreSQL would then ignore row-level security). On in every real
+# deployment; only the test settings turn it off. See foundation/dbrole.py.
+REQUIRE_RESTRICTED_DB_ROLE = True
+
+# With DEBUG off, the web server and the worker also refuse to start while any development-only
+# setting remains (placeholder secrets, the unsigned sign-in, short passwords...). On in every real
+# deployment; only the test settings turn it off. See foundation/release_check.py.
+REQUIRE_PRODUCTION_SETTINGS = True
+
 # Identifies this deployment. Used later to bind every request and every row to one cell.
 ZOIKO_CELL_ID = env("ZOIKO_CELL_ID", required=True)
 # Google sign-in is offered only when a Google OAuth client id is configured (empty = off).
@@ -45,6 +55,7 @@ INSTALLED_APPS = [
     "modules.referral",
     "modules.waitlist",
     "modules.coverage",
+    "modules.ai",
     "modules.messaging",
     "modules.comms",
     "modules.evidence",
@@ -127,6 +138,7 @@ RESPONSE_TARGET_HOURS = int(env("RESPONSE_TARGET_HOURS", "24"))
 PATIENT_APP_URL = env("PATIENT_APP_URL", "http://localhost:5174").rstrip("/")
 STAFF_APP_URL = env("STAFF_APP_URL", "http://localhost:5173").rstrip("/")
 CLINICIAN_APP_URL = env("CLINICIAN_APP_URL", "http://localhost:5176").rstrip("/")
+PLATFORM_APP_URL = env("PLATFORM_APP_URL", "http://localhost:5175").rstrip("/")
 
 # --- Passwords ------------------------------------------------------------------------------
 # Minimum length. 10 unless the deployment says otherwise, and never below 8. Only the local

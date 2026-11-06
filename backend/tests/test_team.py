@@ -50,7 +50,7 @@ def directory(web, subject="boss"):
 
 def link_in_mail():
     mailer.send_due()
-    return re.search(r"token=([\w.\-]+)", mail.outbox[-1].body).group(1)
+    return re.findall(r"token=([\w.\-]+)", str(mail.outbox[-1].body))[0]
 
 
 # ------------------------------------------------------------------ who may manage
@@ -189,7 +189,7 @@ def test_the_invitation_can_be_sent_again_until_it_is_accepted(web):
             decision=receipt, clock=FixedClock(utc_now() + dt.timedelta(minutes=2)))
     mailer.send_due()
     assert len(mail.outbox) == 2
-    old, new = (re.search(r"token=([\w.\-]+)", m.body).group(1) for m in mail.outbox)
+    old, new = (re.findall(r"token=([\w.\-]+)", str(m.body))[0] for m in mail.outbox)
     assert old != new
     bad = Client().post("/api/v1/auth/reset-password", json.dumps(
         {"token": old, "password": PICKED}), content_type="application/json")

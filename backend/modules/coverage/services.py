@@ -5,6 +5,7 @@ Reads are for callers that already passed `read:coverage` for each patient. The 
 returned in full: lists show only its last four characters, which is enough to recognise a card.
 Audit entries say who added or ended a coverage, never what it contains.
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -21,7 +22,7 @@ from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
 
-from .models import Coverage, CoverageStatus
+from .models import Coverage, CoverageStatus, InsuranceSharing
 
 WRITE_COVERAGE = "write:coverage"
 MAX_ACTIVE_PER_PERSON = 5
@@ -34,8 +35,13 @@ def _scope() -> dict[str, Any]:
 
 
 def _audit(by: str, action: str, ref: str) -> None:
-    record(actor_ref=by, action=action, object_type="coverage", object_ref=ref,
-           outcome=AuditOutcome.ALLOWED)
+    record(
+        actor_ref=by,
+        action=action,
+        object_type="coverage",
+        object_ref=ref,
+        outcome=AuditOutcome.ALLOWED,
+    )
 
 
 def _own(coverage_ref: str) -> Coverage:
@@ -69,8 +75,11 @@ def coverage_dict(c: Coverage, today: dt.date) -> dict[str, Any]:
     """Safe to show: the member id appears only as its last four characters."""
     expired = c.valid_until is not None and c.valid_until < today
     return {
-        "public_id": c.public_id, "person_ref": c.person_ref, "insurer_name": c.insurer_name,
-        "plan_name": c.plan_name, "member_last4": c.member_last4,
+        "public_id": c.public_id,
+        "person_ref": c.person_ref,
+        "insurer_name": c.insurer_name,
+        "plan_name": c.plan_name,
+        "member_last4": c.member_last4,
         "valid_from": c.valid_from.isoformat() if c.valid_from else None,
         "valid_until": c.valid_until.isoformat() if c.valid_until else None,
         "status": c.status,
@@ -95,8 +104,12 @@ def add_coverage(
     ctx = require_context()
     today = utc_now(clock).date()
     policy.check_receipt(
-        decision, actor_public_id=actor_public_id, operation=WRITE_COVERAGE,
-        organization_public_id=organization_public_id, subject_ref=person_ref)
+        decision,
+        actor_public_id=actor_public_id,
+        operation=WRITE_COVERAGE,
+        organization_public_id=organization_public_id,
+        subject_ref=person_ref,
+    )
     if not trust.person_exists(person_ref):
         raise ZoikoError(ErrorCode.NOT_FOUND)
     insurer = _text(insurer_name, "insurer", 2, 80)
@@ -109,16 +122,25 @@ def add_coverage(
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["valid_until"])
     with transaction.atomic():
         active = Coverage.objects.filter(
-            person_ref=person_ref, status=CoverageStatus.ACTIVE, **_scope()).count()
+            person_ref=person_ref, status=CoverageStatus.ACTIVE, **_scope()
+        ).count()
         if active >= MAX_ACTIVE_PER_PERSON:
-            raise ZoikoError(ErrorCode.CONFLICT_VERSION)       # end an old one first
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)  # end an old one first
         row = Coverage(
-            person_ref=person_ref, insurer_name=insurer, plan_name=plan,
-            member_last4=member[-4:], valid_from=start, valid_until=end,
-            added_by_ref=actor_public_id, member_ref_enc="", **_scope())
+            person_ref=person_ref,
+            insurer_name=insurer,
+            plan_name=plan,
+            member_last4=member[-4:],
+            valid_from=start,
+            valid_until=end,
+            added_by_ref=actor_public_id,
+            member_ref_enc="",
+            **_scope(),
+        )
         # The sealed value is bound to this very row, so it cannot be moved to another coverage.
         row.member_ref_enc = encrypt(
-            member, tenant_id=ctx.tenant_id, context=f"coverage:{row.public_id}:member_ref")
+            member, tenant_id=ctx.tenant_id, context=f"coverage:{row.public_id}:member_ref"
+        )
         row.save()
         _audit(actor_public_id, "coverage.add", row.public_id)
         return coverage_dict(row, today)
@@ -136,10 +158,14 @@ def end_coverage(
     with transaction.atomic():
         row = _own(coverage_ref)
         policy.check_receipt(
-            decision, actor_public_id=actor_public_id, operation=WRITE_COVERAGE,
-            organization_public_id=organization_public_id, subject_ref=row.person_ref)
+            decision,
+            actor_public_id=actor_public_id,
+            operation=WRITE_COVERAGE,
+            organization_public_id=organization_public_id,
+            subject_ref=row.person_ref,
+        )
         if row.status == CoverageStatus.ENDED:
-            return coverage_dict(row, today)                    # repeating is harmless
+            return coverage_dict(row, today)  # repeating is harmless
         row.status = CoverageStatus.ENDED
         row.ended_by_ref = actor_public_id
         row.entity_version += 1
@@ -163,3 +189,52 @@ def list_coverage(
     if not include_ended:
         rows = rows.filter(status=CoverageStatus.ACTIVE)
     return [coverage_dict(c, today) for c in rows.order_by("-created_at")[:200]]
+
+
+def shared_with_staff(person_refs: list[str]) -> dict[str, bool]:
+    """person ref -> whether this patient shares insurance details with clinic staff.
+    A patient with no row has NOT shared (the cautious default)."""
+    if not person_refs:
+        return {}
+    rows = InsuranceSharing.objects.filter(person_ref__in=person_refs, **_scope())
+    chosen = {r.person_ref: r.share_with_staff for r in rows}
+    return {p: chosen.get(p, False) for p in person_refs}
+
+
+def set_sharing(
+    *,
+    person_ref: str,
+    share: bool,
+    actor_public_id: str,
+    decision: policy.Decision,
+    organization_public_id: str | None = None,
+) -> dict[str, Any]:
+    """The patient (or someone acting for them) chooses whether staff may see the insurance details.
+    Needs the same receipt as recording insurance. Choosing the same thing again is harmless."""
+    policy.check_receipt(
+        decision,
+        actor_public_id=actor_public_id,
+        operation=WRITE_COVERAGE,
+        organization_public_id=organization_public_id,
+        subject_ref=person_ref,
+    )
+    if not trust.person_exists(person_ref):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    with transaction.atomic():
+        row, made = InsuranceSharing.objects.select_for_update().get_or_create(
+            person_ref=person_ref,
+            defaults={"share_with_staff": share, "changed_by_ref": actor_public_id},
+            **_scope(),
+        )
+        changed = made or row.share_with_staff != share
+        if not made and changed:
+            row.share_with_staff, row.changed_by_ref = share, actor_public_id
+            row.entity_version += 1
+            row.save(
+                update_fields=["share_with_staff", "changed_by_ref", "entity_version", "updated_at"]
+            )
+        if changed:
+            _audit(
+                actor_public_id, "coverage.share" if share else "coverage.unshare", row.public_id
+            )
+    return {"person": person_ref, "share_with_staff": share}

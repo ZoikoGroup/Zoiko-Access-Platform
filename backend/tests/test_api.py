@@ -1,5 +1,6 @@
 import json
 import uuid
+from typing import Any
 
 import pytest
 from django.test import Client
@@ -24,13 +25,18 @@ API = "/api/v1/"
 class Web:
     """A browser stand-in: one Clinic, and a way to call the API as any login."""
 
+    # Set by the tests that need them (admin, desk) or added to the class by a test file (add).
+    admin: str
+    desk: str
+    add: Any
+
     def __init__(self):
         self.clinic = Clinic()
         self.client = Client()
         # Slots far in the future, created with an old clock so they count as upcoming.
         self.slots = self.clinic.slots(count=3)
 
-    def header(self, subject, issuer="idp"):
+    def header(self, subject, issuer="idp") -> dict[str, Any]:
         token = f"dev:{self.clinic.tenant_public_id}:{issuer}:{subject}"
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from foundation.cell_context import require_context
 
+from .display_names import display_names
 from .models import (
     Actor,
     CareRelationship,
@@ -40,7 +41,8 @@ def label_for(actor_type: str, subject: str, public_id: str) -> str:
 def actor_labels() -> dict[str, str]:
     """public_id -> label for every actor of the bound tenant."""
     rows = Actor.objects.filter(**_scope()).values_list("public_id", "actor_type", "subject")
-    return {pid: label_for(kind, subject, pid) for pid, kind, subject in rows}
+    names = display_names()                       # only staff, doctors and platform users have one
+    return {pid: names.get(pid) or label_for(kind, subject, pid) for pid, kind, subject in rows}
 
 
 def staff_directory() -> dict[str, Any]:
@@ -56,6 +58,7 @@ def staff_directory() -> dict[str, Any]:
             "organization_name": names.get(a.organization.public_id, ""), "status": a.status,
         })
     staff = Actor.objects.filter(**scope).exclude(actor_type__in=_PRIVATE_TYPES)
+    names_set = display_names()
     pending = set(
         Credential.objects.filter(email__gt="", email_verified_at__isnull=True, **scope)
         .values_list("actor_id", flat=True)
@@ -63,7 +66,8 @@ def staff_directory() -> dict[str, Any]:
     return {
         "organizations": [{"id": o.public_id, "name": o.name, "status": o.status} for o in orgs],
         "staff": [
-            {"id": a.public_id, "login": a.subject, "type": a.actor_type, "status": a.status,
+            {"id": a.public_id, "login": a.subject, "name": names_set.get(a.public_id, ""),
+             "type": a.actor_type, "status": a.status,
              "roles": held.get(a.pk, []), "pending_invite": a.pk in pending}
             for a in staff.order_by("created_at")
         ],

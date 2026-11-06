@@ -20,6 +20,7 @@ from .models import (
     ActorType,
     CareBasis,
     CareRelationship,
+    Credential,
     Person,
     ProxyGrant,
     ProxyStatus,
@@ -140,6 +141,18 @@ def care_patients(actor_public_id: str, *, at: dt.datetime | None = None) -> lis
         {"person_ref": r.person.public_id, "basis": r.basis, "since": r.valid_from.isoformat()}
         for r in rows
     ]
+
+
+def verified_login_email_of_person(person_public_id: str) -> tuple[str, str] | None:
+    """(login public id, confirmed email address) of the login that IS this patient, or None if
+    the person has no login of their own, no address, or has not confirmed it. A guardian's login
+    is deliberately not used: only the patient is emailed about their own care."""
+    ctx = require_context()
+    cred = Credential.objects.select_related("actor").filter(
+        cell_id=ctx.cell_id, tenant_id=ctx.tenant_id, actor__status=Status.ACTIVE,
+        actor__person__public_id=person_public_id, email__gt="",
+        email_verified_at__isnull=False).first()
+    return (cred.actor.public_id, cred.email) if cred else None
 
 
 def care_team_of(person_public_id: str, *, at: dt.datetime | None = None) -> list[dict[str, str]]:

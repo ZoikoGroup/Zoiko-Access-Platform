@@ -69,7 +69,7 @@ function View({ dir, onChanged }: { dir: Directory; onChanged: () => void }) {
               const active = m.roles.filter((r) => r.status === "active");
               const me = m.id === dir.me;
               return [
-                <span key="l">{m.login}{me && <Pill kind="info"> you</Pill>}</span>,
+                <span key="l">{m.name ? <><b>{m.name}</b><br /><small>{m.login}</small></> : m.login}{me && <Pill kind="info"> you</Pill>}</span>,
                 TYPE_LABEL[m.type] ?? m.type,
                 active.map((r) => `${roleName(r.role)} at ${r.organization_name}`).join(", ") || "none",
                 m.pending_invite ? <Pill key="p" kind="warn">invited, not accepted</Pill>

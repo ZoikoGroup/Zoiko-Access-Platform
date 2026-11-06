@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from django.db import connection
@@ -31,6 +32,12 @@ def dev_login(settings):
 class Platform(World):
     """Zoiko's own tenant, with support (R11) and safety (R12) staff."""
 
+    # Logins that some tests keep on the object for later.
+    sam: str
+    tess: str
+    support: str
+    safety: str
+
     def __init__(self):
         super().__init__(tenant_type=trust.TenantType.PLATFORM)
         self.client = Client()
@@ -42,7 +49,7 @@ class Platform(World):
                               role_code=role, by="system")
         return actor.public_id
 
-    def header(self, tenant_public_id, subject):
+    def header(self, tenant_public_id, subject) -> dict[str, Any]:
         return {"HTTP_AUTHORIZATION": f"Bearer dev:{tenant_public_id}:idp:{subject}"}
 
     def overview(self, subject, tenant_public_id=None):
@@ -205,7 +212,9 @@ def test_every_view_is_recorded_in_the_platform_tenants_own_chain_only(platform)
     with tenant_transaction(platform.ctx):
         views = AuditEvent.objects.filter(
             action="platform.overview", tenant_id=platform.ctx.tenant_id)
-        assert views.count() == 2 and views.first().details == {"tenants": 2}
+        newest = views.first()
+        assert newest is not None and views.count() == 2
+        assert newest.details == {"tenants": 2}
     assert clinic_events() == before        # the customer's log is untouched
 
 

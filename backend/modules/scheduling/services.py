@@ -26,9 +26,21 @@ from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
 
-from .models import ACTIVE_BOOKING, Attendance, Booking, BookingStatus, Slot, SlotStatus
+from .history import PATIENT_SIDE_ROLES, log_event, side_of
+from .models import (
+    ACTIVE_BOOKING,
+    CLINIC_CANCEL_REASONS,
+    PATIENT_CANCEL_REASONS,
+    Attendance,
+    Booking,
+    BookingStatus,
+    Slot,
+    SlotStatus,
+)
 
 WRITE_BOOKING = "write:booking"
+MAX_REPEAT_DAYS = 31          # one request fills at most a month of days
+MAX_NEW_SLOTS = 400           # and at most this many times in all
 # Only organization staff may confirm. (Patients and guardians may book and cancel.)
 CONFIRMING_ROLES = frozenset({"R04", "R13"})
 
@@ -43,14 +55,21 @@ def _scope() -> dict[str, Any]:
     return {"cell_id": ctx.cell_id, "tenant_id": ctx.tenant_id}
 
 
-def _event(event_type: str, booking: Booking) -> None:
-    emit(
-        event_type=event_type, aggregate_type="booking", aggregate_ref=booking.public_id,
-        payload={
-            "booking_ref": booking.public_id, "slot_ref": booking.slot.public_id,
-            "service_ref": booking.slot.service_ref, "status": booking.status,
-        },
-    )
+def _event(
+    event_type: str, booking: Booking, *, actor_ref: str = "", side: str = ""
+) -> None:
+    """Which booking changed, and who acted: the side (patient or clinic) and, for clinic staff
+    only, their login. A patient is never named: only "patient"."""
+    payload = {
+        "booking_ref": booking.public_id, "slot_ref": booking.slot.public_id,
+        "service_ref": booking.slot.service_ref, "status": booking.status,
+    }
+    if side:
+        payload["side"] = side
+    if actor_ref and side != "patient":
+        payload["actor_ref"] = actor_ref
+    emit(event_type=event_type, aggregate_type="booking", aggregate_ref=booking.public_id,
+         payload=payload)
 
 
 def _times_opened(service_ref: str) -> None:
@@ -71,13 +90,17 @@ def create_slots(
     decision: policy.Decision,
     step_minutes: int | None = None,
     provider_ref: str = "",
+    days: int = 1,
+    weekdays_only: bool = False,
     clock: Clock | None = None,
 ) -> list[dict[str, Any]]:
-    """Add `count` back-to-back slots starting at a wall-clock time at the location.
+    """Add `count` back-to-back slots starting at a wall-clock time at the location, and the same
+    for each of the next days (`days` in all; with `weekdays_only` Saturdays and Sundays are
+    skipped and do not use up a day).
 
     `first_local` is NAIVE: the number on the clinic's clock. Times that do not exist (the
     spring-forward gap) or happen twice (fall-back) are refused rather than guessed (DEV-017).
-    All slots are created or none.
+    All slots are created or none, whatever the number of days.
     """
     service = catalog.get_service(service_ref)
     policy.check_receipt(
@@ -86,6 +109,8 @@ def create_slots(
     )
     if not 1 <= count <= 200:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["count"])
+    if not 1 <= days <= MAX_REPEAT_DAYS or count * days > MAX_NEW_SLOTS:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["days"])
     location = catalog.get_location(location_ref)
     if service["status"] != "active" or location["status"] != "active":
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["service"])
@@ -99,29 +124,127 @@ def create_slots(
     duration = dt.timedelta(minutes=int(service["duration_minutes"]))
     now = utc_now(clock)
     created: list[Slot] = []
+    # The days to fill: `days` of them, counting from the first, leaving out weekends if asked.
+    day_starts: list[dt.datetime] = []
+    cursor = first_local
+    while len(day_starts) < days:
+        if not (weekdays_only and cursor.weekday() >= 5):
+            day_starts.append(cursor)
+        cursor += dt.timedelta(days=1)
     with transaction.atomic():
-        for i in range(count):
-            try:
-                start = from_local(
-                    first_local + dt.timedelta(minutes=i * step), location["time_zone"]
-                ).instant
-            except TimeError:
-                raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["first_local"]) from None
-            if start <= now:
-                raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["first_local"])
-            try:
-                with transaction.atomic():
-                    created.append(Slot.objects.create(
-                        service_ref=service_ref, location_ref=location_ref,
-                        organization_ref=service["organization_ref"], starts_at=start,
-                        ends_at=start + duration, local_zone=location["time_zone"],
-                        provider_ref=provider_ref,
-                    ))
-            except IntegrityError:
-                raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None
+        for day_start in day_starts:
+            for i in range(count):
+                try:
+                    start = from_local(
+                        day_start + dt.timedelta(minutes=i * step), location["time_zone"]
+                    ).instant
+                except TimeError:
+                    raise ZoikoError(
+                        ErrorCode.VALIDATION_FAILED, fields=["first_local"]) from None
+                if start <= now:
+                    raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["first_local"])
+                earlier = Slot.objects.filter(
+                    service_ref=service_ref, location_ref=location_ref, starts_at=start,
+                    provider_ref=provider_ref, status=SlotStatus.WITHDRAWN, **_scope()).first()
+                if earlier is not None:                 # taken off the calendar before: put it back
+                    earlier.status, earlier.ends_at = SlotStatus.OPEN, start + duration
+                    earlier.entity_version += 1
+                    earlier.save(update_fields=[
+                        "status", "ends_at", "entity_version", "updated_at"])
+                    created.append(earlier)
+                    continue
+                try:
+                    with transaction.atomic():
+                        created.append(Slot.objects.create(
+                            service_ref=service_ref, location_ref=location_ref,
+                            organization_ref=service["organization_ref"], starts_at=start,
+                            ends_at=start + duration, local_zone=location["time_zone"],
+                            provider_ref=provider_ref,
+                        ))
+                except IntegrityError:
+                    raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None
         _audit(actor_public_id, "slot.create", "service", service_ref)
         _times_opened(service_ref)
         return [slot_dict(s) for s in created]
+
+
+MAX_WITHDRAW_SPAN_DAYS = 62
+
+
+def withdraw_slot(
+    *,
+    slot_ref: str,
+    actor_public_id: str,
+    decision: policy.Decision,
+    clock: Clock | None = None,
+) -> None:
+    """Take ONE free, future time off the calendar. A time that has a booking (waiting or
+    confirmed), is already withdrawn, or has already started is refused and nothing changes.
+    The time can be put back by creating it again."""
+    slot = Slot.objects.select_for_update().filter(public_id=slot_ref, **_scope()).first()
+    if slot is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    policy.check_receipt(
+        decision, actor_public_id=actor_public_id, operation="write:catalog",
+        organization_public_id=slot.organization_ref, subject_ref=None,
+    )
+    taken = Booking.objects.filter(slot=slot, status__in=ACTIVE_BOOKING).exists()
+    if slot.status != SlotStatus.OPEN or slot.starts_at <= utc_now(clock) or taken:
+        raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+    slot.status = SlotStatus.WITHDRAWN
+    slot.entity_version += 1
+    slot.save(update_fields=["status", "entity_version", "updated_at"])
+    _audit(actor_public_id, "slot.withdraw_one", "slot", slot_ref)
+
+
+def withdraw_slots(
+    *,
+    service_ref: str,
+    first_day: dt.date,
+    last_day: dt.date,
+    actor_public_id: str,
+    decision: policy.Decision,
+    provider_ref: str = "",
+    dry_run: bool = False,
+    clock: Clock | None = None,
+) -> int:
+    """Take the FREE, FUTURE times of a service off the calendar for these clinic days (both ends
+    included, by each time's own clinic clock), for one doctor if given. A time that has a booking,
+    waiting or confirmed, is NEVER touched: those appointments are cancelled or moved one by one.
+    With `dry_run` it only counts. Returns how many times were (or would be) taken off.
+
+    A withdrawn time can be put back by creating the same time again."""
+    service = catalog.get_service(service_ref)
+    policy.check_receipt(
+        decision, actor_public_id=actor_public_id, operation="write:catalog",
+        organization_public_id=service["organization_ref"], subject_ref=None,
+    )
+    if last_day < first_day or (last_day - first_day).days >= MAX_WITHDRAW_SPAN_DAYS:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["last_day"])
+    now = utc_now(clock)
+    taken = Booking.objects.filter(slot=OuterRef("pk"), status__in=ACTIVE_BOOKING)
+    rows = (
+        Slot.objects.filter(
+            service_ref=service_ref, status=SlotStatus.OPEN, starts_at__gt=now,
+            # a day either side of the range, then the exact clinic day is checked per time
+            starts_at__gte=dt.datetime.combine(first_day, dt.time.min, dt.timezone.utc)
+            - dt.timedelta(days=1),
+            starts_at__lt=dt.datetime.combine(last_day, dt.time.min, dt.timezone.utc)
+            + dt.timedelta(days=2),
+            **_scope())
+        .annotate(is_taken=Exists(taken)).filter(is_taken=False)
+    )
+    if provider_ref:
+        rows = rows.filter(provider_ref=provider_ref)
+    chosen = [s for s in rows if first_day <= s.starts_at.astimezone(get_zone(s.local_zone)).date()
+              <= last_day]
+    if dry_run or not chosen:
+        return len(chosen)
+    with transaction.atomic():
+        Slot.objects.filter(pk__in=[s.pk for s in chosen]).update(
+            status=SlotStatus.WITHDRAWN, updated_at=now)
+        _audit(actor_public_id, "slot.withdraw", "service", service_ref)
+    return len(chosen)
 
 
 def _open_slots(service_ref: str, now: dt.datetime) -> QuerySet[Slot]:
@@ -163,6 +286,7 @@ def booking_dict(booking: Booking) -> dict[str, Any]:
         "created_at": booking.created_at.isoformat(), "slot": slot_dict(booking.slot),
         "rescheduled_from_ref": booking.rescheduled_from_ref,
         "attendance": booking.attendance,
+        "cancel_reason": booking.cancel_reason,
         "attendance_at": booking.attendance_at.isoformat() if booking.attendance_at else None,
     }
 
@@ -202,7 +326,10 @@ def book(
         except IntegrityError:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None  # someone else got it
         _audit(actor_public_id, "booking.request", "booking", booking.public_id)
-        _event("booking.requested.v1", booking)
+        _event("booking.requested.v1", booking, actor_ref=actor_public_id,
+               side=side_of(decision.role_code))
+        log_event(booking, "requested", state_from="", state_to=booking.status,
+                  source=side_of(decision.role_code), actor_ref=actor_public_id, clock=clock)
         return booking_dict(booking)
 
 
@@ -228,7 +355,11 @@ def confirm(
         booking.save(update_fields=["status", "confirmed_at", "entity_version", "updated_at"])
         _audit(actor_public_id, "booking.confirm", "booking", booking.public_id)
         _link_doctor(booking, actor_public_id)
-        _event("booking.confirmed.v1", booking)
+        _event("booking.confirmed.v1", booking, actor_ref=actor_public_id,
+               side=side_of(decision.role_code))
+        log_event(booking, "confirmed", state_from=BookingStatus.REQUESTED,
+                  state_to=booking.status, source=side_of(decision.role_code),
+                  actor_ref=actor_public_id)
         return booking_dict(booking)
 
 
@@ -252,10 +383,21 @@ def _link_doctor(booking: Booking, confirmed_by: str) -> None:
         return
 
 
+def _check_reason(reason: str, role_code: str) -> str:
+    """A cancellation reason is optional. If given it must be one of the codes for the side the
+    person is on (patient or guardian, or clinic staff)."""
+    reason = (reason or "").strip()
+    allowed = (PATIENT_CANCEL_REASONS if role_code in PATIENT_SIDE_ROLES else CLINIC_CANCEL_REASONS)
+    if reason and reason not in allowed:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["reason"])
+    return reason
+
+
 def cancel(
-    *, booking_ref: str, actor_public_id: str, decision: policy.Decision
+    *, booking_ref: str, actor_public_id: str, decision: policy.Decision, reason: str = ""
 ) -> dict[str, Any]:
-    """Cancel a booking. The slot becomes bookable again."""
+    """Cancel a booking, with an optional reason. The slot becomes bookable again. Cancelling a
+    booking that is already cancelled changes nothing (the first reason is kept)."""
     with transaction.atomic():
         booking = _own_booking(booking_ref)
         policy.check_receipt(
@@ -264,12 +406,19 @@ def cancel(
         )
         if booking.status == BookingStatus.CANCELLED:
             return booking_dict(booking)
+        booking.cancel_reason = _check_reason(reason, decision.role_code)
+        was = booking.status
         booking.status = BookingStatus.CANCELLED
         booking.cancelled_by_ref = actor_public_id
         booking.entity_version += 1
-        booking.save(update_fields=["status", "cancelled_by_ref", "entity_version", "updated_at"])
+        booking.save(update_fields=["status", "cancelled_by_ref", "cancel_reason",
+                                    "entity_version", "updated_at"])
         _audit(actor_public_id, "booking.cancel", "booking", booking.public_id)
-        _event("booking.cancelled.v1", booking)
+        _event("booking.cancelled.v1", booking, actor_ref=actor_public_id,
+               side=side_of(decision.role_code))
+        log_event(booking, "cancelled", state_from=was, state_to=booking.status,
+                  source=side_of(decision.role_code), actor_ref=actor_public_id,
+                  reason_code=booking.cancel_reason)
         if booking.slot.starts_at > utc_now():
             _times_opened(booking.slot.service_ref)             # the time is free again
         return booking_dict(booking)
@@ -306,6 +455,7 @@ def reschedule(
             raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["slot"])
         keep_confirmed = (old.status == BookingStatus.CONFIRMED
                           and decision.role_code in CONFIRMING_ROLES)
+        was = old.status
         old.status = BookingStatus.CANCELLED
         old.cancelled_by_ref = actor_public_id
         old.entity_version += 1
@@ -321,7 +471,13 @@ def reschedule(
         _audit(actor_public_id, "booking.reschedule", "booking", new.public_id)
         if new.status == BookingStatus.CONFIRMED:
             _link_doctor(new, actor_public_id)
-        _event("booking.rescheduled.v1", new)
+        _event("booking.rescheduled.v1", new, actor_ref=actor_public_id,
+               side=side_of(decision.role_code))
+        side = side_of(decision.role_code)
+        log_event(old, "moved_away", state_from=was, state_to=old.status, source=side,
+                  actor_ref=actor_public_id, related_ref=new.public_id, clock=clock)
+        log_event(new, "moved_here", state_from="", state_to=new.status, source=side,
+                  actor_ref=actor_public_id, related_ref=old.public_id, clock=clock)
         _times_opened(old.slot.service_ref)                    # the old time is free again
         return booking_dict(new)
 
@@ -359,6 +515,8 @@ def mark_attendance(
         booking.save(update_fields=["attendance", "attendance_by_ref", "attendance_at",
                                     "entity_version", "updated_at"])
         _audit(actor_public_id, f"booking.{outcome}", "booking", booking.public_id)
+        log_event(booking, outcome, state_from=booking.status, state_to=booking.status,
+                  source=side_of(decision.role_code), actor_ref=actor_public_id, clock=clock)
         emit(event_type="booking.attendance.v1", aggregate_type="booking",
              aggregate_ref=booking.public_id,
              payload={"booking_ref": booking.public_id, "status": booking.status,
@@ -389,6 +547,8 @@ def send_due_reminders(
             booking.save(update_fields=["reminder_sent_at", "entity_version", "updated_at"])
             _audit("system", "booking.reminder", "booking", booking.public_id)
             _event("booking.reminder.v1", booking)
+            log_event(booking, "reminder_sent", state_from=booking.status,
+                      state_to=booking.status, source="system", actor_ref="system", clock=clock)
         return len(due)
 
 
@@ -443,6 +603,58 @@ def booking_counts(clock: Clock | None = None) -> dict[str, int]:
     }
 
 
+def today_counts(organization_ref: str, clock: Clock | None = None) -> dict[str, int]:
+    """Appointments of this organization on today's clinic day (each by its own location's clock):
+    confirmed ones, requests still waiting, and how many of those have not started yet.
+    Numbers only, no patient."""
+    now = utc_now(clock)
+    rows = Booking.objects.select_related("slot").filter(
+        slot__organization_ref=organization_ref, status__in=ACTIVE_BOOKING,
+        slot__starts_at__gt=now - dt.timedelta(days=2),
+        slot__starts_at__lt=now + dt.timedelta(days=2), **_scope())
+    out = {"confirmed": 0, "waiting": 0, "still_to_come": 0}
+    for b in rows:
+        zone = get_zone(b.slot.local_zone)
+        if b.slot.starts_at.astimezone(zone).date() != now.astimezone(zone).date():
+            continue
+        out["confirmed" if b.status == BookingStatus.CONFIRMED else "waiting"] += 1
+        if b.slot.starts_at > now:
+            out["still_to_come"] += 1
+    return out
+
+
+def provider_load(
+    organization_ref: str, provider_refs: list[str], days: int = 14, clock: Clock | None = None
+) -> dict[str, dict[str, Any]]:
+    """For each doctor at an organization: confirmed appointments and free times in the next
+    `days` days, and the start of the next appointment. Numbers and times only, no patient."""
+    now = utc_now(clock)
+    until = now + dt.timedelta(days=days)
+    out: dict[str, dict[str, Any]] = {
+        ref: {"upcoming": 0, "open_times": 0, "next_local": None, "next_zone": None}
+        for ref in provider_refs}
+    booked = Booking.objects.select_related("slot").filter(
+        slot__organization_ref=organization_ref, slot__provider_ref__in=provider_refs,
+        status=BookingStatus.CONFIRMED, slot__starts_at__gt=now, slot__starts_at__lt=until,
+        **_scope()).order_by("slot__starts_at")
+    for b in booked:
+        row = out[b.slot.provider_ref]
+        row["upcoming"] += 1
+        if row["next_local"] is None:
+            row["next_local"] = slot_dict(b.slot)["local_start"]
+            row["next_zone"] = b.slot.local_zone
+    taken = Booking.objects.filter(slot=OuterRef("pk"), status__in=ACTIVE_BOOKING)
+    free = (
+        Slot.objects.filter(
+            organization_ref=organization_ref, provider_ref__in=provider_refs,
+            status=SlotStatus.OPEN, starts_at__gt=now, starts_at__lt=until, **_scope())
+        .annotate(is_taken=Exists(taken)).filter(is_taken=False)
+        .values("provider_ref").annotate(n=Count("id")))
+    for row in free:
+        out[row["provider_ref"]]["open_times"] = row["n"]
+    return out
+
+
 def usual_confirmation_hours(
     days: int = 90, minimum: int = 5, clock: Clock | None = None
 ) -> dict[str, float]:
@@ -462,11 +674,32 @@ def usual_confirmation_hours(
     }
 
 
-def overdue_requests(hours: int, clock: Clock | None = None) -> int:
-    """Requested bookings that have waited for confirmation for more than `hours` hours."""
+def waiting_requests(organization_ref: str, limit: int = 500) -> list[tuple[str, dt.datetime]]:
+    """(booking id, when it was made) of the bookings of this organization still waiting for
+    confirmation, oldest first."""
+    rows = Booking.objects.filter(
+        status=BookingStatus.REQUESTED, slot__organization_ref=organization_ref, **_scope()
+    ).order_by("created_at").values_list("public_id", "created_at")
+    return list(rows[: max(1, min(limit, 1000))])
+
+
+def overdue_requests(
+    hours: int, clock: Clock | None = None, organization_ref: str = ""
+) -> int:
+    """Requested bookings that have waited for confirmation for more than `hours` hours, for one
+    organization when given, else for the whole customer."""
     cutoff = utc_now(clock) - dt.timedelta(hours=hours)
-    return Booking.objects.filter(
-        status=BookingStatus.REQUESTED, created_at__lt=cutoff, **_scope()).count()
+    rows = Booking.objects.filter(
+        status=BookingStatus.REQUESTED, created_at__lt=cutoff, **_scope())
+    if organization_ref:
+        rows = rows.filter(slot__organization_ref=organization_ref)
+    return rows.count()
+
+
+def _rate(missed: int, attended: int) -> float | None:
+    """Share of recorded visits that were missed, 0 to 1; None when no visit was recorded yet."""
+    recorded = missed + attended
+    return round(missed / recorded, 3) if recorded else None
 
 
 def report(
@@ -501,8 +734,26 @@ def report(
             "created_at", "confirmed_at")[:5000]
         if confirmed is not None
     ]
+    why = {row["cancel_reason"] or "none": row["n"] for row in made.filter(
+        status=BookingStatus.CANCELLED).values("cancel_reason").annotate(n=Count("id"))}
+    by_doctor: dict[str, dict[str, int]] = {}
+    for row in held.values("slot__provider_ref", "attendance").annotate(n=Count("id")):
+        mine = by_doctor.setdefault(
+            row["slot__provider_ref"], {"attended": 0, "no_show": 0, "not_recorded": 0})
+        mine[row["attendance"] or "not_recorded"] += row["n"]
+    weekdays = [0] * 7                                  # Monday first, by the clinic's own clock
+    coming = Booking.objects.filter(
+        slot__organization_ref=organization_ref,
+        status__in=[BookingStatus.REQUESTED, BookingStatus.CONFIRMED],
+        slot__starts_at__gte=since, slot__starts_at__lt=until, **scope)
+    for starts, zone in coming.values_list("slot__starts_at", "slot__local_zone")[:5000]:
+        weekdays[starts.astimezone(get_zone(zone)).weekday()] += 1
     return {
-        "per_day": days, "total": sum(status.values()),
+        "by_weekday": weekdays,
+        "by_doctor": [
+            {"provider_ref": ref, **n, "no_show_rate": _rate(n["no_show"], n["attended"])}
+            for ref, n in sorted(by_doctor.items(), key=lambda kv: (-sum(kv[1].values()), kv[0]))],
+        "per_day": days, "total": sum(status.values()), "cancel_reasons": why,
         "status": {k: status.get(k, 0) for k in ("requested", "confirmed", "cancelled")},
         "attendance": {"attended": attendance.get("attended", 0),
                        "no_show": attendance.get("no_show", 0),
@@ -511,3 +762,68 @@ def report(
                              for r in busiest],
         "hours_to_confirm": summarize(waited),
     }
+
+
+FORECAST_DAYS = 7
+FORECAST_HISTORY_DAYS = 56          # eight weeks of past appointments
+FORECAST_MIN_HISTORY_DAYS = 14      # under two weeks of history there is nothing fair to average
+
+
+def usual_by_weekday(
+    past: dict[dt.date, int], today: dt.date, history_days: int
+) -> dict[int, float]:
+    """The average number of appointments on each weekday (Monday = 0) over the last `history_days`
+    days before `today`. Days with no appointment count as zero. A simple average, not a trained
+    model: it says what a normal Tuesday looked like, nothing more."""
+    totals = [0] * 7
+    seen = [0] * 7
+    for back in range(1, history_days + 1):
+        day = today - dt.timedelta(days=back)
+        totals[day.weekday()] += past.get(day, 0)
+        seen[day.weekday()] += 1
+    return {w: round(totals[w] / seen[w], 1) if seen[w] else 0.0 for w in range(7)}
+
+
+def forecast_week(organization_ref: str, clock: Clock | None = None) -> dict[str, Any]:
+    """For each of the next seven days: appointments already booked and what that weekday usually
+    has (the clinic's own clock). Counts only. Says so plainly when there is too little history."""
+    scope = _scope()
+    now = utc_now(clock)
+    start = now - dt.timedelta(days=FORECAST_HISTORY_DAYS + 1)
+    end = now + dt.timedelta(days=FORECAST_DAYS + 2)
+    rows = Booking.objects.filter(
+        slot__organization_ref=organization_ref,
+        status__in=[BookingStatus.REQUESTED, BookingStatus.CONFIRMED],
+        slot__starts_at__gte=start, slot__starts_at__lt=end, **scope,
+    ).values_list("slot__starts_at", "slot__local_zone")[:20000]
+    per_day: dict[dt.date, int] = {}
+    for starts, zone in rows:
+        local = starts.astimezone(get_zone(zone)).date()
+        per_day[local] = per_day.get(local, 0) + 1
+    taken = Booking.objects.filter(slot=OuterRef("pk"), status__in=ACTIVE_BOOKING)
+    open_now = (
+        Slot.objects.filter(
+            organization_ref=organization_ref, status=SlotStatus.OPEN, starts_at__gt=now,
+            starts_at__lt=end, **scope)
+        .annotate(is_taken=Exists(taken))
+        .filter(is_taken=False)
+        .values_list("starts_at", "local_zone")[:20000]
+    )
+    free: dict[dt.date, int] = {}
+    for starts, zone in open_now:
+        local = starts.astimezone(get_zone(zone)).date()
+        free[local] = free.get(local, 0) + 1
+    today = now.date()
+    past_days = [d for d in per_day if d < today]
+    history = (today - min(past_days)).days if past_days else 0
+    enough = history >= FORECAST_MIN_HISTORY_DAYS
+    usual = usual_by_weekday(per_day, today, min(history, FORECAST_HISTORY_DAYS)) if enough else {}
+    days = []
+    for ahead in range(FORECAST_DAYS):
+        day = today + dt.timedelta(days=ahead)
+        days.append({
+            "date": day.isoformat(), "weekday": day.weekday(), "booked": per_day.get(day, 0),
+            "open": free.get(day, 0),
+            "usual": usual.get(day.weekday()) if enough else None,
+        })
+    return {"enough_history": enough, "history_days": history, "days": days}

@@ -1,3 +1,6 @@
+import type { BookingHistoryData } from "@shared/BookingHistory";
+import { friendlyEmailError } from "@shared/EmailCard";
+import { friendlyPasswordError } from "@shared/ChangePassword";
 // The only file that talks to the backend. Pages call these functions, never fetch().
 
 export interface Session {
@@ -38,7 +41,7 @@ export interface Slot {
   local_start: string;
   local_zone: string;
   location: string;
-  provider: { id: string; name: string } | null;
+  provider: { id: string; name: string; verified?: boolean } | null;
 }
 
 export interface Booking {
@@ -48,12 +51,12 @@ export interface Booking {
   person: string;
   service: { id: string; name: string; mode: string };
   organization: { id: string; name: string };
-  location: { id: string; name: string; address: string };
+  location: { id: string; name: string; address: string; phone?: string };
   starts_at: string;
   ends_at: string;
   local_start: string;
   local_zone: string;
-  provider: { id: string; name: string } | null;
+  provider: { id: string; name: string; verified?: boolean } | null;
   rescheduled_from: string | null;     // the appointment this one replaced
   attendance: "attended" | "no_show" | null;   // recorded by the clinic after the visit time
 }
@@ -278,6 +281,34 @@ export async function downloadCalendar(id: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+/** Save everything the system holds about this person as one JSON file (see my/export). */
+export async function downloadMyData(): Promise<void> {
+  const res = await fetch("/api/v1/my/export", { headers: { ...authHeader() } });
+  if (!res.ok) throw new ApiError("Could not prepare your data", "ERROR", res.status);
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "my-zoiko-data.json";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Change the signed-in person's password. The server ends every other session and returns a fresh
+ *  token for this one, which replaces the stored token so this tab stays signed in. */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  if (current?.token.startsWith("dev:")) {
+    throw new Error("A development link has no password. Sign in with your login and password to change it.");
+  }
+  try {
+    const { body } = await request<{ token: string }>("auth/change-password", {
+      method: "POST", body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+    if (current) setSession({ ...current, token: body.token });
+  } catch (e) {
+    throw friendlyPasswordError(e);
+  }
+}
+
 export const getMe = async () => (await request<Me>("me")).body;
 
 export interface ServiceFilters {
@@ -302,6 +333,10 @@ export async function searchServices(f: ServiceFilters = {}): Promise<{ services
   return (await request<{ services: Service[]; categories: CategoryOption[] }>(`services${query ? `?${query}` : ""}`)).body;
 }
 
+/** Every step of one appointment, worded for the patient (no staff names). */
+export const getBookingHistory = async (id: string) =>
+  (await request<BookingHistoryData>(`bookings/${encodeURIComponent(id)}/history`)).body;
+
 export const getServices = async (q = "") => (await searchServices({ q })).services;
 
 export const getSlots = async (serviceId: string) =>
@@ -322,10 +357,10 @@ export async function createBooking(slot: string, person?: string): Promise<Book
   return body.booking;
 }
 
-export async function cancelBooking(id: string): Promise<Booking> {
+export async function cancelBooking(id: string, reason = ""): Promise<Booking> {
   const { body } = await request<{ booking: Booking }>(`bookings/${encodeURIComponent(id)}/cancel`, {
     method: "POST",
-    body: "{}",
+    body: JSON.stringify(reason ? { reason } : {}),
   });
   return body.booking;
 }
@@ -345,6 +380,13 @@ export async function saveProfile(person: string, body: { name: string; birth_da
 }
 
 export const getCoverage = async () => (await request<{ coverage: CoverageRow[] }>("coverage")).body.coverage;
+
+export interface SharingChoice { person: string; share_with_staff: boolean }
+export const getSharing = async () =>
+  (await request<{ sharing: SharingChoice[] }>("coverage/sharing")).body.sharing;
+export async function setSharing(person: string, share: boolean): Promise<void> {
+  await request("coverage/sharing", { method: "POST", body: JSON.stringify({ person, share }) });
+}
 
 export async function addCoverage(body: {
   insurer: string; plan: string; member_id: string; valid_from: string; valid_until: string;
@@ -446,5 +488,27 @@ export async function resendVerification(): Promise<"sent" | "wait"> {
   } catch (e) {
     if (e instanceof ApiError && e.status === 429) return "wait";
     throw e;
+  }
+}
+
+export interface EmailNotices { enabled: boolean; can_email: boolean }
+
+/** Does this patient get short emails about their care, and could one be sent (a confirmed address)? */
+export const getEmailNotices = async () => (await request<EmailNotices>("my/email-notices")).body;
+
+export const setEmailNotices = async (enabled: boolean) =>
+  (await request<EmailNotices>("my/email-notices", { method: "POST", body: JSON.stringify({ enabled }) })).body;
+
+export const getEmailStatus = async () => (await getMe()).email;
+
+/** Set or change this person's email address (the current password is required). */
+export async function setEmail(email: string, currentPassword: string) {
+  try {
+    const { body } = await request<{ email: string; verified: boolean; sent: boolean }>("auth/email", {
+      method: "POST", body: JSON.stringify({ email, current_password: currentPassword }),
+    });
+    return body;
+  } catch (e) {
+    throw friendlyEmailError(e);
   }
 }

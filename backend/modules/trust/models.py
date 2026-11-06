@@ -170,6 +170,20 @@ class PersonProfile(CellScopedModel):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="profile_scope_idx")]
 
 
+class ActorName(CellScopedModel):
+    """The name a staff member, doctor or platform user chose to be shown by, stored ONLY as
+    ciphertext (foundation/crypto.py), bound to this tenant and this person.
+
+    Entered by the person themselves and NOT verified by anyone. Patients and guardians have no
+    row here: their names live in PersonProfile."""
+
+    actor = models.OneToOneField(Actor, on_delete=models.PROTECT, related_name="display_name_row")
+    name_enc = models.TextField()
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="actorname_scope_idx")]
+
+
 class CareBasis(models.TextChoices):
     CARE_TEAM = "care_team", "Care team assignment"
     REFERRAL = "referral", "Referral"
@@ -272,3 +286,123 @@ class AuthToken(CellScopedModel):
             models.Index(fields=["token_hash"], name="authtoken_hash_idx"),
             models.Index(fields=["actor", "purpose", "created_at"], name="authtoken_actor_idx"),
         ]
+
+
+class ReleaseNote(CellScopedModel):
+    """One line of the platform's release log: what version went live, when, and what changed.
+    Written by Zoiko staff by hand. Add-only: a wrong entry is answered by a new one, never edited.
+    """
+
+    version = models.CharField(max_length=40)
+    summary = models.CharField(max_length=200)
+    details = models.TextField(blank=True, default="")
+    released_on = models.DateField()
+    recorded_by_ref = models.CharField(max_length=64)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="releasenote_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "version"], name="releasenote_one_version"),
+        ]
+
+
+class IncidentSeverity(models.TextChoices):
+    # Provisional labels: the real severity scale is undecided (DEV-014).
+    LOW = "low", "Low"
+    MEDIUM = "medium", "Medium"
+    HIGH = "high", "High"
+
+
+class IncidentStatus(models.TextChoices):
+    OPEN = "open", "Open"
+    RESOLVED = "resolved", "Resolved"
+
+
+class Incident(CellScopedModel):
+    """One line of the platform's incident log, written by Zoiko staff by hand.
+
+    It must never hold patient details. An entry can be closed once with a resolution note; it is
+    never otherwise edited or deleted.
+    """
+
+    title = models.CharField(max_length=120)
+    severity = models.CharField(max_length=8, choices=IncidentSeverity.choices)
+    happened_on = models.DateField()
+    details = models.TextField(blank=True, default="")
+    status = models.CharField(
+        max_length=10, choices=IncidentStatus.choices, default=IncidentStatus.OPEN)
+    resolution = models.TextField(blank=True, default="")
+    resolved_on = models.DateField(null=True, blank=True)
+    recorded_by_ref = models.CharField(max_length=64)
+    resolved_by_ref = models.CharField(max_length=64, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="incident_scope_idx")]
+
+
+class SuspensionKind(models.TextChoices):
+    SUSPEND = "suspend", "Suspend"
+    REINSTATE = "reinstate", "Reinstate"
+
+
+class SuspensionStatus(models.TextChoices):
+    PENDING = "pending", "Waiting for a second person"
+    APPLIED = "applied", "Approved and applied"
+    REJECTED = "rejected", "Rejected"
+    CANCELLED = "cancelled", "Cancelled by the requester"
+
+
+class Suspension(CellScopedModel):
+    """A request to suspend or reinstate a customer. It changes nothing until a DIFFERENT support
+    person approves it. Kept in the platform's own tenant; never deleted.
+    """
+
+    customer_ref = models.CharField(max_length=22)           # the customer's tenant public id
+    kind = models.CharField(max_length=10, choices=SuspensionKind.choices)
+    reason = models.CharField(max_length=500)
+    status = models.CharField(
+        max_length=10, choices=SuspensionStatus.choices, default=SuspensionStatus.PENDING)
+    requested_by_ref = models.CharField(max_length=64)
+    decided_by_ref = models.CharField(max_length=64, blank=True, default="")
+    decision_note = models.CharField(max_length=300, blank=True, default="")
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="suspension_scope_idx")]
+        constraints = [
+            # One open request for each customer at a time.
+            models.UniqueConstraint(
+                fields=["tenant_id", "customer_ref"], condition=models.Q(status="pending"),
+                name="suspension_one_pending_per_customer"),
+        ]
+
+
+class NameCheckStatus(models.TextChoices):
+    VERIFIED = "verified", "Verified"
+    WITHDRAWN = "withdrawn", "Withdrawn"
+
+
+class NameCheck(CellScopedModel):
+    """A record that an administrator checked a doctor's display name against something real.
+
+    It stores WHAT was checked and a short note, plus a fingerprint of the name at that moment:
+    if the doctor later changes the name, the check no longer applies (nothing is shown as
+    verified).
+    The name itself stays in ActorName (encrypted). TEMPORARY RULE (DEV-095): one administrator
+    can verify; who really may is open question 25.
+    """
+
+    actor = models.OneToOneField(Actor, on_delete=models.PROTECT, related_name="name_check_row")
+    name_digest = models.CharField(max_length=64)
+    basis = models.CharField(max_length=20)
+    note = models.CharField(max_length=200, blank=True, default="")
+    status = models.CharField(
+        max_length=10, choices=NameCheckStatus.choices, default=NameCheckStatus.VERIFIED)
+    checked_by_ref = models.CharField(max_length=22)
+    checked_at = models.DateTimeField(default=utc_now)
+    withdrawn_by_ref = models.CharField(max_length=22, blank=True, default="")
+    withdrawn_reason = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="namecheck_scope_idx")]

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { getCompliance } from "../api";
-import type { Evidence } from "../types";
+import type { Compliance as ComplianceData } from "../types";
 import { Gate, useLoad } from "../useLoad";
 import { Card, Pill, Table, timeOf } from "../ui";
 
@@ -9,7 +9,7 @@ export function Compliance() {
   return <Gate result={result}>{(data) => <View data={data} />}</Gate>;
 }
 
-function View({ data }: { data: Evidence }) {
+function View({ data }: { data: ComplianceData }) {
   const [onlyDenied, setOnlyDenied] = useState(false);
   const decisions = data.decisions.filter((d) => !onlyDenied || !d.allowed);
   const chain = data.chain;
@@ -24,6 +24,17 @@ function View({ data }: { data: Evidence }) {
         {chain && (chain.ok
           ? <Pill kind="ok">Audit chain intact ({chain.checked} entries)</Pill>
           : <Pill kind="bad">TAMPERING at #{chain.bad_seq}: {chain.problem}</Pill>)}
+      </div>
+
+      <div className="grid cols-2">
+        <Card title="Who was refused most" sub={`Refused access checks in the last ${data.refused.days} days`}>
+          <Table headers={["Who", "Refused", "All checks"]} empty="Nobody was refused."
+            rows={data.refused.by_person.map((p) => [p.actor, p.denied, p.total])} />
+        </Card>
+        <Card title="Refused checks per day" sub="Days are UTC; today is the last row">
+          <Table headers={["Day (UTC)", "Refused", "All checks"]} empty="No data."
+            rows={data.refused.by_day.map((x) => [x.day, x.denied, x.total])} />
+        </Card>
       </div>
 
       <div className="grid">

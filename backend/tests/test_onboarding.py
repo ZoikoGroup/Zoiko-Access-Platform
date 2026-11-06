@@ -1,5 +1,6 @@
 import json
 import re
+from typing import Any
 
 import pytest
 from django.core import mail
@@ -49,7 +50,7 @@ def tenant_names():
 
 def invitation_token():
     mailer.send_due()
-    return re.search(r"token=([\w.\-]+)", mail.outbox[-1].body).group(1)
+    return re.findall(r"token=([\w.\-]+)", str(mail.outbox[-1].body))[0]
 
 
 # ------------------------------------------------------------------ the happy path
@@ -71,7 +72,7 @@ def test_support_adds_a_customer_and_its_administrator_can_then_sign_in(platform
 
     with pytest.raises(Exception):  # noqa: B017 - ZoikoError: nobody knows the placeholder password
         auth.login(tenant_name="Green Valley Clinics", login=ADMIN, password="Whatever-Passw0rd")
-    token = re.search(r"token=([\w.\-]+)", message.body).group(1)
+    token = re.findall(r"token=([\w.\-]+)", str(message.body))[0]
     from django.test import Client
     done = Client().post(API + "auth/reset-password", json.dumps(
         {"token": token, "password": PICKED}), content_type="application/json")
@@ -101,7 +102,7 @@ def test_the_administrator_can_manage_their_own_team_straight_away(platform):
         "organization": "Green Valley Clinics", "login": ADMIN, "password": PICKED}),
         content_type="application/json")
     assert login.status_code == 200 and json.loads(login.content)["home"] == "operations"
-    bearer = {"HTTP_AUTHORIZATION": f"Bearer {json.loads(login.content)['token']}"}
+    bearer: dict[str, Any] = {"HTTP_AUTHORIZATION": f"Bearer {json.loads(login.content)['token']}"}
     r = Client().get(API + "staff/directory", **bearer)
     assert r.status_code == 200 and json.loads(r.content)["can_manage"] is True
     assert tenant["public_id"]

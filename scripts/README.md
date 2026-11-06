@@ -8,10 +8,10 @@ anything real. They need only Python (no packages), and the backend running (`do
 |---|---|
 | `seed_demo_tenant.py "Alpha Clinics"` | A customer with 2 clinics, 6 demo logins (patient, guardian, clinic ops, support, clinician, employer), a catalog and open times. Prints the tenant id. |
 | `set_demo_passwords.py <tenant id>` | Gives every login in a tenant the demo password. |
-| `seed_platform_tenant.py` | Zoiko's own platform tenant with a support login and a safety login. |
+| `seed_platform_tenant.py` | Zoiko's own platform tenant with two support logins and a safety login. Safe to run again: it adds any that are missing. |
 
-Demo platform logins: organization `Zoiko Platform`, `vikram@zoiko.example` (support, R11) or
-`iyer@zoiko.example` (safety, R12).
+Demo platform logins: organization `Zoiko Platform`, `vikram@zoiko.example` or `priya@zoiko.example` (support, R11:
+the two people needed to try the two-person suspension) or `iyer@zoiko.example` (safety, R12: can look, cannot decide).
 
 ### Simple demo (easy to remember)
 

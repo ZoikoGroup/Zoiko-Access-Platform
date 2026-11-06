@@ -31,6 +31,9 @@ curl http://127.0.0.1:8000/readyz     # {"status":"ready"} once Postgres is up
 
 Checks and the no-Docker setup are in [backend/README.md](backend/README.md).
 
+How to start the four apps, their ports and demo logins, what to do when a page is blank, and the daily checks are in [docs/RUNNING-LOCALLY.md](docs/RUNNING-LOCALLY.md). The database setup for a real server is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+A learning path for writing a project like this by hand, step by step, is in [docs/BUILD-IT-YOURSELF.md](docs/BUILD-IT-YOURSELF.md).
+
 ## Rules to remember
 
 - Never commit `.env` or any real secret. Never print environment variables or health data in logs.

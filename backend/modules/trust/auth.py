@@ -29,6 +29,7 @@ from django.db import IntegrityError, transaction
 
 from foundation.cell_context import build_context, require_context, tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
+from foundation.mail import queue_email
 from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 
@@ -310,6 +311,78 @@ def revoke_sessions(actor_public_id: str, *, by: str) -> None:
         cred.save(update_fields=["session_epoch", "updated_at"])
         record(actor_ref=by, action="auth.sign_out", object_type="actor",
                object_ref=actor_public_id, outcome=AuditOutcome.ALLOWED)
+
+
+def check_current_password(
+    cred: Credential, current_password: object, now: dt.datetime, action: str
+) -> bool:
+    """Is this the person's current password? A wrong guess counts towards the sign-in lockout
+    (5 wrong, then locked for 15 minutes, and even the right password is refused meanwhile) and
+    is audited as `action`. Call it inside a transaction that is COMMITTED on a False answer, so
+    the counter is kept. Never raises for a wrong password."""
+    locked = cred.locked_until is not None and cred.locked_until > now
+    correct = isinstance(current_password, str) and verify_password(
+        cred.password_hash, current_password)
+    if correct and not locked:
+        return True
+    if not locked:
+        cred.failed_attempts += 1
+        if cred.failed_attempts >= MAX_FAILURES:
+            cred.locked_until, cred.failed_attempts = now + LOCK_FOR, 0
+        cred.save(update_fields=["failed_attempts", "locked_until", "updated_at"])
+    _audit(cred.actor.public_id, action, AuditOutcome.DENIED,
+           "locked" if locked else "bad_password")
+    return False
+
+
+@dataclass(frozen=True)
+class PasswordChange:
+    """The outcome of change_password. `token` is a fresh session for the person who changed it
+    (every other session was ended); it is empty when the current password was wrong."""
+    ok: bool
+    token: str = ""
+    expires_at: dt.datetime | None = None
+
+
+def change_password(
+    actor_public_id: str, *, current_password: str, new_password: str,
+    clock: Clock | None = None,
+) -> PasswordChange:
+    """A signed-in person changes their own password. The CURRENT password must be right (a stolen
+    session alone is not enough); wrong guesses count towards the same lockout as sign-in. Success
+    ends every session, gives this one a fresh token, and emails a notice to a verified address.
+
+    Returns ok=False for a wrong current password so the failure is committed with its counter."""
+    now = utc_now(clock)
+    ctx = require_context()
+    with transaction.atomic():
+        cred = Credential.objects.select_for_update().select_related("actor").filter(
+            cell_id=ctx.cell_id, tenant_id=ctx.tenant_id, actor__public_id=actor_public_id).first()
+        if cred is None:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        if not check_current_password(cred, current_password, now, "auth.change_password"):
+            return PasswordChange(ok=False)
+        if not isinstance(new_password, str) or new_password == current_password:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["new_password"])
+        check_password_rules(new_password, cred.login)
+        cred.password_hash = hash_password(new_password)
+        cred.failed_attempts, cred.locked_until = 0, None
+        cred.session_epoch += 1
+        cred.password_changed_at = now
+        cred.save()
+        _audit(actor_public_id, "auth.change_password", AuditOutcome.ALLOWED)
+        if cred.email and cred.email_verified_at is not None:
+            queue_email(
+                kind="password_changed", to_address=cred.email,
+                subject="Your Zoiko Access password was changed",
+                body=("Hello,\n\nThe password of your Zoiko Access account was just changed and "
+                      "every other device was signed out.\n\nIf this was not you, reset your "
+                      "password now from the sign-in page and contact your clinic.\n\n"
+                      "Zoiko Access\n"))
+        token = issue_token(
+            tenant_public_id=Tenant.objects.get(id=ctx.tenant_id).public_id,
+            actor_public_id=actor_public_id, epoch=cred.session_epoch, now=now)
+        return PasswordChange(ok=True, token=token, expires_at=now + TOKEN_LIFETIME)
 
 
 def set_password(

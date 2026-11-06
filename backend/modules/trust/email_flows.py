@@ -16,18 +16,28 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import secrets
+from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
 
 from foundation.cell_context import build_context, require_context, tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
-from foundation.mail import mask_address, queue_email
+from foundation.mail import clean_address, mask_address, queue_email
 from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 
-from .auth import check_password_rules, set_password
-from .models import Actor, ActorType, AuthToken, Credential, Status, Tenant, TokenPurpose
+from .auth import check_current_password, check_password_rules, set_password
+from .models import (
+    Actor,
+    ActorType,
+    AuthToken,
+    Credential,
+    Status,
+    Tenant,
+    TenantType,
+    TokenPurpose,
+)
 
 VERIFY_TTL = dt.timedelta(hours=48)
 RESET_TTL = dt.timedelta(hours=1)
@@ -35,6 +45,19 @@ INVITE_TTL = dt.timedelta(days=7)
 RESEND_MIN_GAP = dt.timedelta(seconds=60)
 VERIFY_PER_DAY = 5
 RESET_PER_HOUR = 3
+
+
+def app_url_for(actor: Actor) -> str:
+    """Which web app a link in an email to this person should open: patients and guardians the
+    patient app, Zoiko's own platform staff the platform console, doctors the doctor app, and
+    everyone else the staff console."""
+    if Tenant.objects.filter(id=actor.tenant_id, type=TenantType.PLATFORM).exists():
+        return settings.PLATFORM_APP_URL
+    if actor.actor_type in (ActorType.PATIENT, ActorType.PROXY):
+        return settings.PATIENT_APP_URL
+    if actor.actor_type == ActorType.CLINICIAN:
+        return settings.CLINICIAN_APP_URL
+    return settings.STAFF_APP_URL
 
 
 def _bad_link() -> ZoikoError:
@@ -105,7 +128,7 @@ def send_verification(actor_public_id: str, *, clock: Clock | None = None) -> bo
             or sent.filter(created_at__gte=now - dt.timedelta(days=1)).count() >= VERIFY_PER_DAY):
         raise ZoikoError(ErrorCode.RATE_LIMITED)
     token = _issue(actor, TokenPurpose.VERIFY_EMAIL, VERIFY_TTL, now)
-    link = f"{settings.PATIENT_APP_URL}/?action=verify&token={token}"
+    link = f"{app_url_for(actor)}/?action=verify&token={token}"
     queue_email(
         kind="verify_email", to_address=cred.email, subject="Verify your email for Zoiko Access",
         body=(
@@ -164,7 +187,7 @@ def request_password_reset(*, tenant_name: str, login: str, clock: Clock | None 
         if recent >= RESET_PER_HOUR:
             return
         token = _issue(cred.actor, TokenPurpose.RESET_PASSWORD, RESET_TTL, now)
-        link = f"{settings.PATIENT_APP_URL}/?action=reset&token={token}"
+        link = f"{app_url_for(cred.actor)}/?action=reset&token={token}"
         queue_email(
             kind="reset_password", to_address=cred.email,
             subject="Reset your Zoiko Access password",
@@ -174,6 +197,59 @@ def request_password_reset(*, tenant_name: str, login: str, clock: Clock | None 
                 f"\n\n{link}\n\nIf this was not you, ignore this email: your password "
                 "has not changed.\n\nZoiko Access\n"))
         _audit(cred.actor.public_id, "auth.reset_requested")
+
+
+@dataclass(frozen=True)
+class EmailChange:
+    """The outcome of set_email. ok=False means the current password was wrong (and that was
+    counted); `sent` says whether the verification email could be queued right now."""
+    ok: bool
+    sent: bool = False
+
+
+def set_email(
+    actor_public_id: str, *, new_email: str, current_password: str, clock: Clock | None = None
+) -> EmailChange:
+    """A signed-in person sets or changes where their mail goes. Needs the CURRENT password (a
+    stolen open session must not be able to redirect password-reset mail). The new address starts
+    UNVERIFIED and gets a verification link; the old address, if it was verified, is told.
+    Needs a bound tenant and a transaction. Returns ok=False for a wrong password."""
+    now = utc_now(clock)
+    address = clean_address(new_email)
+    ctx = require_context()
+    cred = Credential.objects.select_for_update().select_related("actor").filter(
+        cell_id=ctx.cell_id, tenant_id=ctx.tenant_id, actor__public_id=actor_public_id).first()
+    if cred is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if not check_current_password(cred, current_password, now, "auth.set_email"):
+        return EmailChange(ok=False)
+    old, was_verified = cred.email, cred.email_verified_at is not None
+    if address == old:
+        sent = False if was_verified else _try_send_verification(actor_public_id, clock)
+        return EmailChange(ok=True, sent=sent)
+    cred.email, cred.email_verified_at = address, None
+    cred.save(update_fields=["email", "email_verified_at", "updated_at"])
+    AuthToken.objects.filter(actor=cred.actor, purpose=TokenPurpose.VERIFY_EMAIL,
+                             used_at__isnull=True).update(used_at=now)
+    _audit(actor_public_id, "auth.email_changed")
+    if old and was_verified:
+        queue_email(
+            kind="email_changed", to_address=old,
+            subject="The email of your Zoiko Access account changed",
+            body=("Hello,\n\nThe email address of your Zoiko Access account was just changed to "
+                  f"{mask_address(address)}.\n\nIf this was not you, contact your clinic and "
+                  "reset your password now.\n\nZoiko Access\n"))
+    return EmailChange(ok=True, sent=_try_send_verification(actor_public_id, clock))
+
+
+def _try_send_verification(actor_public_id: str, clock: Clock | None) -> bool:
+    """Queue the verification link; a rate-limit answer means "not now", not a failure."""
+    try:
+        return send_verification(actor_public_id, clock=clock)
+    except ZoikoError as exc:
+        if exc.code == ErrorCode.RATE_LIMITED:
+            return False
+        raise
 
 
 def send_invitation(
@@ -195,9 +271,7 @@ def send_invitation(
         raise ZoikoError(ErrorCode.RATE_LIMITED)
     token = _issue(actor, TokenPurpose.RESET_PASSWORD, INVITE_TTL, now)
     # A doctor belongs in the doctor app, everyone else in the staff console.
-    app_url = (settings.CLINICIAN_APP_URL if actor.actor_type == ActorType.CLINICIAN
-               else settings.STAFF_APP_URL)
-    link = f"{app_url}/?action=reset&token={token}"
+    link = f"{app_url_for(actor)}/?action=reset&token={token}"
     # Sign-in asks for the ORGANIZATION (the customer), not the site named in the invitation.
     tenant_name = Tenant.objects.get(id=ctx.tenant_id).name
     queue_email(

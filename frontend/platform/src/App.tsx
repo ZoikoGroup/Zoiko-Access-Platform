@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, checkHealth, getOverview, loadSession, setSession, signOutEverywhere, type Session } from "./api";
+import { ApiError, changePassword, clearDisplayName, getDisplayName, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getOverview, loadSession, setSession, signOutEverywhere, type Session } from "./api";
+import { Account } from "./Account";
 import { NAV, type PageId } from "./nav";
 import { Sidebar, Topbar } from "./Shell";
 import type { Health, Overview } from "./types";
 import { Card } from "./ui";
 import { AddCustomer } from "./pages/AddCustomer";
 import { CustomersTable } from "./pages/Customers";
+import { clearLink, LinkPage, readLinkAction } from "./pages/LinkActions";
 import { OverviewPage } from "./pages/Overview";
 import { Planned } from "./pages/Planned";
+import { Incidents } from "./pages/Incidents";
+import { Releases } from "./pages/Releases";
+import { Settings } from "./pages/Settings";
 import { SignIn } from "./pages/SignIn";
 
 function startPage(): PageId {
@@ -17,6 +22,10 @@ function startPage(): PageId {
 
 export default function App() {
   const [session, setSessionState] = useState<Session | null>(loadSession());
+  const [link, setLink] = useState(readLinkAction());
+  if (link) {
+    return <LinkPage link={link} onDone={() => { clearLink(); setLink(null); }} />;
+  }
   if (!session) {
     return <SignIn onSignedIn={(s) => { setSession(s); setSessionState(s); }} />;
   }
@@ -26,6 +35,11 @@ export default function App() {
 
 function Console({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [page, setPage] = useState<PageId>(startPage());
+  const [customerQuery, setCustomerQuery] = useState("");   // set by the top-bar search
+  const [shownName, setShownName] = useState("");      // the name this person chose, if any
+  useEffect(() => {
+    getDisplayName().then(setShownName).catch(() => setShownName(""));
+  }, [page, session.token]);                            // re-read after visiting another page
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState("");
   const [denied, setDenied] = useState(false);
@@ -49,10 +63,18 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   useEffect(() => { void refresh(); }, [refresh]);
 
   const item = NAV.find((n) => n.id === page) ?? NAV[0];
+  const word = customerQuery.trim().toLowerCase();
+  const shown = word && data ? data.tenants.filter((t) => t.name.toLowerCase().includes(word)) : data?.tenants ?? [];
   let body;
   if (!item.live) body = <Planned item={item} />;
+  else if (page === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} onChangePassword={changePassword}
+    name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
+    email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
+  else if (page === "incidents") body = <Incidents canWrite={session.roles.some((r) => r.role === "R11")} />;
+  else if (page === "releases") body = <Releases canAdd={session.roles.some((r) => r.role === "R11")} />;
   else if (denied) body = <div className="notice">Your account is not allowed to use the platform console.</div>;
   else if (!data) body = error ? <div className="error">{error}</div> : <div className="notice">Loading…</div>;
+  else if (page === "settings") body = <Settings tenants={data.tenants} canWrite={session.roles.some((r) => r.role === "R11")} onChanged={refresh} />;
   else if (page === "customers") {
     body = (
       <>
@@ -63,19 +85,25 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
         </div>
         <div className="grid">
           {session.roles.some((r) => r.role === "R11") && <AddCustomer onAdded={refresh} />}
-          <Card title={`${data.tenants.length} customers`}><CustomersTable rows={data.tenants} detailed /></Card>
+          <Card title={word ? `${shown.length} of ${data.tenants.length} customers` : `${data.tenants.length} customers`}
+            action={<input aria-label="Search customers by name" placeholder="Search by name" value={customerQuery}
+              onChange={(e) => setCustomerQuery(e.target.value)}
+              style={{ padding: "7px 10px", border: "1px solid var(--line)", borderRadius: 10, background: "var(--bg)" }} />}>
+            {word && shown.length === 0 ? <div className="empty">No customer matches that name.</div> : <CustomersTable rows={shown} detailed />}
+          </Card>
         </div>
       </>
     );
   } else {
-    body = <OverviewPage data={data} api={health.api} database={health.database} onRefresh={() => void refresh()} busy={busy} />;
+    body = <OverviewPage data={data} api={health.api} database={health.database} onRefresh={() => void refresh()} busy={busy} onGo={setPage} />;
   }
 
   return (
     <div className="shell">
-      <Topbar tenantName={session.tenantName} login={session.login}
-        roles={session.roles.map((r) => r.role)} onSignOut={onSignOut} />
-      <Sidebar page={page} onPage={setPage} cell={data?.cell ?? ""} api={health.api} database={health.database} />
+      <Topbar displayName={shownName} tenantName={session.tenantName} login={session.login}
+        roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
+        onGo={(p, query) => { setCustomerQuery(query ?? ""); setPage(p); }} />
+      <Sidebar page={page} onPage={(p) => { setCustomerQuery(""); setPage(p); }} cell={data?.cell ?? ""} api={health.api} database={health.database} />
       <main className="content">{error && data && <div className="error">{error}</div>}{body}</main>
     </div>
   );

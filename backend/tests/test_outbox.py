@@ -2,6 +2,7 @@ import datetime as dt
 import threading
 import time
 import uuid
+from typing import Any
 
 import pytest
 from django.db import connection, transaction
@@ -24,7 +25,7 @@ def emit_in(ctx, ref="bk_1", **kwargs):
 
 
 def collector():
-    seen = []
+    seen: list[Any] = []
     return seen, seen.append
 
 
@@ -195,6 +196,7 @@ def test_after_too_many_failures_the_event_is_quarantined_and_keeps_blocking(ctx
         relay_once(always_fail, clock=now)
         now.advance(dt.timedelta(hours=2))
     first = OutboxEvent.objects.order_by("seq").first()
+    assert first is not None
     assert first.state == OutboxState.QUARANTINED and first.attempts == MAX_ATTEMPTS
 
     seen, publish = collector()
@@ -221,7 +223,8 @@ def test_a_crash_after_sending_means_it_is_sent_again_at_least_once(ctx_a):
 def test_two_relays_never_claim_the_same_event(ctx_a):
     emit_in(ctx_a)
     started, release = threading.Event(), threading.Event()
-    first_saw, second_saw = [], []
+    first_saw: list[Any] = []
+    second_saw: list[Any] = []
 
     def slow(event):
         started.set()

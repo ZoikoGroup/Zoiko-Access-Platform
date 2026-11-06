@@ -1,5 +1,6 @@
 import datetime as dt
 import json
+from typing import Any
 
 import pytest
 from django.test import Client
@@ -160,8 +161,11 @@ def test_unknown_logins_cost_the_same_hashing_work(site, monkeypatch):
     site.user("real", "R04")
     calls = []
     original = auth.verify_password
-    monkeypatch.setattr(auth, "verify_password",
-                        lambda stored, pw: calls.append(1) or original(stored, pw))
+    def counting(stored, pw):
+        calls.append(1)
+        return original(stored, pw)
+
+    monkeypatch.setattr(auth, "verify_password", counting)
     for tenant, login in ((site.tenant_name, "ghost"), ("Nowhere", "real")):
         calls.clear()
         with pytest.raises(ZoikoError):
@@ -302,7 +306,7 @@ def test_the_stored_credential_holds_no_plaintext(site):
 
 def test_the_old_dev_token_still_needs_the_dev_flags(site, settings):
     site.user("ops", "R04")
-    header = {"HTTP_AUTHORIZATION": f"Bearer dev:{site.tenant_public_id}:local:ops"}
+    header: dict[str, Any] = {"HTTP_AUTHORIZATION": f"Bearer dev:{site.tenant_public_id}:local:ops"}
     assert Client().get("/api/v1/me", **header).status_code == 401
     settings.DEBUG, settings.DEV_AUTH_STUB = True, True
     assert Client().get("/api/v1/me", **header).status_code == 200

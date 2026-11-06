@@ -1,9 +1,11 @@
 import { NAV, type PageId } from "./nav";
 import type { Health } from "./types";
+import { QuickSearch } from "./QuickSearch";
 import { Icon, Logo } from "./ui";
 
-export function Topbar({ tenantName, login, roles, onSignOut }: {
-  tenantName: string; login: string; roles: string[]; onSignOut: () => void;
+export function Topbar({ displayName = "", tenantName, login, roles, onSignOut, onGo }: {
+  displayName?: string; tenantName: string; login: string; roles: string[]; onSignOut: () => void;
+  onGo: (page: PageId, customerQuery?: string) => void;
 }) {
   return (
     <header className="topbar">
@@ -14,16 +16,14 @@ export function Topbar({ tenantName, login, roles, onSignOut }: {
           <small>Global Healthcare Access</small>
         </div>
       </div>
-      <label className="search" title="Search arrives with the first data screens">
-        <Icon name="search" size={18} />
-        <input placeholder="Search is not built yet" disabled aria-label="Search (not built yet)" />
-      </label>
+      <QuickSearch pages={NAV.filter((n) => n.live)} onPage={(id) => onGo(id as PageId)}
+        fallback={{ icon: "organizations", label: (t) => `Find customer “${t}”`, onChoose: (t) => onGo("customers", t) }} />
       <span className="spacer" />
       <span className="chip" title="Your organization group"><Icon name="organizations" size={16} />{tenantName}</span>
       <div className="user">
-        <div className="avatar">{login.slice(0, 2).toUpperCase()}</div>
+        <div className="avatar">{(displayName || login).slice(0, 2).toUpperCase()}</div>
         <div>
-          <b>{login}</b>
+          <b title={displayName ? login : undefined}>{displayName || login}</b>
           <small>{roles.join(", ") || "no role"}</small>
         </div>
       </div>

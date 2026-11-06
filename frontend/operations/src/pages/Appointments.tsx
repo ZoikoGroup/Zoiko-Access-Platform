@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { cancelBooking, confirmBooking, listBookings, listFreeTimes, markAttendance, rescheduleBooking, type Staff } from "../api";
+import { BookingHistory } from "@shared/BookingHistory";
+import { CLINIC_REASONS, reasonText } from "@shared/cancelReasons";
+import { cancelBooking, confirmBooking, getBookingHistory, listBookings, listFreeTimes, markAttendance, rescheduleBooking, type Staff } from "../api";
 import type { BookingRow, FreeTime } from "../types";
 import { Card, Patient, Pill, Table, shortId, type PillKind } from "../ui";
 
@@ -19,6 +21,11 @@ export function Appointments({ staff }: { staff: Staff | null }) {
   const [filter, setFilter] = useState<"all" | BookingRow["status"]>("all");
   const [busy, setBusy] = useState("");
   const [asking, setAsking] = useState("");
+  const [historyFor, setHistoryFor] = useState("");       // the appointment whose steps are shown
+  const loadHistory = useCallback(() => getBookingHistory(historyFor), [historyFor]);
+  const [why, setWhy] = useState("");                       // optional reason for cancelling
+  const [bulk, setBulk] = useState<"" | "asking" | "working">("");   // "Confirm all waiting"
+  const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [moving, setMoving] = useState<{ booking: BookingRow; times: FreeTime[] } | null>(null);
 
@@ -36,7 +43,7 @@ export function Appointments({ staff }: { staff: Staff | null }) {
   }, [load]);
 
   async function run(id: string, work: (id: string) => Promise<unknown>) {
-    setBusy(id); setError("");
+    setBusy(id); setError(""); setWhy("");
     try { await work(id); await load(); }
     catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
     finally { setBusy(""); setAsking(""); }
@@ -59,6 +66,21 @@ export function Appointments({ staff }: { staff: Staff | null }) {
   }
 
   if (!staff) return <NoStaff />;
+  // Waiting bookings whose time has not passed: the only ones "Confirm all" touches.
+  const confirmable = (rows ?? []).filter((b) => b.status === "requested" && b.starts_at > new Date().toISOString());
+
+  async function confirmAll() {
+    setBulk("working"); setError(""); setNote("");
+    let done = 0;
+    let failed = 0;
+    for (const b of confirmable) {
+      try { await confirmBooking(b.id); done += 1; } catch { failed += 1; }
+    }
+    await load();
+    setNote(failed === 0 ? `Confirmed ${done} appointment${done === 1 ? "" : "s"}.`
+      : `Confirmed ${done}; ${failed} could not be confirmed (someone may have changed them). They are still waiting.`);
+    setBulk("");
+  }
   const shown = (rows ?? []).filter((b) => filter === "all" || b.status === filter);
   const waiting = (rows ?? []).filter((b) => b.status === "requested").length;
 
@@ -70,6 +92,17 @@ export function Appointments({ staff }: { staff: Staff | null }) {
           <p>Bookings for {staff.organizationName}. Patients request; staff confirm. {waiting > 0 && <b>{waiting} waiting for confirmation.</b>}</p>
         </div>
         <span className="spacer" />
+        {confirmable.length > 1 && bulk === "" && (
+          <button className="btn" onClick={() => setBulk("asking")}>Confirm all waiting ({confirmable.length})</button>
+        )}
+        {bulk === "asking" && (
+          <span>
+            Confirm {confirmable.length} appointments?{" "}
+            <button className="btn" onClick={() => void confirmAll()}>Yes, confirm all</button>{" "}
+            <button className="btn ghost" onClick={() => setBulk("")}>No</button>
+          </span>
+        )}
+        {bulk === "working" && <span>Confirming…</span>}
         <label className="chip">Show
           <select value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)} aria-label="Filter by status">
             <option value="all">all</option>
@@ -80,6 +113,7 @@ export function Appointments({ staff }: { staff: Staff | null }) {
         </label>
       </div>
       {error && <div className="error">{error}</div>}
+      {note && <div className="notice" role="status" style={{ background: "var(--ok-bg)", color: "var(--ok)" }}>{note}</div>}
       {moving && (
         <div className="grid">
           <Card title={`Move ${moving.booking.service.name} (${moving.booking.patient_name ?? shortId(moving.booking.person)})`}
@@ -108,8 +142,9 @@ export function Appointments({ staff }: { staff: Staff | null }) {
                 b.attendance === "attended" ? <Pill key="s" kind="ok">Attended</Pill>
                   : b.attendance === "no_show" ? <Pill key="s" kind="bad">Did not attend</Pill>
                   : b.late ? <Pill key="s" kind="bad">Late: needs confirmation</Pill>
-                  : <Pill key="s" kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>,
+                  : <span key="s"><Pill kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>{b.status === "cancelled" && b.cancel_reason && <small style={{ display: "block" }}>{reasonText(b.cancel_reason)}</small>}</span>,
                 <span key="a">
+                  <button className="btn ghost" onClick={() => setHistoryFor(historyFor === b.id ? "" : b.id)}>{historyFor === b.id ? "Hide history" : "History"}</button>{" "}
                   {b.status === "confirmed" && b.starts_at <= new Date().toISOString() && (
                     <>
                       {b.attendance !== "attended" && (
@@ -137,7 +172,11 @@ export function Appointments({ staff }: { staff: Staff | null }) {
                   )}
                   {asking === b.id && (
                     <>
-                      <button className="btn" disabled={busy === b.id} onClick={() => void run(b.id, cancelBooking)}>Yes, cancel</button>{" "}
+                      <select aria-label="Why is it cancelled? (optional)" value={why} onChange={(e) => setWhy(e.target.value)}>
+                        <option value="">Why? (optional)</option>
+                        {Object.entries(CLINIC_REASONS).map(([code, text]) => <option key={code} value={code}>{text}</option>)}
+                      </select>{" "}
+                      <button className="btn" disabled={busy === b.id} onClick={() => void run(b.id, (id) => cancelBooking(id, why))}>Yes, cancel</button>{" "}
                       <button className="btn ghost" onClick={() => setAsking("")}>Keep</button>
                     </>
                   )}
@@ -146,6 +185,14 @@ export function Appointments({ staff }: { staff: Staff | null }) {
           )}
         </Card>
       </div>
+      {historyFor && (
+        <div className="grid">
+          <Card title="History of this appointment" sub="Every step, oldest first. Patients appear only as the patient or family."
+            action={<button className="btn ghost" onClick={() => setHistoryFor("")}>Close</button>}>
+            <BookingHistory key={historyFor} load={loadHistory} />
+          </Card>
+        </div>
+      )}
     </>
   );
 }

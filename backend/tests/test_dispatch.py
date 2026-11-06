@@ -93,7 +93,8 @@ def test_each_tenants_events_run_in_their_own_tenant(world):
 
 def test_handlers_write_their_own_tenants_data_only(world):
     other = World()
-    subscribe("recorder", "booking.", lambda e: Probe.objects.create(label=e.aggregate_ref))
+    subscribe("recorder", "booking.",
+              lambda e: Probe.objects.create(label=e.aggregate_ref))  # type: ignore[arg-type]
     send(world, ref="bk_a")
     send(other, ref="bk_b")
     relay_once(dispatch.dispatch)
@@ -211,8 +212,10 @@ def test_the_worker_rides_out_a_database_outage_and_keeps_going(monkeypatch):
         return RelayResult(published=3, retrying=0, quarantined=0)
 
     monkeypatch.setattr(relay_outbox, "relay_once", flaky_relay)
-    lines, stop = [], FakeStop(limit=2)
-    total = relay_outbox.run_loop(stop, interval=1.0, batch=50, once=False, log=lines.append)
+    lines: list[str] = []
+    stop = FakeStop(limit=2)
+    total = relay_outbox.run_loop(
+        stop, interval=1.0, batch=50, once=False, log=lines.append)  # type: ignore[arg-type]
     assert total == 3 and len(calls) == 2
     assert stop.waits[0] == relay_outbox.DATABASE_RETRY_SECONDS       # backed off after the outage
     assert any("database not available" in line for line in lines)
@@ -223,7 +226,8 @@ def test_a_full_batch_means_go_again_at_once(monkeypatch):
     monkeypatch.setattr(relay_outbox, "relay_once",
                         lambda publisher, *, batch_size: RelayResult(batch_size, 0, 0))
     stop = FakeStop(limit=2)
-    relay_outbox.run_loop(stop, interval=7.0, batch=10, once=False, log=lambda text: None)
+    relay_outbox.run_loop(
+        stop, interval=7.0, batch=10, once=False, log=lambda text: None)  # type: ignore[arg-type]
     assert stop.waits == [0.0, 0.0]
 
 

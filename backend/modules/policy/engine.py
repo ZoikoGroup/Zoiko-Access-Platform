@@ -13,14 +13,16 @@ from __future__ import annotations
 import datetime as dt
 import re
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from django.db import connection, models, transaction
+from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
 
 from foundation.cell_context import require_context, tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.request_context import get_request_id
-from foundation.timeutil import utc_now
+from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome
 from modules.evidence.api import record as audit
 from modules.trust import api as trust
@@ -213,6 +215,41 @@ def recent_decisions(limit: int = 50) -> list[dict[str, object]]:
         }
         for r in rows
     ]
+
+
+def denial_summary(
+    days: int = 7, *, clock: Clock | None = None, top: int = 10
+) -> dict[str, Any]:
+    """Refused access checks of this tenant over the last `days` UTC days (today included): the
+    people refused most often, and a count for every day (zero days too). Numbers only: no
+    patient and no reason text. The caller has authorized `read:evidence`."""
+    days = max(1, min(days, 31))
+    ctx = require_context()
+    today = utc_now(clock).date()
+    first = today - dt.timedelta(days=days - 1)
+    rows = AccessDecision.objects.filter(
+        cell_id=ctx.cell_id, tenant_id=ctx.tenant_id,
+        created_at__gte=dt.datetime.combine(first, dt.time.min, dt.timezone.utc))
+    by_day = {
+        r["day"]: r for r in rows.annotate(day=TruncDate("created_at", tzinfo=dt.timezone.utc))
+        .values("day").annotate(total=Count("id"), denied=Count("id", filter=Q(allowed=False)))
+    }
+    people = (
+        rows.filter(allowed=False).values("actor_ref")
+        .annotate(denied=Count("id")).order_by("-denied", "actor_ref")[: max(1, top)]
+    )
+    totals = {r["actor_ref"]: r["n"] for r in rows.values("actor_ref").annotate(n=Count("id"))}
+    return {
+        "days": days,
+        "by_person": [{"actor": r["actor_ref"], "denied": r["denied"],
+                       "total": totals.get(r["actor_ref"], r["denied"])} for r in people],
+        "by_day": [
+            {"day": (d := first + dt.timedelta(days=i)).isoformat(),
+             "denied": by_day.get(d, {}).get("denied", 0),
+             "total": by_day.get(d, {}).get("total", 0)}
+            for i in range(days)
+        ],
+    }
 
 
 def decisions_about(

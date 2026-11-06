@@ -56,10 +56,14 @@ def referral_dict(r: Referral) -> dict[str, Any]:
     }
 
 
-def _event(event_type: str, r: Referral) -> None:
-    # Which referral changed, nothing about the patient or the reason.
+def _event(event_type: str, r: Referral, *, actor_ref: str = "") -> None:
+    # Which referral changed (and, for a decision, which clinic login decided it): nothing about the
+    # patient or the reason.
+    payload = {"referral_ref": r.public_id, "state": r.state}
+    if actor_ref:
+        payload["actor_ref"] = actor_ref
     emit(event_type=event_type, aggregate_type="referral", aggregate_ref=r.public_id,
-         payload={"referral_ref": r.public_id, "state": r.state})
+         payload=payload)
 
 
 def _clean(value: str, field: str) -> str:
@@ -129,7 +133,7 @@ def decide(
                                      "entity_version", "updated_at"])
         record(actor_ref=actor_public_id, action=f"referral.{outcome}", object_type="referral",
                object_ref=referral.public_id, outcome=AuditOutcome.ALLOWED)
-        _event("referral.decided.v1", referral)
+        _event("referral.decided.v1", referral, actor_ref=actor_public_id)
         return referral_dict(referral)
 
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getAccessLog, type AccessEntry } from "../api";
+import { downloadMyData, getAccessLog, type AccessEntry } from "../api";
 import { Card, Pill } from "../ui";
 
 // What each recorded action means, in plain words.
@@ -32,6 +32,14 @@ function when(iso: string): string {
 export function Privacy() {
   const [entries, setEntries] = useState<AccessEntry[] | null>(null);
   const [error, setError] = useState("");
+  const [preparing, setPreparing] = useState(false);
+
+  async function download() {
+    setPreparing(true); setError("");
+    try { await downloadMyData(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not prepare your data"); }
+    finally { setPreparing(false); }
+  }
 
   useEffect(() => {
     getAccessLog().then(setEntries).catch((e) => setError(e instanceof Error ? e.message : "Could not load"));
@@ -45,6 +53,10 @@ export function Privacy() {
       </div></div>
       {error && <div className="error">{error}</div>}
       <div className="grid">
+        <Card title="Download my data" sub="Everything the app shows you, in one file you can keep: appointments (with each appointment's steps), referrals, messages (with their text), insurance, family links and the access list below.">
+          <button className="btn" disabled={preparing} onClick={() => void download()}>{preparing ? "Preparing…" : "Download my data"}</button>
+          <small style={{ display: "block", marginTop: 8 }}>The file is not encrypted: keep it somewhere safe. Deleting your data is not available yet.</small>
+        </Card>
         <Card title={`Who looked at my information${entries ? ` (${entries.length})` : ""}`}
           sub="Your own visits are not listed. A blocked attempt means the system refused it.">
           {entries === null ? <div className="empty">Loading…</div> : entries.length === 0 ? (

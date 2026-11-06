@@ -213,6 +213,40 @@ def active_roles(
     return sorted((r.role.role_code, r.organization.public_id) for r in rows)
 
 
+def clinicians_at(organization_public_id: str, clock: Clock | None = None) -> list[str]:
+    """Public ids of active people holding the clinician role (R03) at this organization now."""
+    ctx = require_context()
+    rows = _in_force(
+        RoleAssignment.objects.filter(
+            cell_id=ctx.cell_id, tenant_id=ctx.tenant_id,
+            organization__public_id=organization_public_id, organization__status=Status.ACTIVE,
+            role__role_code="R03", actor__status=Status.ACTIVE),
+        utc_now(clock),
+    ).values_list("actor__public_id", flat=True)
+    return sorted(set(rows))
+
+
+def verified_emails_for_role(
+    organization_public_id: str, role_code: str, clock: Clock | None = None
+) -> list[str]:
+    """Verified email addresses of active people holding this role at this organization now.
+
+    Only an address the person confirmed by clicking our link is returned, so nothing goes to an
+    address nobody has proven. Sorted and without repeats."""
+    now = utc_now(clock)
+    ctx = require_context()
+    rows = _in_force(
+        RoleAssignment.objects.filter(
+            cell_id=ctx.cell_id, tenant_id=ctx.tenant_id,
+            organization__public_id=organization_public_id, organization__status=Status.ACTIVE,
+            role__role_code=role_code, actor__status=Status.ACTIVE,
+            actor__credential__email__gt="", actor__credential__email_verified_at__isnull=False,
+            ),
+        now,
+    ).values_list("actor__credential__email", flat=True)
+    return sorted({e.lower() for e in rows})
+
+
 def list_tenants() -> list[dict[str, str]]:
     """Every tenant in this cell (name and ids only). Not tenant-scoped, by design."""
     rows = Tenant.objects.filter(cell_id=settings.ZOIKO_CELL_ID).order_by("created_at")

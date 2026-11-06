@@ -21,6 +21,7 @@ class Location(CellScopedModel):
     organization_ref = models.CharField(max_length=22)   # trust Organization.public_id
     name = models.CharField(max_length=200)
     address = models.CharField(max_length=300, blank=True, default="")
+    phone = models.CharField(max_length=24, blank=True, default="")   # how patients call the site
     time_zone = models.CharField(max_length=64)           # IANA name, e.g. Asia/Kolkata
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
 

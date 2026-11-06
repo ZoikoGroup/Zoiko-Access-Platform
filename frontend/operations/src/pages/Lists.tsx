@@ -5,10 +5,10 @@ import { Card, Patient, Pill, Table } from "../ui";
 import { PatientCoverage } from "./PatientCoverage";
 import { PatientDetails } from "./PatientDetails";
 
-export function Patients() {
+export function Patients({ initialSearch = "" }: { initialSearch?: string }) {
   const [version, setVersion] = useState(0);        // a new number reloads the list
   const [editing, setEditing] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const result = useLoad(getPatients, 10_000, version);
   return (
     <Gate result={result}>

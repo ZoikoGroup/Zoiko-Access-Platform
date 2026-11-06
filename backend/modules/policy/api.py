@@ -14,11 +14,12 @@ from .engine import (
     decide,
     decision_counts,
     decisions_about,
+    denial_summary,
     recent_decisions,
 )
 
 __all__ = [
     "Decision", "NoRelationships", "Reason", "RelationshipChecker", "TrustRelationships",
     "authorize", "check_receipt", "decide", "decision_counts", "decisions_about",
-    "recent_decisions",
+    "denial_summary", "recent_decisions",
 ]

@@ -6,6 +6,7 @@ import { Card, Pill, Table } from "../ui";
 /** A patient's insurance, for the front desk. The member number is shown only by its last four characters. */
 export function PatientCoverage({ person }: { person: string }) {
   const [rows, setRows] = useState<CoverageRow[] | null>(null);
+  const [shared, setShared] = useState(true);            // false: the patient has not chosen to share it
   const [insurer, setInsurer] = useState("");
   const [plan, setPlan] = useState("");
   const [member, setMember] = useState("");
@@ -14,7 +15,7 @@ export function PatientCoverage({ person }: { person: string }) {
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    try { setRows(await listPatientCoverage(person)); setError(""); }
+    try { const got = await listPatientCoverage(person); setRows(got.coverage); setShared(got.shared); setError(""); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not load the insurance"); }
   }, [person]);
 
@@ -42,7 +43,13 @@ export function PatientCoverage({ person }: { person: string }) {
   return (
     <Card title="Insurance" sub="Member numbers are stored encrypted. Claims and checks with the insurer are not built yet.">
       {error && <div className="error" role="alert">{error}</div>}
-      {rows === null ? <div className="empty">Loading…</div> : (
+      {rows !== null && !shared && (
+        <div className="notice" role="status">
+          This patient has not chosen to share their insurance details with the clinic, so they are not shown here.
+          You can still record insurance they give you, but it stays hidden until they share it. They can change this on their Insurance page.
+        </div>
+      )}
+      {rows === null ? <div className="empty">Loading…</div> : !shared ? null : (
         <Table headers={["Insurer", "Plan", "Member no.", "Until", "Status", ""]}
           empty="No insurance on file."
           rows={rows.map((c) => [

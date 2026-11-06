@@ -21,6 +21,8 @@ def dev_login(settings):
 class Practice(Web):
     """A clinic with a receptionist, two doctors and a patient."""
 
+    before: set[str]          # the clinic's own starting times, kept by some tests
+
     def __init__(self):
         super().__init__()
         self.desk = self.staff("ops")
@@ -62,7 +64,8 @@ def practice():
 def test_staff_can_assign_a_real_doctor_to_times_and_patients_see_who(practice):
     assert practice.add_times(practice.doc).status_code == 201
     slots = [s for s in practice.open_slots() if s["provider"]]
-    assert len(slots) == 2 and slots[0]["provider"] == {"id": practice.doc, "name": "doc"}
+    expected = {"id": practice.doc, "name": "doc", "verified": False}
+    assert len(slots) == 2 and slots[0]["provider"] == expected
     assert [s for s in practice.open_slots() if not s["provider"]]   # the earlier times: none
 
 
@@ -98,7 +101,7 @@ def test_a_doctor_sees_a_patient_only_after_the_booking_is_confirmed(practice):
     practice.add_times(practice.doc)
     slot = practice.slot_of("doc")
     booking = book(practice, slot, subject="pat").json()["booking"]
-    assert booking["provider"] == {"id": practice.doc, "name": "doc"}
+    assert booking["provider"] == {"id": practice.doc, "name": "doc", "verified": False}
     assert practice.schedule() == [] and practice.my_patients() == []     # not confirmed yet
     done = practice.post(f"bookings/{booking['id']}/confirm", subject="ops")
     assert done.status_code == 200

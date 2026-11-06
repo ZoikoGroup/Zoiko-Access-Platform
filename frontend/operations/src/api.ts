@@ -1,7 +1,11 @@
 // The only file that talks to the backend. Pages call these functions, never fetch().
+import type { BookingHistoryData } from "@shared/BookingHistory";
+import { friendlyEmailError } from "@shared/EmailCard";
+import { friendlyNameError } from "@shared/NameCard";
+import { friendlyPasswordError } from "@shared/ChangePassword";
 import type {
-  CoverageRow, FamilyRequest, FreeTime, IncomingReferral, MessageThread, Profile, Reports, ThreadView, WaitingRow,
-  BookingRow, Dashboard, Directory, Evidence, Health, LocationRow, Me, PatientRow, ServiceRow,
+  ClinicSettings, CoverageRow, WorkItem, FamilyRequest, FreeTime, IncomingReferral, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
+  BookingRow, Compliance, Dashboard, Directory, Health, LocationRow, Me, PatientRow, ServiceRow,
 } from "./types";
 
 export class ApiError extends Error {
@@ -138,7 +142,8 @@ const post = <T,>(path: string, body: unknown = {}) =>
 
 export const listBookings = async () => (await v1<{ bookings: BookingRow[] }>("bookings")).bookings;
 export const confirmBooking = (id: string) => post(`bookings/${encodeURIComponent(id)}/confirm`);
-export const cancelBooking = (id: string) => post(`bookings/${encodeURIComponent(id)}/cancel`);
+export const cancelBooking = (id: string, reason = "") =>
+  post(`bookings/${encodeURIComponent(id)}/cancel`, reason ? { reason } : {});
 export const markAttendance = (id: string, outcome: "attended" | "no_show") =>
   post(`bookings/${encodeURIComponent(id)}/attendance`, { outcome });
 export const listWaitlist = async () => (await v1<{ entries: WaitingRow[] }>("staff/waitlist")).entries;
@@ -148,7 +153,7 @@ export const getProfile = async (person: string) =>
 export const saveProfile = (person: string, body: { name: string; birth_date: string; phone: string }) =>
   post(`people/${encodeURIComponent(person)}/profile`, body);
 export const listPatientCoverage = async (person: string) =>
-  (await v1<{ coverage: CoverageRow[] }>(`people/${encodeURIComponent(person)}/coverage`)).coverage;
+  v1<{ coverage: CoverageRow[]; shared: boolean }>(`people/${encodeURIComponent(person)}/coverage`);
 export const addPatientCoverage = (person: string, body: {
   insurer: string; plan: string; member_id: string; valid_until: string;
 }) => post("coverage", { person, ...body });
@@ -164,7 +169,56 @@ export const getMessageThread = async (id: string) =>
 export const replyMessageThread = (id: string, body: string) =>
   post(`messages/threads/${encodeURIComponent(id)}/reply`, { body });
 export const closeMessageThread = (id: string) => post(`messages/threads/${encodeURIComponent(id)}/close`);
+export const CLOSED_DAYS = 14;                       // how far back "recently closed" looks
+export const listWork = (filter: "" | "mine" | "unassigned" | "closed") =>
+  v1<{ me: string; items: WorkItem[] }>(`staff/work${
+    filter === "closed" ? `?closed=${CLOSED_DAYS}` : filter ? `?${filter === "mine" ? "mine=1" : "unassigned=1"}` : ""}`);
+export interface AiPermit {
+  id: string; feature_id: string; purpose: string; lane: string; level: string; state: string;
+  allowed_tools: string[]; expiry: string | null; signers: string[]; created_by: string;
+  steps: { from: string; to: string; by: string; reason: string; at: string }[];
+}
+export const getAiPermits = () => v1<{ me: string; permits: AiPermit[] }>("staff/ai/permits");
+export const proposeAiPermit = (b: {
+  feature_id: string; purpose: string; lane: string; level: string; model: string; prompt: string;
+  tools: string; clinical_owner: string;
+}) => post("staff/ai/permits", b);
+export const signAiPermit = (id: string) => post(`staff/ai/permits/${encodeURIComponent(id)}/sign`);
+export const advanceAiPermit = (id: string, to: string, reason = "", days?: number) =>
+  post(`staff/ai/permits/${encodeURIComponent(id)}/advance`, { to, reason, ...(days ? { days } : {}) });
+export const claimWork = (id: string) => post(`staff/work/${encodeURIComponent(id)}/claim`);
+export const releaseWork = (id: string) => post(`staff/work/${encodeURIComponent(id)}/release`);
+/** Every step of one work item, oldest first (who took it, gave it back, closed it). */
+export const getWorkHistory = (id: string) =>
+  v1<BookingHistoryData>(`staff/work/${encodeURIComponent(id)}/history`);
+/** Change the signed-in person's password. The server ends every other session and returns a fresh
+ *  token for this one, which replaces the stored token so this tab stays signed in. */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  if (current?.token.startsWith("dev:")) {
+    throw new Error("A development link has no password. Sign in with your login and password to change it.");
+  }
+  try {
+    const body = await v1<{ token: string }>("auth/change-password", {
+      method: "POST", body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+    if (current) setSession({ ...current, token: body.token });
+  } catch (e) {
+    throw friendlyPasswordError(e);
+  }
+}
+
+export const getSettings = () => v1<ClinicSettings>("staff/settings");
+export const getProviders = async () =>
+  (await v1<{ days: number; can_manage: boolean; bases: Record<string, string>; providers: ProviderRow[] }>("staff/providers"));
+export const verifyProviderName = (id: string, basis: string, note: string) =>
+  post(`staff/providers/${encodeURIComponent(id)}/verify`, { basis, note });
+export const withdrawProviderCheck = (id: string, reason: string) =>
+  post(`staff/providers/${encodeURIComponent(id)}/unverify`, { reason });
 export const getReports = (days: number) => v1<Reports>(`staff/reports?days=${days}`);
+/** Every step of one appointment, worded for clinic staff (never a patient name). */
+export const getBookingHistory = (id: string) =>
+  v1<BookingHistoryData>(`bookings/${encodeURIComponent(id)}/history`);
+
 export const listFreeTimes = async (serviceId: string) =>
   (await v1<{ slots: FreeTime[] }>(`services/${encodeURIComponent(serviceId)}/slots`)).slots;
 export const rescheduleBooking = (id: string, slot: string) =>
@@ -181,19 +235,33 @@ export const setServiceStatus = (id: string, status: "active" | "inactive") =>
   post(`services/${encodeURIComponent(id)}/status`, { status });
 
 export const createLocation = (body: {
-  organization: string; name: string; time_zone: string; address: string;
+  organization: string; name: string; time_zone: string; address: string; phone: string;
 }) => post("locations", body);
+
+export const updateLocationContact = (id: string, phone: string, address: string) =>
+  post(`locations/${encodeURIComponent(id)}/contact`, { phone, address });
 
 export const addSlots = (serviceId: string, body: {
   location: string; first_local: string; count: number; provider?: string;
+  days?: number; weekdays_only?: boolean;
 }) => post<{ created: number }>(`services/${encodeURIComponent(serviceId)}/slots`, body);
+
+/** Take free future times off the calendar for a range of days (both ends included). With
+ *  `dry_run` it only counts. Times with a booking are never touched. */
+export const withdrawSlots = (serviceId: string, body: {
+  first_day: string; last_day: string; provider?: string; dry_run?: boolean;
+}) => post<{ count: number; dry_run: boolean }>(`services/${encodeURIComponent(serviceId)}/slots/withdraw`, body);
+
+/** Take ONE free future time off the calendar. Refused if it has a booking. */
+export const withdrawSlot = (slotId: string) =>
+  post<{ withdrawn: boolean }>(`slots/${encodeURIComponent(slotId)}/withdraw`, {});
 
 export const listIncomingReferrals = async () => (await v1<{ referrals: IncomingReferral[] }>("referrals/incoming")).referrals;
 export const decideReferral = (id: string, decision: "accepted" | "needs_info" | "declined", reason: string) =>
   post(`referrals/${encodeURIComponent(id)}/decide`, { decision, reason });
 export const getMe = () => v1<Me>("me");
 export const getDashboard = () => v1<Dashboard>("staff/dashboard");
-export const getCompliance = () => v1<Evidence>("staff/compliance");
+export const getCompliance = () => v1<Compliance>("staff/compliance");
 export const getDirectory = () => v1<Directory>("staff/directory");
 export const getPatients = async () => (await v1<{ patients: PatientRow[] }>("staff/patients")).patients;
 
@@ -225,4 +293,44 @@ export async function resetPassword(token: string, password: string): Promise<vo
     throw new ApiError("That password is too short or too easy to guess. Use a longer one that is not your email.", "VALIDATION_FAILED");
   }
   throw new ApiError("This link has expired or was already used. Ask your administrator to send a new one.", "BAD_LINK");
+}
+
+export const getEmailStatus = async () => (await v1<{ email: { email: string; verified: boolean } }>("me")).email;
+
+/** Set or change this person's email address (the current password is required). */
+export async function setEmail(email: string, currentPassword: string) {
+  try {
+    return await v1<{ email: string; verified: boolean; sent: boolean }>("auth/email", {
+      method: "POST", body: JSON.stringify({ email, current_password: currentPassword }),
+    });
+  } catch (e) {
+    throw friendlyEmailError(e);
+  }
+}
+
+export async function resendVerification(): Promise<"sent" | "wait"> {
+  try {
+    await v1("auth/resend-verification", { method: "POST", body: "{}" });
+    return "sent";
+  } catch (e) {
+    if ((e as { code?: string }).code === "RATE_LIMITED") return "wait";
+    throw e;
+  }
+}
+
+export const getDisplayName = async () => (await v1<{ display_name: string }>("me")).display_name;
+
+/** Choose the name this person is shown by (typed by them, not verified). */
+export async function saveDisplayName(name: string): Promise<string> {
+  try {
+    return (await v1<{ name: string }>("auth/display-name", {
+      method: "POST", body: JSON.stringify({ name }),
+    })).name;
+  } catch (e) {
+    throw friendlyNameError(e);
+  }
+}
+
+export async function clearDisplayName(): Promise<void> {
+  await v1("auth/display-name", { method: "DELETE" });
 }

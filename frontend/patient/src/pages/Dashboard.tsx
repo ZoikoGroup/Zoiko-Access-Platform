@@ -1,14 +1,20 @@
 import { useEffect, useState } from "react";
-import { getServices, type Booking, type Me, type Notice, type Service } from "../api";
+import { getServices, type Booking, type Me, type Notice, type Referral, type Service } from "../api";
 import type { PageId } from "../App";
 import { dateBlock, timeLabel, whenLabel } from "../format";
 import { Card, Icon, Pill, type PillKind } from "../ui";
 
 const SOON = [
   { title: "My Health Overview", note: "Vitals and health records need the clinical record service (a later phase)." },
-  { title: "Referral Status", note: "Arrives with the workflow engine (backend step B8)." },
   { title: "Bills & Payments", note: "A later commercial phase." },
 ];
+
+const REFERRAL: Record<Referral["state"], { text: string; kind: PillKind }> = {
+  issued: { text: "Sent, waiting for the clinic", kind: "warn" },
+  accepted: { text: "Accepted", kind: "ok" },
+  needs_info: { text: "Clinic needs more information", kind: "warn" },
+  declined: { text: "Declined", kind: "bad" },
+};
 
 const STATUS: Record<Booking["status"], { text: string; kind: PillKind }> = {
   requested: { text: "Waiting for the clinic", kind: "warn" },
@@ -16,8 +22,8 @@ const STATUS: Record<Booking["status"], { text: string; kind: PillKind }> = {
   cancelled: { text: "Cancelled", kind: "bad" },
 };
 
-export function Dashboard({ name, me, bookings, notices, goTo }: {
-  name: string; me: Me; bookings: Booking[]; notices: Notice[]; goTo: (p: PageId) => void;
+export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
+  name: string; me: Me; bookings: Booking[]; notices: Notice[]; referrals: Referral[]; goTo: (p: PageId) => void;
 }) {
   const [services, setServices] = useState<Service[]>([]);
   useEffect(() => { getServices().then(setServices).catch(() => setServices([])); }, []);
@@ -27,6 +33,7 @@ export function Dashboard({ name, me, bookings, notices, goTo }: {
     .filter((b) => b.status !== "cancelled" && b.starts_at > now)
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
     .slice(0, 3);
+  const latestReferrals = [...referrals].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 3);
   const recent = [...bookings].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 4);
 
   return (
@@ -49,12 +56,14 @@ export function Dashboard({ name, me, bookings, notices, goTo }: {
           <span className="icon"><Icon name="appointments" size={22} /></span>
           <span><b>Book Appointment</b><small>Schedule an in-person or video visit</small></span>
         </button>
-        {[["My Health Records", "services", "View and download your records"], ["My Referrals", "referrals", "Track your specialist referrals"]].map(([label, icon, note]) => (
-          <button key={label} className="tile" disabled title="Not built yet">
-            <span className="icon"><Icon name={icon} size={22} /></span>
-            <span><b>{label}</b><small>{note} - coming soon</small></span>
-          </button>
-        ))}
+        <button className="tile" disabled title="Not built yet">
+          <span className="icon"><Icon name="services" size={22} /></span>
+          <span><b>My Health Records</b><small>View and download your records - coming soon</small></span>
+        </button>
+        <button className="tile" onClick={() => goTo("referrals")}>
+          <span className="icon"><Icon name="referrals" size={22} /></span>
+          <span><b>My Referrals</b><small>Track your specialist referrals</small></span>
+        </button>
       </div>
 
       <div className="grid cols-2">
@@ -106,11 +115,21 @@ export function Dashboard({ name, me, bookings, notices, goTo }: {
         </Card>
 
         <div className="grid" style={{ margin: 0 }}>
-          {SOON.slice(1, 3).map((c) => (
-            <Card key={c.title} className="planned" title={c.title} action={<Pill kind="warn">not built yet</Pill>}>
-              <div className="empty">{c.note}</div>
-            </Card>
-          ))}
+          <Card title="Referral Status" sub="Your latest referrals"
+            action={<button className="btn ghost" onClick={() => goTo("referrals")}>View all</button>}>
+            {latestReferrals.length === 0 ? <div className="empty">No referrals yet.</div> : latestReferrals.map((r) => (
+              <div key={r.id} className="appt" style={{ padding: "8px 0" }}>
+                <div className="info">
+                  <b>{r.service.name}</b>
+                  <small>{r.organization.name} - from {r.referrer.name}{r.urgency === "urgent" ? " - urgent" : ""}</small>
+                </div>
+                <Pill kind={REFERRAL[r.state].kind}>{REFERRAL[r.state].text}</Pill>
+              </div>
+            ))}
+          </Card>
+          <Card className="planned" title={SOON[1].title} action={<Pill kind="warn">not built yet</Pill>}>
+            <div className="empty">{SOON[1].note}</div>
+          </Card>
         </div>
       </div>
 
@@ -120,7 +139,7 @@ export function Dashboard({ name, me, bookings, notices, goTo }: {
           {notices.length === 0 ? <div className="empty">No notifications yet.</div> : notices.slice(0, 3).map((n) => (
             <div key={n.id} className="appt" style={{ padding: "8px 0" }}>
               <div className="info">
-                <b>{!n.read && <span className="unread-dot" aria-label="unread" />}{n.title}</b>
+                <b>{!n.read && <span className="unread-dot" role="img" aria-label="unread" />}{n.title}</b>
                 <small>{n.body}</small>
               </div>
               <small style={{ color: "var(--muted)" }}>{n.created_at.slice(0, 10)}</small>

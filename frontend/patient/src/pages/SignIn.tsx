@@ -139,7 +139,7 @@ function Forgot({ organization, login, onBack }: { organization: string; login: 
           </>
         ) : (
           <form onSubmit={(e) => void submit(e)}>
-            <p className="lead">Enter your organization and email. We will email you a link.</p>
+            <p className="lead">Enter your organization and email. If the account has a verified email address, we will email you a link.</p>
             <label htmlFor="f-org">Organization</label>
             <input id="f-org" className="field" value={org} onChange={(e) => setOrg(e.target.value)} required />
             <label htmlFor="f-email">Email</label>

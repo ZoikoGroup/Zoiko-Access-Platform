@@ -16,7 +16,7 @@ from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 
-from .models import Notification
+from .models import EmailPreference, Notification
 
 WRITE_COMMS = "write:comms"
 
@@ -79,3 +79,22 @@ def mark_read(
                    object_type="notification", object_ref=n.public_id,
                    outcome=AuditOutcome.ALLOWED)
         return notification_dict(n)
+
+
+def email_notices_enabled(actor_ref: str) -> bool:
+    """Has this login asked for emails about its own care? Off by default."""
+    return EmailPreference.objects.filter(
+        actor_ref=actor_ref, enabled=True, **_scope()).exists()
+
+
+def set_email_notices(actor_ref: str, enabled: bool) -> bool:
+    """The login turns emails about its own care on or off. Needs a bound tenant; audited."""
+    with transaction.atomic():
+        ctx = require_context()
+        EmailPreference.objects.update_or_create(
+            actor_ref=actor_ref, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id,
+            defaults={"enabled": enabled})
+        record(actor_ref=actor_ref, action="comms.email_notices_on" if enabled
+               else "comms.email_notices_off", object_type="actor", object_ref=actor_ref,
+               outcome=AuditOutcome.ALLOWED)
+    return enabled

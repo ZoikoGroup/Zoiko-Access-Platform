@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 import threading
+from typing import Any
 
 import pytest
 from django.db import connection
@@ -130,7 +131,9 @@ def test_it_works_as_the_restricted_app_role_and_stays_private_to_the_tenant(ctx
 
 def test_two_identical_requests_at_the_same_time_do_the_work_once(ctx_a):
     work_started, release = threading.Event(), threading.Event()
-    executions, outcomes, errors = [], [], []
+    executions: list[Any] = []
+    outcomes: list[Any] = []
+    errors: list[Any] = []
 
     def slow_work():
         executions.append(1)

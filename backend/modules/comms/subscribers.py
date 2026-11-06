@@ -7,9 +7,13 @@ ever travels in an event payload.
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
+
+from django.conf import settings
 
 from foundation.dispatch import subscribe, subscriptions
 from foundation.errors import ErrorCode, ZoikoError
+from foundation.mail import queue_email
 from foundation.outbox import PublishedEvent
 from modules.catalog import api as catalog
 from modules.messaging import api as messaging
@@ -19,6 +23,7 @@ from modules.trust import api as trust
 from modules.waitlist import api as waitlist
 
 from .models import Notification
+from .services import email_notices_enabled
 
 CONSUMER = "comms.notifier"
 
@@ -30,6 +35,52 @@ _KINDS = {
     "booking.attendance.v1": "booking_attendance",
     "booking.reminder.v1": "booking_reminder",
 }
+
+
+_CLINIC_WHY = {
+    "clinic_unavailable": "the clinic is closed or unavailable then",
+    "doctor_unavailable": "the doctor is unavailable then",
+    "service_changed": "the service has changed",
+}
+
+
+def _clinic_reason(booking: dict[str, Any]) -> str:
+    """The clinic's reason in plain words, from a fixed list (never free text). A patient's own
+    reason is not repeated back to them."""
+    why = _CLINIC_WHY.get(booking.get("cancel_reason", ""))
+    return f" The clinic said: {why}." if why else ""
+
+
+# What an email may say. It names NOTHING about the care (no clinic, service, time or doctor):
+# only that something changed, and where to look. Anyone reading over a shoulder or a forwarded
+# message learns nothing; the details are behind the sign-in.
+_EMAIL_HEADLINE = {
+    "booking_confirmed": "An appointment was confirmed.",
+    "booking_cancelled": "An appointment was cancelled.",
+    "booking_rescheduled": "An appointment was moved.",
+    "booking_reminder": "You have an appointment coming up.",
+    "message_received": "You have a new message from your clinic.",
+}
+
+
+def _email_the_patient(person_ref: str, kind: str) -> None:
+    """If this patient asked for emails, has a login of their own, and has confirmed their
+    address, queue one short email. Never for guardians, never to an unconfirmed address."""
+    headline = _EMAIL_HEADLINE.get(kind)
+    if headline is None:
+        return
+    target = trust.verified_login_email_of_person(person_ref)
+    if target is None:
+        return
+    actor_ref, address = target
+    if not email_notices_enabled(actor_ref):
+        return
+    queue_email(
+        kind="patient_update", to_address=address, subject="An update on Zoiko Access",
+        body=(f"Hello,\n\n{headline}\n\nSign in to see the details: "
+              f"{settings.PATIENT_APP_URL}/?page=notifications\n\n"
+              "You are getting this because you turned on email updates. You can turn them off "
+              "on the Notifications page.\n\nZoiko Access\n"))
 
 
 def _when(local_start: str) -> str:
@@ -65,7 +116,8 @@ def on_booking_event(event: PublishedEvent) -> None:
         "booking_confirmed": (
             "Appointment confirmed", f"{org} confirmed your {service} on {when}."),
         "booking_cancelled": (
-            "Appointment cancelled", f"Your {service} on {when} at {org} was cancelled."),
+            "Appointment cancelled",
+            f"Your {service} on {when} at {org} was cancelled." + _clinic_reason(booking)),
         "booking_reminder": (
             "Appointment reminder", f"Reminder: your {service} at {org} is on {when}."),
         "booking_attended": (
@@ -83,6 +135,7 @@ def on_booking_event(event: PublishedEvent) -> None:
     Notification.objects.create(
         person_ref=booking["person_ref"], kind=kind, title=title, body=body[:300],
         booking_ref=booking["public_id"], source_event_id=event.event_id)
+    _email_the_patient(booking["person_ref"], kind)
 
 
 REFERRAL_CONSUMER = "comms.referral_notifier"
@@ -196,6 +249,7 @@ def on_message_event(event: PublishedEvent) -> None:
         person_ref=thread["person_ref"], kind="message_received", title="New message",
         body=f"{org} sent you a message. Open Messages to read it."[:300],
         source_event_id=event.event_id)
+    _email_the_patient(thread["person_ref"], "message_received")
 
 
 def register_subscribers() -> None:

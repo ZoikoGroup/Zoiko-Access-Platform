@@ -49,7 +49,8 @@ def test_a_failing_handler_leaves_no_trace_so_the_event_can_be_retried(ctx_a):
 def test_the_handlers_change_and_the_record_commit_together(ctx_a):
     event_id = uuid.uuid4()
     with tenant_transaction(ctx_a):
-        process_once("projector", event_id, lambda: Probe.objects.create(label="done"))
+        process_once("projector", event_id,
+                     lambda: Probe.objects.create(label="done"))  # type: ignore[arg-type]
     assert Probe.objects.count() == 1 and InboxMessage.objects.count() == 1
 
 

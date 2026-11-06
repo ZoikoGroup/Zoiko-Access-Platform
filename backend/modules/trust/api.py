@@ -3,14 +3,30 @@
 This is the ONLY module other domain modules may import from `modules.trust`.
 Everything else (models, services, domain rules) is private. Enforced by import-linter.
 """
-from .auth import LoginResult, login, register_patient, revoke_sessions, set_password
+from .auth import (
+    LoginResult,
+    PasswordChange,
+    change_password,
+    login,
+    register_patient,
+    revoke_sessions,
+    set_password,
+)
 from .dev_auth import Authenticated, authenticate
 from .directory import actor_labels, counts, patient_registry, staff_directory
+from .display_names import (
+    clear_display_name,
+    display_name_of,
+    display_names,
+    set_display_name,
+)
 from .email_flows import (
+    EmailChange,
     email_status,
     request_password_reset,
     reset_password,
     send_verification,
+    set_email,
     verify_email,
 )
 from .family import (
@@ -23,8 +39,12 @@ from .family import (
     request_family_member,
     withdraw_family_member,
 )
+from .incidents import add_incident, get_incident, list_incidents, resolve_incident
 from .models import ActorType, CareBasis, Status, TenantType
-from .onboarding import onboard_customer
+from .name_checks import BASES as NAME_CHECK_BASES
+from .name_checks import states as name_check_states
+from .name_checks import verified_providers, verify_name, withdraw_check
+from .onboarding import onboard_customer, set_customer_sign_up
 from .people import (
     approve_proxy_grant,
     care_patients,
@@ -41,11 +61,14 @@ from .people import (
     revoke_proxy_grant,
     set_care_contested,
     start_care_relationship,
+    verified_login_email_of_person,
 )
 from .profile import get_person_profiles, profile_summary_for, set_person_profile
+from .releases import add_release, list_releases
 from .services import (
     active_roles,
     assign_role,
+    clinicians_at,
     context_for,
     create_organization,
     create_tenant,
@@ -58,8 +81,10 @@ from .services import (
     register_actor,
     set_actor_status,
     set_self_registration,
+    verified_emails_for_role,
 )
 from .staff_admin import INVITABLE_ROLES, invite_staff, resend_invitation, set_member_status
+from .suspensions import cancel_change, decide_change, list_changes, request_change
 
 __all__ = [
     "ActorType", "Authenticated", "CareBasis", "INVITABLE_ROLES", "LoginResult", "Status",
@@ -67,7 +92,11 @@ __all__ = [
     "authenticate", "care_patients", "care_team_of", "context_for", "counts", "create_organization",
     "create_person", "create_tenant", "email_status", "end_assignment", "end_care_relationship",
     "ensure_care_relationship", "get_organization", "invite_staff", "is_clinician_at",
-    "link_person_to_actor", "list_tenants", "login", "onboard_customer", "organization_names",
+    "link_person_to_actor", "list_releases", "list_tenants", "login", "add_release",
+    "add_incident", "get_incident", "list_incidents", "resolve_incident",
+    "cancel_change", "decide_change", "list_changes", "request_change",
+    "onboard_customer", "organization_names", "set_customer_sign_up",
+    "verified_emails_for_role", "clinicians_at",
     "overview", "own_person_of", "patient_registry", "person_exists", "profile_summary_for",
     "approve_family_member", "get_family_grant", "list_family", "pending_family_count",
     "pending_family_requests",
@@ -75,7 +104,12 @@ __all__ = [
     "get_person_profiles",
     "set_person_profile", "propose_proxy_grant", "reachable_persons", "register_actor",
     "register_patient", "relationship_verified", "request_password_reset", "resend_invitation",
-    "reset_password", "revoke_proxy_grant", "revoke_sessions", "send_verification",
+    "EmailChange", "PasswordChange", "verified_login_email_of_person", "clear_display_name",
+    "display_name_of", "display_names", "NAME_CHECK_BASES", "verified_providers", "verify_name",
+    "withdraw_check", "name_check_states",
+    "set_display_name", "change_password", "set_email", "reset_password",
+    "revoke_proxy_grant",
+    "revoke_sessions", "send_verification",
     "set_actor_status", "set_care_contested", "set_member_status", "set_password",
     "set_self_registration", "staff_directory", "start_care_relationship", "verify_email",
 ]

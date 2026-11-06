@@ -53,6 +53,7 @@ function View({ d, tenantName, api, database, onGo }: {
             <div className="appt" role="alert">
               <div className="info"><b>{late} item{late === 1 ? " is" : "s are"} running late</b>
                 <span className="sub">{d.late.bookings} booking{d.late.bookings === 1 ? "" : "s"} and {d.late.messages} message{d.late.messages === 1 ? "" : "s"} waiting more than {d.late.hours} hours</span></div>
+              <button className="btn" onClick={() => onGo("workflows")}>Open the work queue</button>
             </div>
           )}
           {open.length === 0 ? <div className="empty">All clear.</div> : open.map((a) => (
@@ -61,6 +62,20 @@ function View({ d, tenantName, api, database, onGo }: {
               <button className="btn" onClick={() => onGo(a.page)}>Open</button>
             </div>
           ))}
+        </Card>
+      </div>
+
+      <div className="grid">
+        <Card title="Today" sub="Appointments on today's date at your clinics"
+          action={<button className="btn ghost" onClick={() => onGo("appointments")}>Open appointments</button>}>
+          {d.today.confirmed + d.today.waiting === 0 ? <div className="empty">No appointments today.</div> : (
+            <div className="appt">
+              <div className="info">
+                <b>{d.today.confirmed} confirmed{d.today.waiting > 0 ? `, ${d.today.waiting} still waiting for you` : ""}</b>
+                <span className="sub">{d.today.still_to_come} not started yet</span>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 

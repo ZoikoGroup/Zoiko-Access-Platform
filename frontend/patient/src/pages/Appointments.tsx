@@ -1,7 +1,9 @@
-import { useState } from "react";
-import { ApiError, cancelBooking, downloadCalendar, getSlots, leaveWaitlist, rescheduleBooking, type Booking, type Slot, type WaitEntry } from "../api";
+import { useCallback, useState } from "react";
+import { BookingHistory } from "@shared/BookingHistory";
+import { PATIENT_REASONS } from "@shared/cancelReasons";
+import { ApiError, cancelBooking, downloadCalendar, getBookingHistory, getSlots, leaveWaitlist, rescheduleBooking, type Booking, type Slot, type WaitEntry } from "../api";
 import { dateBlock, dayKey, dayLabel, timeLabel } from "../format";
-import { Card, Pill, type PillKind } from "../ui";
+import { Card, Pill, VerifiedMark, type PillKind } from "../ui";
 
 const STATUS: Record<Booking["status"], { text: string; kind: PillKind }> = {
   requested: { text: "Waiting for the clinic", kind: "warn" },
@@ -11,8 +13,11 @@ const STATUS: Record<Booking["status"], { text: string; kind: PillKind }> = {
 
 function Row({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> }) {
   const [asking, setAsking] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const loadHistory = useCallback(() => getBookingHistory(b.id), [b.id]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [why, setWhy] = useState("");                              // optional reason for cancelling
   const [moving, setMoving] = useState<Slot[] | null>(null);       // free times, once "Change time" is clicked
   const block = dateBlock(b.local_start);
   const shown = b.attendance === "attended" ? { text: "Attended", kind: "ok" as PillKind }
@@ -21,7 +26,7 @@ function Row({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> }) {
 
   async function cancel() {
     setBusy(true); setError("");
-    try { await cancelBooking(b.id); await onChanged(); }
+    try { await cancelBooking(b.id, why); await onChanged(); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not cancel"); }
     finally { setBusy(false); setAsking(false); }
   }
@@ -52,11 +57,12 @@ function Row({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> }) {
       <div className="info">
         <b>{b.service.name}</b>
         <small>{b.organization.name}, {b.location.name}{b.location.address ? ` - ${b.location.address}` : ""}</small>
-        <small>{timeLabel(b.local_start)} ({b.local_zone}) - {b.service.mode === "video" ? "Video" : "In person"}{b.provider ? ` - with ${b.provider.name}` : ""}</small>
+        <small>{timeLabel(b.local_start)} ({b.local_zone}) - {b.service.mode === "video" ? "Video" : "In person"}{b.provider ? ` - with ${b.provider.name} ` : ""}{b.provider && <VerifiedMark on={b.provider.verified} />}</small>
         {b.rescheduled_from && <small>Moved from an earlier time.</small>}
         {error && <small style={{ color: "var(--bad)" }}>{error}</small>}
       </div>
       <Pill kind={shown.kind}>{shown.text}</Pill>
+      <button className="btn ghost" onClick={() => setShowHistory(!showHistory)}>{showHistory ? "Hide history" : "History"}</button>
       {upcoming && !asking && !moving && (
         <button className="btn ghost" onClick={() => void downloadCalendar(b.id).catch(() => setError("Could not make the calendar file"))}>Add to calendar</button>
       )}
@@ -64,10 +70,15 @@ function Row({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> }) {
       {upcoming && !asking && <button className="btn ghost" onClick={() => setAsking(true)}>Cancel</button>}
       {upcoming && asking && (
         <span>
+          <select aria-label="Why are you cancelling? (optional)" value={why} onChange={(e) => setWhy(e.target.value)}>
+            <option value="">Why? (optional)</option>
+            {Object.entries(PATIENT_REASONS).map(([code, text]) => <option key={code} value={code}>{text}</option>)}
+          </select>{" "}
           <button className="btn" disabled={busy} onClick={() => void cancel()}>{busy ? "Cancelling…" : "Yes, cancel it"}</button>{" "}
           <button className="btn ghost" onClick={() => setAsking(false)}>Keep it</button>
         </span>
       )}
+      {showHistory && <div style={{ flexBasis: "100%" }}><BookingHistory load={loadHistory} /></div>}
       {moving && (
         <div style={{ flexBasis: "100%" }}>
           <b>Pick a new time</b> <small>(the clinic will confirm it again)</small>
@@ -78,7 +89,7 @@ function Row({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> }) {
                 <div className="slots">
                   {list.map((s) => (
                     <button key={s.id} className="slot" disabled={busy} onClick={() => void moveTo(s)}>
-                      {timeLabel(s.local_start)}{s.provider ? <small style={{ display: "block", fontWeight: 400 }}>{s.provider.name}</small> : null}
+                      {timeLabel(s.local_start)}{s.provider ? <small style={{ display: "block", fontWeight: 400 }}>{s.provider.name} <VerifiedMark on={s.provider.verified} /></small> : null}
                     </button>
                   ))}
                 </div>

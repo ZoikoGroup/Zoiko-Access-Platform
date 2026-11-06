@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, createBooking, getSlots, joinWaitlist, searchServices, type Booking, type CategoryOption, type Me, type Service, type ServiceFilters, type ProfileRow, type Slot, type WaitEntry } from "../api";
 import type { PageId } from "../App";
 import { dayKey, dayLabel, timeLabel, whenLabel } from "../format";
-import { Card, Pill } from "../ui";
+import { Card, Pill, VerifiedMark } from "../ui";
 
 const isWaiting = (list: WaitEntry[], s: Service) => list.some((w) => w.service.id === s.id);
 
@@ -13,10 +13,11 @@ function usuallyText(h: number): string {
   return `${Math.round(h / 24)} days`;
 }
 
-export function FindCare({ me, waiting, profiles, onBooked, goTo }: {
+export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery = "" }: {
+  initialQuery?: string;
   me: Me; waiting: WaitEntry[]; profiles: ProfileRow[]; onBooked: () => Promise<void>; goTo: (p: PageId) => void;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [services, setServices] = useState<Service[] | null>(null);
   const [service, setService] = useState<Service | null>(null);
   const [slots, setSlots] = useState<Slot[] | null>(null);
@@ -38,7 +39,7 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo }: {
   const [sort, setSort] = useState<NonNullable<ServiceFilters["sort"]>>("name");
   const [categories, setCategories] = useState<CategoryOption[]>([]);
 
-  const [applied, setApplied] = useState("");        // the search text that was actually submitted
+  const [applied, setApplied] = useState(initialQuery);        // the search text that was actually submitted
 
   const loadServices = useCallback(async () => {
     try {
@@ -152,7 +153,7 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo }: {
                 <span className="meta">{s.organization.name} - {s.duration_minutes} min - {s.mode === "video" ? "Video" : "In person"}</span>
                 <span className="meta">{s.description}</span>
                 {s.usual_confirmation_hours != null && (
-                  <span className="meta">Usually confirms within about {usuallyText(s.usual_confirmation_hours)}</span>
+                  <span className="meta">Typically confirmed in about {usuallyText(s.usual_confirmation_hours)} (the middle time of recent requests)</span>
                 )}
                 <span className="next">
                   {s.next_slot_local && s.next_slot_zone
@@ -183,7 +184,7 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo }: {
                   <div className="slots">
                     {list.map((s) => (
                       <button key={s.id} className={`slot ${slot?.id === s.id ? "chosen" : ""}`} onClick={() => { setSlot(s); setDone(null); }}>
-                        {timeLabel(s.local_start)}{s.provider ? <small style={{ display: "block", fontWeight: 400 }}>{s.provider.name}</small> : null}
+                        {timeLabel(s.local_start)}{s.provider ? <small style={{ display: "block", fontWeight: 400 }}>{s.provider.name} <VerifiedMark on={s.provider.verified} /></small> : null}
                       </button>
                     ))}
                   </div>
@@ -194,7 +195,7 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo }: {
             {slot && (
               <div className="confirm-box">
                 <b>Book {service.name}</b>
-                <div>{whenLabel(slot.local_start, slot.local_zone)} - {slot.location}{slot.provider ? ` - with ${slot.provider.name}` : ""}</div>
+                <div>{whenLabel(slot.local_start, slot.local_zone)} - {slot.location}{slot.provider ? ` - with ${slot.provider.name} ` : ""}{slot.provider && <VerifiedMark on={slot.provider.verified} />}</div>
                 {me.persons.length > 1 && (
                   <label style={{ display: "block", marginTop: 8 }}>For
                     <select value={person} onChange={(e) => setPerson(e.target.value)} style={{ marginLeft: 8 }}>

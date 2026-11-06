@@ -13,8 +13,10 @@ import { Notifications } from "./pages/Notifications";
 import { Planned } from "./pages/Planned";
 import { Privacy } from "./pages/Privacy";
 import { Profile } from "./pages/Profile";
+import { Help } from "./pages/Help";
 import { Referrals } from "./pages/Referrals";
 import { SignIn } from "./pages/SignIn";
+import { QuickSearch } from "./QuickSearch";
 import { Icon, Logo } from "./ui";
 
 export type PageId =
@@ -37,9 +39,9 @@ const NAV: NavItem[] = [
   { id: "notifications", label: "Notifications", icon: "bell" },
   { id: "privacy", label: "Privacy & Consent", icon: "shield" },
   { id: "profile", label: "My Profile", icon: "settings" },
-  { id: "help", label: "Help & Support", icon: "integrations", waitsFor: "Support tooling is not built yet." },
+  { id: "help", label: "Help & Support", icon: "integrations" },
 ];
-const LIVE: PageId[] = ["dashboard", "find", "appointments", "referrals", "notifications", "profile", "insurance", "careteam", "privacy", "family", "messages"];
+const LIVE: PageId[] = ["dashboard", "find", "appointments", "referrals", "notifications", "profile", "insurance", "careteam", "privacy", "family", "messages", "help"];
 
 function startPage(): PageId {
   const wanted = new URLSearchParams(window.location.search).get("page");
@@ -57,6 +59,8 @@ export default function App() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [unread, setUnread] = useState(0);
   const [page, setPage] = useState<PageId>(startPage());
+  const [findQuery, setFindQuery] = useState("");        // set by the top-bar search
+  const openPage = (id: PageId) => { setFindQuery(""); setPage(id); };
   const [error, setError] = useState("");
   const [link, setLink] = useState(readLinkAction());
 
@@ -110,21 +114,24 @@ export default function App() {
   }
 
   const item = NAV.find((n) => n.id === page) ?? NAV[0];
-  const name = displayName(session.login);
+  // The patient's own saved name (My Profile) when there is one; otherwise a name made from the login.
+  const ownName = profiles.find((x) => x.own)?.name.trim() ?? "";
+  const name = ownName ? ownName.split(" ")[0] : displayName(session.login);
   let body;
   if (!me) body = <div className="notice">Loading…</div>;
   else if (!LIVE.includes(page)) body = <Planned title={item.label} waitsFor={item.waitsFor ?? ""} />;
-  else if (page === "find") body = <FindCare me={me} waiting={waiting} profiles={profiles} onBooked={refresh} goTo={setPage} />;
+  else if (page === "find") body = <FindCare key={findQuery} initialQuery={findQuery} me={me} waiting={waiting} profiles={profiles} onBooked={refresh} goTo={setPage} />;
   else if (page === "appointments") body = <Appointments bookings={bookings} waiting={waiting} onChanged={refresh} />;
   else if (page === "messages") body = <Messages onChanged={refresh} />;
+  else if (page === "help") body = <Help bookings={bookings} goTo={setPage} />;
   else if (page === "family") body = <Family onChanged={refresh} />;
   else if (page === "careteam") body = <CareTeam />;
   else if (page === "privacy") body = <Privacy />;
   else if (page === "insurance") body = <Insurance coverage={coverage} hasPatient={me.persons.length > 0} onChanged={refresh} />;
   else if (page === "profile") body = <Profile key={profiles.map((x) => x.name).join("|")} profiles={profiles} onSaved={refresh} />;
   else if (page === "referrals") body = <Referrals referrals={referrals} />;
-  else if (page === "notifications") body = <Notifications notices={notices} unread={unread} onChanged={refresh} />;
-  else body = <Dashboard name={name} me={me} bookings={bookings} notices={notices} goTo={setPage} />;
+  else if (page === "notifications") body = <Notifications notices={notices} unread={unread} onChanged={refresh} goToProfile={() => setPage("profile")} />;
+  else body = <Dashboard name={name} me={me} bookings={bookings} notices={notices} referrals={referrals} goTo={setPage} />;
 
   return (
     <div className="shell">
@@ -133,10 +140,8 @@ export default function App() {
           <Logo />
           <div><b>Zoiko Access</b><small>Global Healthcare Access</small></div>
         </div>
-        <label className="search" title="Search is not built yet">
-          <Icon name="search" size={18} />
-          <input placeholder="Search is not built yet" disabled aria-label="Search (not built yet)" />
-        </label>
+        <QuickSearch pages={NAV.filter((n) => LIVE.includes(n.id))} onPage={(id) => openPage(id as PageId)}
+          fallback={{ icon: "search", label: (t) => `Find care “${t}”`, onChoose: (t) => { setFindQuery(t); setPage("find"); } }} />
         <span className="spacer" />
         <button className="bell" onClick={() => setPage("notifications")}
           aria-label={`Notifications, ${unread} unread`} title="Notifications">
@@ -153,7 +158,7 @@ export default function App() {
       <nav className="sidebar" aria-label="Main">
         {NAV.map((n) => (
           <button key={n.id} className={`nav-item ${page === n.id ? "active" : ""}`}
-            onClick={() => setPage(n.id)} aria-current={page === n.id ? "page" : undefined}>
+            onClick={() => openPage(n.id)} aria-current={page === n.id ? "page" : undefined}>
             <Icon name={n.icon} />
             {n.label}
             {!LIVE.includes(n.id) && <span className="soon">soon</span>}

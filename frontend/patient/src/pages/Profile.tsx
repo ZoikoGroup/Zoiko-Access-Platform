@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { saveProfile, type ProfileRow } from "../api";
+import { changePassword, getEmailStatus, resendVerification, saveProfile, setEmail, type ProfileRow } from "../api";
+import { ChangePassword } from "../ChangePassword";
+import { EmailCard } from "../EmailCard";
 import { Card } from "../ui";
 
 function One({ row, onSaved }: { row: ProfileRow; onSaved: () => Promise<void> }) {
@@ -56,6 +58,8 @@ export function Profile({ profiles, onSaved }: { profiles: ProfileRow[]; onSaved
             <One row={row} onSaved={onSaved} />
           </Card>
         ))}
+        <EmailCard load={getEmailStatus} onSave={setEmail} onResend={resendVerification} />
+        <ChangePassword onChange={changePassword} />
       </div>
     </>
   );

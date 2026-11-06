@@ -16,6 +16,10 @@ os.environ.setdefault("DJANGO_ALLOWED_HOSTS", "testserver,localhost")
 from .base import *  # noqa: E402, F403
 
 DEBUG = False
+# The test database user is a superuser (the tests switch to a restricted role where it matters).
+REQUIRE_RESTRICTED_DB_ROLE = False
+# The test settings are all placeholders on purpose.
+REQUIRE_PRODUCTION_SETTINGS = False
 
 # A throwaway table for proving tenant isolation. Exists only under test settings.
 INSTALLED_APPS = [*INSTALLED_APPS, "tests.probe"]  # noqa: F405

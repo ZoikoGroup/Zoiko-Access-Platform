@@ -12,3 +12,10 @@ class CommsConfig(AppConfig):
         from .subscribers import register_subscribers
 
         register_subscribers()
+
+        # Once an hour the worker checks for late work and emails clinic operations (once a day).
+        from foundation import periodic
+
+        from .digest import DIGEST_EVERY_SECONDS, send_late_digests
+
+        periodic.register("comms.late_digest", DIGEST_EVERY_SECONDS, send_late_digests)

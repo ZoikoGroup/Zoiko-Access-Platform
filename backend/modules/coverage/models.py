@@ -4,6 +4,7 @@ The insurer is a plain NAME for now: insurers are not customers of the platform 
 payer organization to point at. The member id is stored ONLY as ciphertext (foundation/crypto.py).
 Patients are referenced by public id; the other modules own them.
 """
+
 from __future__ import annotations
 
 from django.db import models
@@ -17,16 +18,17 @@ class CoverageStatus(models.TextChoices):
 
 
 class Coverage(CellScopedModel):
-    person_ref = models.CharField(max_length=22)            # the insured patient
+    person_ref = models.CharField(max_length=22)  # the insured patient
     insurer_name = models.CharField(max_length=80)
     plan_name = models.CharField(max_length=80, blank=True, default="")
-    member_ref_enc = models.TextField()                 # the member or policy number, encrypted
+    member_ref_enc = models.TextField()  # the member or policy number, encrypted
     # The last four characters, only to recognise a card in a list.
     member_last4 = models.CharField(max_length=4, blank=True, default="")
     valid_from = models.DateField(null=True, blank=True)
     valid_until = models.DateField(null=True, blank=True)
     status = models.CharField(
-        max_length=16, choices=CoverageStatus.choices, default=CoverageStatus.ACTIVE)
+        max_length=16, choices=CoverageStatus.choices, default=CoverageStatus.ACTIVE
+    )
     added_by_ref = models.CharField(max_length=22)
     ended_by_ref = models.CharField(max_length=22, blank=True, default="")
 
@@ -35,3 +37,23 @@ class Coverage(CellScopedModel):
             models.Index(fields=["cell_id", "tenant_id"], name="coverage_scope_idx"),
             models.Index(fields=["person_ref", "status"], name="coverage_person_idx"),
         ]
+
+
+class InsuranceSharing(CellScopedModel):
+    """Whether clinic staff may see this patient's insurance details. The patient decides.
+
+    No row means NOT shared: the cautious default (DEV-096). Staff then see that the patient has not
+    shared, and nothing else. The patient and anyone acting for them always see their own details.
+    """
+
+    person_ref = models.CharField(max_length=22)
+    share_with_staff = models.BooleanField(default=False)
+    changed_by_ref = models.CharField(max_length=22)
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cell_id", "tenant_id", "person_ref"], name="coveragesharing_person_uq"
+            ),
+        ]
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="coveragesharing_scope_idx")]

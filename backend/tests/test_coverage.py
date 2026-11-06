@@ -127,6 +127,8 @@ def test_ending_one_makes_room_under_the_limit(p):
 
 # ------------------------------------------------------------------ who may do what
 def test_the_front_desk_can_record_and_end_insurance_for_a_patient(p):
+    shared = p.post("coverage/sharing", {"share": True}, subject="pat")      # the patient shares
+    assert shared.status_code == 200
     r = add(p, subject="ops", person=p.person, insurer="HDFC Ergo")
     assert r.status_code == 201
     status, rows = of(p, p.person)

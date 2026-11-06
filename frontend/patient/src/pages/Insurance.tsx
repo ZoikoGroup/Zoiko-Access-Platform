@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ApiError, addCoverage, endCoverage, type CoverageRow } from "../api";
+import { useCallback, useEffect, useState } from "react";
+import { ApiError, addCoverage, endCoverage, getSharing, setSharing, type CoverageRow, type SharingChoice } from "../api";
 import { Card, Pill } from "../ui";
 
 function Row({ c, onChanged }: { c: CoverageRow; onChanged: () => Promise<void> }) {
@@ -81,6 +81,37 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
   );
 }
 
+function SharingCard() {
+  const [choices, setChoices] = useState<SharingChoice[] | null>(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    try { setChoices(await getSharing()); setError(""); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load this choice"); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  async function choose(person: string, share: boolean) {
+    setBusy(person); setError("");
+    try { await setSharing(person, share); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(""); }
+  }
+  if (choices === null || choices.length === 0) return error ? <div className="error" role="alert">{error}</div> : null;
+  return (
+    <Card title="Who can see my insurance" sub="You decide. By default the clinic's staff cannot see it.">
+      {error && <div className="error" role="alert">{error}</div>}
+      {choices.map((c, i) => (
+        <label key={c.person} style={{ display: "block", margin: "8px 0" }}>
+          <input type="checkbox" checked={c.share_with_staff} disabled={busy === c.person}
+            onChange={(e) => void choose(c.person, e.target.checked)} />{" "}
+          Let the clinic's staff see {choices.length > 1 ? `the insurance of person ${i + 1}` : "my insurance details"}
+        </label>
+      ))}
+      <small>Staff only ever see the insurer, the plan, the dates and the last four characters of the number. You can change this at any time. Anything already on file stays yours.</small>
+    </Card>
+  );
+}
+
 export function Insurance({ coverage, hasPatient, onChanged }: {
   coverage: CoverageRow[]; hasPatient: boolean; onChanged: () => Promise<void>;
 }) {
@@ -88,7 +119,7 @@ export function Insurance({ coverage, hasPatient, onChanged }: {
     <>
       <div className="hero"><div>
         <h1>Insurance &amp; Claims</h1>
-        <p>Keep your insurance on file so the clinic can see it. Your member number is stored encrypted and shown only as its last four characters.</p>
+        <p>Keep your insurance on file, and choose whether the clinic's staff may see it. Your member number is stored encrypted and shown only as its last four characters.</p>
       </div></div>
       {!hasPatient && <div className="notice">Your login is not linked to a patient record yet, so you cannot add insurance.</div>}
       <div className="grid">
@@ -97,6 +128,7 @@ export function Insurance({ coverage, hasPatient, onChanged }: {
             ? <div className="empty">No insurance on file yet.</div>
             : coverage.map((c) => <Row key={c.id} c={c} onChanged={onChanged} />)}
         </Card>
+        {hasPatient && <SharingCard />}
         {hasPatient && <Card title="Add insurance"><AddForm onAdded={onChanged} /></Card>}
         <Card title="Claims">
           <div className="empty">Claims are not built yet. Today this page only records which insurance you have; it does not check whether a policy is valid with the insurer, and it does not submit or track claims.</div>

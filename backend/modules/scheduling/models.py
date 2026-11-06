@@ -69,6 +69,8 @@ class Booking(CellScopedModel):
         max_length=16, choices=BookingStatus.choices, default=BookingStatus.REQUESTED
     )
     cancelled_by_ref = models.CharField(max_length=22, blank=True, default="")
+    # Why it was cancelled: a code from CANCEL_REASONS (empty when nobody said).
+    cancel_reason = models.CharField(max_length=24, blank=True, default="")
     # The booking this one replaced, when the patient or the clinic moved an appointment.
     rescheduled_from_ref = models.CharField(max_length=22, blank=True, default="")
     reminder_sent_at = models.DateTimeField(null=True, blank=True)   # the patient was reminded
@@ -91,4 +93,59 @@ class Booking(CellScopedModel):
                 condition=Q(status__in=["requested", "confirmed"]),
                 name="scheduling_one_active_booking_per_slot",
             ),
+        ]
+
+
+# Why a booking was cancelled. A patient or guardian picks from the first list, clinic staff from
+# the second: the code says who it came from, and a reason from the wrong list is refused.
+PATIENT_CANCEL_REASONS = {
+    "schedule_conflict": "I cannot make that time",
+    "no_longer_needed": "I no longer need it",
+    "booked_elsewhere": "I booked somewhere else",
+    "other": "Another reason",
+}
+CLINIC_CANCEL_REASONS = {
+    "clinic_unavailable": "The clinic is closed or unavailable then",
+    "doctor_unavailable": "The doctor is unavailable then",
+    "service_changed": "The service has changed",
+    "other": "Another reason",
+}
+
+
+class BookingEventSource(models.TextChoices):
+    PATIENT = "patient", "The patient or their family"
+    CLINIC = "clinic", "The clinic"
+    SYSTEM = "system", "Automatic"
+
+
+class BookingEvent(CellScopedModel):
+    """One step in the life of a booking, written in the same transaction as the step itself.
+
+    Append-only: the database refuses UPDATE and DELETE (see the migration). Each row carries the
+    digest of the one before it for the same booking, so a changed or missing row is detectable
+    (docs/schema README, standard column set B). It holds no patient detail, only references.
+    """
+
+    booking = models.ForeignKey(Booking, on_delete=models.PROTECT, related_name="events")
+    seq = models.PositiveIntegerField()                 # 1, 2, 3... for this booking, no gaps
+    event_type = models.CharField(max_length=24)
+    state_from = models.CharField(max_length=16, blank=True, default="")
+    state_to = models.CharField(max_length=16)
+    source = models.CharField(max_length=8, choices=BookingEventSource.choices)
+    actor_ref = models.CharField(max_length=64)         # a login's public id, or "system"
+    reason_code = models.CharField(max_length=24, blank=True, default="")
+    # The other booking of a move.
+    related_ref = models.CharField(max_length=22, blank=True, default="")
+    occurred_at = models.DateTimeField()
+    # How this row's digest was made: 1 = the first layout, 2 = the shared chain helper. Rows are
+    # never rewritten, so old rows keep checking against the layout they were written with.
+    digest_version = models.PositiveSmallIntegerField()
+    prev_digest = models.CharField(max_length=64)
+    record_digest = models.CharField(max_length=64)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="bookingevent_scope_idx")]
+        constraints = [
+            # Two writers racing on one booking cannot both take the same place in its chain.
+            models.UniqueConstraint(fields=["booking", "seq"], name="bookingevent_one_per_seq"),
         ]

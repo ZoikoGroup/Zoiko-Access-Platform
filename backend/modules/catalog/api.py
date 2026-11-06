@@ -13,9 +13,11 @@ from .services import (
     list_services,
     service_counts,
     set_service_status,
+    update_location_contact,
 )
 
 __all__ = [
     "create_location", "create_service", "get_location", "get_service", "list_categories",
     "list_locations", "list_services", "service_counts", "set_service_status",
+    "update_location_contact",
 ]

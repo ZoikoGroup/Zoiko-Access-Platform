@@ -150,7 +150,11 @@ def test_the_scheduling_job_is_registered_with_the_worker():
 
 def test_a_job_runs_only_when_its_interval_has_passed():
     calls = []
-    periodic.register("test.counter", 60.0, lambda: calls.append(1) or 1)
+    def count():
+        calls.append(1)
+        return 1
+
+    periodic.register("test.counter", 60.0, count)
     now = [100.0]
     first = periodic.run_due(lambda: now[0])
     now[0] = 130.0                                          # 30 s later: too soon
@@ -168,7 +172,11 @@ def test_a_failing_job_does_not_stop_the_others_and_reports_only_its_class():
 
     seen = []
     periodic.register("test.broken", 0.0, broken)
-    periodic.register("test.fine", 0.0, lambda: seen.append(1) or 7)
+    def fine():
+        seen.append(1)
+        return 7
+
+    periodic.register("test.fine", 0.0, fine)
     result = periodic.run_due()
     assert result["test.broken"] == "failed:ValueError" and result["test.fine"] == 7
     assert "Asha" not in json.dumps(result)

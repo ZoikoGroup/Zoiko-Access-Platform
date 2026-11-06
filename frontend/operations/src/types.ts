@@ -38,17 +38,29 @@ export interface Evidence {
   chain: ChainStatus | null;
 }
 
+/** Refused access checks over the last few days: who was refused most, and a count per day. */
+export interface RefusedSummary {
+  days: number;
+  by_person: { actor: string; denied: number; total: number }[];
+  by_day: { day: string; denied: number; total: number }[];
+}
+
+export interface Compliance extends Evidence {
+  refused: RefusedSummary;
+}
+
 export interface Dashboard extends Evidence {
   tenant: string;
   counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
   late: { hours: number; bookings: number; messages: number };
+  today: { confirmed: number; waiting: number; still_to_come: number };
   attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number };
 }
 
 export interface Directory {
   organizations: { id: string; name: string; status: string }[];
   staff: {
-    id: string; login: string; type: string; status: string;
+    id: string; login: string; name?: string; type: string; status: string;
     roles: { role: string; organization_id: string; organization_name: string; status: string }[];
     pending_invite: boolean;
   }[];
@@ -89,6 +101,7 @@ export interface BookingRow {
   local_zone: string;
   rescheduled_from: string | null;
   attendance: "attended" | "no_show" | null;
+  cancel_reason?: string | null;
   late?: boolean;
   patient_name?: string | null;
 }
@@ -138,6 +151,10 @@ export interface Timing {
 }
 
 export interface Reports {
+  forecast?: {
+    enough_history: boolean; history_days: number;
+    days: { date: string; weekday: number; booked: number; open: number; usual: number | null }[];
+  };
   days: number;
   from: string;
   to: string;
@@ -148,10 +165,50 @@ export interface Reports {
     attendance: { attended: number; no_show: number; not_recorded: number };
     busiest_services: { name: string; count: number }[];
     hours_to_confirm: Timing;
+    cancel_reasons: Record<string, number>;
+    by_weekday: number[];                 // Monday first: appointments in the period, by the clinic's own day
+    by_doctor: { provider_ref: string; name: string; attended: number; no_show: number;
+      not_recorded: number; no_show_rate: number | null }[];
   };
   referrals: { received: number; issued: number; accepted: number; needs_info: number; declined: number };
   waiting_list: { joined: number; booked: number; left: number; waiting_now: number };
   messages: { started: number; closed: number; waiting_for_clinic: number; hours_to_first_reply: Timing };
+}
+
+export interface WorkItem {
+  id: string;
+  kind: "confirm_booking" | "decide_referral" | "answer_message";
+  label: string;
+  subject: string;
+  created_at: string;
+  due_at: string;
+  overdue: boolean;
+  assigned_to: string;
+  assigned_to_name: string;
+  status: "open" | "done" | "cancelled";
+  closed_at: string | null;
+}
+
+export interface ClinicSettings {
+  response_target_hours: number;
+  reminder_lead_hours: number;
+  waitlist_offer_hours: number;
+  late_email_recipients: number;
+}
+
+export interface NameCheck {
+  state: "none" | "verified" | "name_changed" | "withdrawn";
+  basis?: string; basis_text?: string; note?: string; checked_on?: string; reason?: string;
+}
+
+export interface ProviderRow {
+  id: string;
+  name: string;
+  name_check: NameCheck;
+  upcoming: number;
+  open_times: number;
+  next_local: string | null;
+  next_zone: string | null;
 }
 
 export interface Profile {
@@ -200,6 +257,7 @@ export interface LocationRow {
   id: string;
   name: string;
   address: string;
+  phone: string;
   time_zone: string;
   organization: string;
 }

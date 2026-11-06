@@ -104,9 +104,14 @@ def _message_dict(m: Message) -> dict[str, Any]:
             "at": m.created_at.isoformat()}
 
 
-def _event(thread: Thread, side: str) -> None:
+def _event(thread: Thread, side: str, actor_ref: str = "") -> None:
+    """A message was sent: which thread and which side. Clinic staff's login is added, a patient's
+    never is (only the side says it was them)."""
+    payload = {"thread_ref": thread.public_id, "side": side}
+    if actor_ref and side != Side.PATIENT:
+        payload["actor_ref"] = actor_ref
     emit(event_type="message.sent.v1", aggregate_type="thread", aggregate_ref=thread.public_id,
-         payload={"thread_ref": thread.public_id, "side": side})
+         payload=payload)
 
 
 def start_thread(
@@ -132,7 +137,7 @@ def start_thread(
         thread.save()
         _add(thread, actor_public_id, Side.PATIENT, body)
         _audit(actor_public_id, "message.start", thread.public_id)
-        _event(thread, Side.PATIENT)
+        _event(thread, Side.PATIENT, actor_public_id)
         return thread_dict(thread)
 
 
@@ -175,7 +180,7 @@ def reply(
                                    "first_reply_at", "entity_version", "updated_at"])
         thread.refresh_from_db()
         _audit(actor_public_id, "message.reply", thread.public_id)
-        _event(thread, side)
+        _event(thread, side, actor_public_id)
         return thread_dict(thread)
 
 
@@ -194,6 +199,14 @@ def open_thread(thread_ref: str, *, side: str) -> dict[str, Any]:
             thread.save(update_fields=[field, "updated_at"])
         rows = Message.objects.filter(thread=thread, **_scope()).order_by("created_at")
         return {"thread": thread_dict(thread), "messages": [_message_dict(m) for m in rows]}
+
+
+def read_messages(thread_ref: str) -> list[dict[str, Any]]:
+    """The messages of a thread, oldest first, WITHOUT marking anything read. For a patient's
+    data export; the caller has been allowed to read this thread."""
+    thread = _own(thread_ref)
+    rows = Message.objects.filter(thread=thread, **_scope()).order_by("created_at")
+    return [_message_dict(m) for m in rows]
 
 
 def close_thread(
@@ -234,6 +247,17 @@ def unread_threads_for_staff(organization_ref: str) -> int:
     return Thread.objects.filter(
         organization_ref=organization_ref, status=ThreadStatus.OPEN, staff_unread__gt=0,
         **_scope()).count()
+
+
+def unanswered_threads(
+    organization_ref: str, limit: int = 500
+) -> list[tuple[str, dt.datetime]]:
+    """(thread id, time of its newest message) of the open threads of this organization with
+    messages its staff have not opened, oldest first. Reads no subject or message text."""
+    rows = Thread.objects.filter(
+        organization_ref=organization_ref, status=ThreadStatus.OPEN, staff_unread__gt=0,
+        **_scope()).order_by("last_message_at").values_list("public_id", "last_message_at")
+    return list(rows[: max(1, min(limit, 1000))])
 
 
 def overdue_threads_for_staff(

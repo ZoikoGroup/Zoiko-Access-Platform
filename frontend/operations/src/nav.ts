@@ -3,7 +3,7 @@
 export type PageId =
   | "dashboard" | "patients" | "providers" | "organizations" | "team" | "services" | "appointments"
   | "waitlist" | "family" | "referrals" | "workflows" | "messages" | "billing" | "compliance" | "reports"
-  | "integrations" | "settings";
+  | "integrations" | "ai" | "settings";
 
 export interface NavItem {
   id: PageId;
@@ -16,8 +16,7 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", live: true },
   { id: "patients", label: "Patients", icon: "patients", live: true },
-  { id: "providers", label: "Providers", icon: "providers", live: false,
-    waitsFor: "Clinician profiles, qualifications and facility privileges (a later trust step)." },
+  { id: "providers", label: "Providers", icon: "providers", live: true },
   { id: "organizations", label: "Organizations", icon: "organizations", live: true },
   { id: "team", label: "Team", icon: "providers", live: true },
   { id: "services", label: "Services", icon: "services", live: true },
@@ -25,8 +24,7 @@ export const NAV: NavItem[] = [
   { id: "waitlist", label: "Waiting list", icon: "appointments", live: true },
   { id: "family", label: "Family requests", icon: "patients", live: true },
   { id: "referrals", label: "Referrals", icon: "referrals", live: true },
-  { id: "workflows", label: "Workflows", icon: "workflows", live: false,
-    waitsFor: "The workflow engine and task queues: planned (B8)." },
+  { id: "workflows", label: "Work queue", icon: "workflows", live: true },
   { id: "messages", label: "Messages", icon: "messages", live: true },
   { id: "billing", label: "Billing & Claims", icon: "billing", live: false,
     waitsFor: "Entitlements, invoices and claims: a later phase." },
@@ -34,6 +32,6 @@ export const NAV: NavItem[] = [
   { id: "reports", label: "Reports", icon: "reports", live: true },
   { id: "integrations", label: "Integrations", icon: "integrations", live: false,
     waitsFor: "Partner connectors and webhooks: planned (B8, partner simulator)." },
-  { id: "settings", label: "Settings", icon: "settings", live: false,
-    waitsFor: "Tenant and policy settings: a later step." },
+  { id: "ai", label: "AI permits", icon: "settings", live: true },
+  { id: "settings", label: "Settings", icon: "settings", live: true },
 ];

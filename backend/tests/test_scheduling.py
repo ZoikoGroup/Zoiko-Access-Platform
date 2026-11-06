@@ -100,10 +100,10 @@ def test_catalog_validates_and_lists(clinic):
             catalog.create_location(
                 organization_ref=clinic.org, name="Main", time_zone="UTC", **clinic.cat)
         assert code_of(dup) == ErrorCode.CONFLICT_VERSION
-        for bad in ({"duration_minutes": 2}, {"duration_minutes": 999}, {"category": "Bad Cat"},
+        for broken in ({"duration_minutes": 2}, {"duration_minutes": 999}, {"category": "Bad Cat"},
                     {"mode": "teleport"}, {"name": ""}):
             args = {"organization_ref": clinic.org, "name": "Y", "category": "dermatology",
-                    "duration_minutes": 20, **bad, **clinic.cat}
+                    "duration_minutes": 20, **broken, **clinic.cat}
             with pytest.raises(ZoikoError):
                 catalog.create_service(**args)
         catalog.create_service(organization_ref=clinic.org, name="Skin review",
@@ -366,7 +366,9 @@ def test_events_audit_and_listing(clinic):
         types = list(OutboxEvent.objects.order_by("seq").values_list("event_type", flat=True))
         # creating times announces them (the waiting list listens), then the booking steps
         assert types == ["slot.opened.v1", "booking.requested.v1", "booking.confirmed.v1"]
-        payload = OutboxEvent.objects.order_by("seq").last().payload
+        last_event = OutboxEvent.objects.order_by("seq").last()
+        assert last_event is not None
+        payload = last_event.payload
         assert payload["booking_ref"] == booking and "person" not in str(payload.keys())
         actions = set(AuditEvent.objects.values_list("action", flat=True))
         assert {"slot.create", "booking.request", "booking.confirm"} <= actions

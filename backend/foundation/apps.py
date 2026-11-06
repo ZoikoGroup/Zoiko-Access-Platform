@@ -10,3 +10,6 @@ class FoundationConfig(AppConfig):
 
     name = "foundation"
     label = "foundation"
+
+    def ready(self) -> None:
+        from . import release_check  # noqa: F401  (registers the `check --deploy` check)

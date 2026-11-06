@@ -26,7 +26,15 @@ from modules.policy import api as policy
 from .auth import set_password
 from .email_flows import send_invitation
 from .models import ActorType, TenantType
-from .services import assign_role, create_organization, create_tenant, register_actor
+from .services import (
+    assign_role,
+    context_for,
+    create_organization,
+    create_tenant,
+    list_tenants,
+    register_actor,
+    set_self_registration,
+)
 
 WRITE_PLATFORM = "write:platform"
 MAX_NAME = 120
@@ -76,3 +84,38 @@ def onboard_customer(
         record(actor_ref=actor_public_id, action="platform.onboard_customer",
                object_type="tenant", object_ref=tenant.public_id, outcome=AuditOutcome.ALLOWED)
     return {"id": tenant.public_id, "name": tenant.name, "site": site.name}
+
+
+def set_customer_sign_up(
+    *,
+    customer_public_id: str,
+    enabled: object,
+    actor_public_id: str,
+    platform_organization_public_id: str | None,
+    decision: policy.Decision,
+) -> dict[str, Any]:
+    """Open or close a customer's patient self-sign-up. Call with the platform tenant bound and NO
+    transaction open (the change runs in the customer's own tenant).
+
+    Rules: needs the right to WRITE the platform; `enabled` must be a real true or false; the
+    platform's own tenant has no patient sign-up and is refused; setting the value it already has
+    changes nothing and writes no audit entry. A real change is audited in the customer's own
+    chain (who changed it, no personal detail) and in the platform's chain."""
+    policy.check_receipt(
+        decision, actor_public_id=actor_public_id, operation=WRITE_PLATFORM,
+        organization_public_id=platform_organization_public_id, subject_ref=None)
+    if not isinstance(enabled, bool):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["enabled"])
+    found = next((t for t in list_tenants() if t["public_id"] == customer_public_id), None)
+    if found is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if found["type"] == TenantType.PLATFORM:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["customer"])
+    if (found["self_registration"] == "true") != enabled:
+        with tenant_transaction(context_for(customer_public_id)):
+            set_self_registration(enabled, by=actor_public_id)
+        with tenant_transaction():
+            record(actor_ref=actor_public_id, action="platform.customer_sign_up",
+                   object_type="tenant", object_ref=customer_public_id,
+                   outcome=AuditOutcome.ALLOWED, details={"enabled": int(enabled)})
+    return {"id": customer_public_id, "name": found["name"], "self_registration": enabled}

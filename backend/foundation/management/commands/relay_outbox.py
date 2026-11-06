@@ -10,28 +10,47 @@ from __future__ import annotations
 
 import signal
 import threading
+from collections.abc import Callable
 from typing import Any
 
+from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import BaseCommand, CommandError
 from django.db import OperationalError, ProgrammingError, close_old_connections
 
+from foundation.dbrole import assert_safe_database_role
 from foundation.dispatch import dispatch
 from foundation.mail import send_due
 from foundation.outbox import RelayResult, relay_once
 from foundation.periodic import run_due
+from foundation.release_check import assert_release_ready
 
 DATABASE_RETRY_SECONDS = 5.0
 
 
+def startup_guard() -> None:
+    """What the real worker checks before its first pass: no development-only settings, and a
+    database login that cannot skip row-level security."""
+    assert_release_ready()
+    assert_safe_database_role()
+
+
 def run_loop(
-    stop: threading.Event, *, interval: float, batch: int, once: bool, log: Any
+    stop: threading.Event, *, interval: float, batch: int, once: bool, log: Any,
+    guard: Callable[[], None] | None = None,
 ) -> int:
-    """The worker loop (events, then email); returns how many events were published."""
+    """The worker loop (events, then email); returns how many events were published.
+
+    `guard` runs once, before the first pass that reaches the database (the real command passes the
+    database-login check, so a worker that could skip row-level security never starts)."""
     total = 0
+    guarded = guard is None
     while True:
         close_old_connections()
         wait = interval
         try:
+            if not guarded and guard is not None:
+                guard()
+                guarded = True
             result: RelayResult = relay_once(dispatch, batch_size=batch)
         except (OperationalError, ProgrammingError) as exc:
             # The database is not ready or went away (for example migrations still running).
@@ -83,6 +102,9 @@ class Command(BaseCommand):
         log = lambda text: self.stdout.write(text)  # noqa: E731 - tiny local helper
         if not options["once"]:
             log("relay_outbox started")
-        total = run_loop(stop, interval=options["interval"], batch=options["batch"],
-                         once=options["once"], log=log)
+        try:
+            total = run_loop(stop, interval=options["interval"], batch=options["batch"],
+                             once=options["once"], log=log, guard=startup_guard)
+        except ImproperlyConfigured as exc:
+            raise CommandError(str(exc)) from None
         log(f"relay_outbox stopped; published {total} event(s)")

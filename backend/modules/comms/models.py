@@ -11,6 +11,20 @@ from django.db import models
 from foundation.models import CellScopedModel
 
 
+class EmailPreference(CellScopedModel):
+    """Whether this LOGIN wants a short email when something changes about its own care. Off until
+    the person turns it on (and an email is only ever sent to an address they confirmed)."""
+
+    actor_ref = models.CharField(max_length=22)           # trust Actor.public_id
+    enabled = models.BooleanField(default=False)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="emailpref_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "actor_ref"], name="comms_one_pref_each"),
+        ]
+
+
 class Notification(CellScopedModel):
     person_ref = models.CharField(max_length=22)          # trust Person.public_id
     kind = models.CharField(max_length=32)                # booking_requested, ...

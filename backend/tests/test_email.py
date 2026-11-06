@@ -51,7 +51,7 @@ def sign_up(site, email="new.patient@example.org", password=PASSWORD):
 
 
 def token_from(message):
-    return re.search(r"token=([\w.\-]+)", message.body).group(1)
+    return re.findall(r"token=([\w.\-]+)", str(message.body))[0]
 
 
 def deliver_mail():

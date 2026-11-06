@@ -41,6 +41,18 @@ def _active_org(organization_ref: str) -> None:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["organization"])
 
 
+_PHONE = re.compile(r"^\+?[0-9(][0-9 ()\-]{3,22}[0-9]$")
+
+
+def clean_phone(value: str) -> str:
+    """A phone number as people write it: digits with optional + at the start, spaces, brackets and
+    dashes. Empty is allowed (no number shown). Anything else is refused."""
+    cleaned = (value or "").strip()
+    if cleaned and (not _PHONE.match(cleaned) or sum(c.isdigit() for c in cleaned) < 5):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["phone"])
+    return cleaned
+
+
 def create_location(
     *,
     organization_ref: str,
@@ -49,8 +61,10 @@ def create_location(
     actor_public_id: str,
     decision: policy.Decision,
     address: str = "",
+    phone: str = "",
 ) -> dict[str, Any]:
     _receipt(decision, actor_public_id, organization_ref)
+    phone = clean_phone(phone)
     if not name.strip():
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["name"])
     try:
@@ -63,11 +77,27 @@ def create_location(
             with transaction.atomic():
                 row = Location.objects.create(
                     organization_ref=organization_ref, name=name.strip(),
-                    address=address.strip()[:300], time_zone=time_zone,
+                    address=address.strip()[:300], phone=phone, time_zone=time_zone,
                 )
         except IntegrityError:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None
         _audit(actor_public_id, "location.create", "location", row.public_id)
+        return location_dict(row)
+
+
+def update_location_contact(
+    *, location_ref: str, phone: str, address: str, actor_public_id: str,
+    decision: policy.Decision,
+) -> dict[str, Any]:
+    """Change how patients reach an existing site: its phone number and address."""
+    with transaction.atomic():
+        row = _own(Location, location_ref)
+        _receipt(decision, actor_public_id, row.organization_ref)
+        row.phone = clean_phone(phone)
+        row.address = address.strip()[:300]
+        row.entity_version += 1
+        row.save(update_fields=["phone", "address", "entity_version", "updated_at"])
+        _audit(actor_public_id, "location.contact", "location", row.public_id)
         return location_dict(row)
 
 
@@ -134,7 +164,8 @@ def _own(model: Any, public_id: str) -> Any:
 def location_dict(row: Location) -> dict[str, Any]:
     return {
         "public_id": row.public_id, "organization_ref": row.organization_ref, "name": row.name,
-        "address": row.address, "time_zone": row.time_zone, "status": row.status,
+        "address": row.address, "phone": row.phone, "time_zone": row.time_zone,
+        "status": row.status,
     }
 
 

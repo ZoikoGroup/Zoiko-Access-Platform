@@ -2,8 +2,10 @@ import { useState } from "react";
 import { getReports, type Staff } from "../api";
 import type { Reports as ReportsData, Timing } from "../types";
 import { Gate, useLoad } from "../useLoad";
-import { Card, Donut, StatCard, Table } from "../ui";
+import { Card, Donut, Pill, StatCard, Table } from "../ui";
 import { NoStaff } from "./Appointments";
+import { reasonText } from "@shared/cancelReasons";
+import { reportCsv, saveText } from "../reportCsv";
 
 /** Hours as people say them: minutes under an hour, hours under two days, then days. */
 function hoursText(h: number | null): string {
@@ -45,9 +47,10 @@ function View({ r, days, onDays }: { r: ReportsData; days: number; onDays: (n: n
       <div className="hero">
         <div>
           <h1>Reports</h1>
-          <p>Numbers for {r.from} to {r.to}. Counts only: no patient or message is identified here.</p>
+          <p>Numbers for {r.from} to {r.to}. Counts only: no patient or message is identified here. Days run from midnight to midnight UTC, except the day-of-week table, which uses each clinic's own clock.</p>
         </div>
         <span className="spacer" />
+        <button className="btn ghost" onClick={() => saveText(`zoiko-report-${r.from}-to-${r.to}.csv`, reportCsv(r))}>Download CSV</button>
         <label className="chip">Period
           <select value={days} onChange={(e) => onDays(Number(e.target.value))} aria-label="Reporting period">
             <option value={7}>last 7 days</option>
@@ -69,7 +72,7 @@ function View({ r, days, onDays }: { r: ReportsData; days: number; onDays: (n: n
       </div>
 
       <div className="grid cols-2">
-        <Card title="Bookings made each day"><Bars days={r.bookings.per_day} /></Card>
+        <Card title="Bookings made each day" sub="Each bar is one day, midnight to midnight UTC (hover for the date)"><Bars days={r.bookings.per_day} /></Card>
         <Card title="Where bookings stand now">
           <Donut centerLabel="bookings" slices={[
             { label: "Confirmed", value: r.bookings.status.confirmed, color: "#138a4d" },
@@ -87,6 +90,38 @@ function View({ r, days, onDays }: { r: ReportsData; days: number; onDays: (n: n
             { label: "Not recorded yet", value: att.not_recorded, color: "#8a94a6" },
           ]} />
         </Card>
+        <Card title="Why bookings were cancelled" sub="Cancellations of bookings made in this period, with the reason the patient or the clinic gave">
+          <Table headers={["Reason", "Bookings"]} empty="No cancellations in this period."
+            rows={Object.entries(r.bookings.cancel_reasons).sort((a, b) => b[1] - a[1])
+              .map(([code, n]) => [code === "none" ? "No reason given" : reasonText(code), n])} />
+        </Card>
+        <Card title="Missed visits by doctor" sub="Of the visits already recorded as attended or missed">
+          <Table headers={["Doctor", "Attended", "Did not attend", "Not recorded", "Missed"]}
+            empty="No past confirmed appointments in this period."
+            rows={r.bookings.by_doctor.map((d) => [
+              d.name, d.attended, d.no_show, d.not_recorded,
+              d.no_show_rate === null ? "-" : `${Math.round(d.no_show_rate * 100)}%`])} />
+        </Card>
+        <Card title="Busiest days of the week" sub="Appointments in this period, by the clinic's own day">
+          <Table headers={["Day", "Appointments"]} empty=""
+            rows={WEEKDAYS.map((day, i) => [day, r.bookings.by_weekday[i] ?? 0])} />
+        </Card>
+        {r.forecast && (
+          <Card title="The next 7 days" sub="Appointments booked so far, the free times still open, and what that weekday usually has">
+            {!r.forecast.enough_history ? (
+              <div className="empty">Not enough history yet to say what a usual day looks like (we need about two weeks of appointments). Booked appointments are shown on their own.</div>
+            ) : null}
+            <Table headers={["Day", "Booked so far", "Free times left", "Usual for this weekday", ""]} empty=""
+              rows={r.forecast.days.map((d) => [
+                `${WEEKDAYS[d.weekday]} ${d.date}`,
+                d.booked,
+                d.open === 0 ? <Pill key="o" kind="warn">none left</Pill> : d.open,
+                d.usual === null ? "-" : d.usual,
+                d.usual !== null && d.booked > d.usual * 1.25 && d.booked >= 3 ? <Pill key="b" kind="warn">busier than usual</Pill> : "",
+              ])} />
+            <small>A plain average of the last weeks, by the clinic's own day. It is not a trained prediction and ignores holidays, so use it as a guide only.</small>
+          </Card>
+        )}
         <Card title="Busiest services">
           <Table headers={["Service", "Bookings"]} empty="No bookings in this period."
             rows={r.bookings.busiest_services.map((s) => [s.name, s.count])} />
@@ -108,6 +143,8 @@ function View({ r, days, onDays }: { r: ReportsData; days: number; onDays: (n: n
     </>
   );
 }
+
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export function Reports({ staff }: { staff: Staff | null }) {
   const [days, setDays] = useState(30);

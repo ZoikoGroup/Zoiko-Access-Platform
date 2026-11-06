@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { checkHealth, getMe, loadSession, setSession, signOutEverywhere, type Session } from "./api";
+import { changePassword, clearDisplayName, getDisplayName, getNameCheck, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, loadSession, setSession, signOutEverywhere, type Session } from "./api";
 import { NAV, type PageId } from "./nav";
+import { Account } from "./Account";
 import { Patients } from "./pages/Patients";
 import { Planned } from "./pages/Planned";
 import { Referrals } from "./pages/Referrals";
@@ -31,6 +32,11 @@ export default function App() {
 
 function Console({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [page, setPage] = useState<PageId>(startPage());
+  const [shownName, setShownName] = useState("");      // the name this person chose, if any
+  useEffect(() => {
+    getDisplayName().then(setShownName).catch(() => setShownName(""));
+  }, [page, session.token]);                            // re-read after visiting another page
+  const [patientQuery, setPatientQuery] = useState("");      // set by the top-bar search
   const [health, setHealth] = useState<{ api: Health; database: Health }>({ api: "checking", database: "checking" });
   const me = useLoad(getMe, 120_000);
 
@@ -44,15 +50,20 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   const item = NAV.find((n) => n.id === page) ?? NAV[0];
   let body;
   if (!item.live) body = <Planned item={item} />;
-  else if (page === "patients") body = <Patients />;
+  else if (page === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} onChangePassword={changePassword}
+    name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
+    nameCheck={getNameCheck}
+    email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
+  else if (page === "patients") body = <Patients key={patientQuery} initialSearch={patientQuery} />;
   else if (page === "referrals") body = <Referrals />;
   else body = <Schedule />;
 
   return (
     <div className="shell">
-      <Topbar tenantName={session.tenantName} login={session.login}
-        roles={session.roles.map((r) => r.role)} onSignOut={onSignOut} />
-      <Sidebar page={page} onPage={setPage} cell={me.data?.cell ?? ""} api={health.api} database={health.database} />
+      <Topbar displayName={shownName} tenantName={session.tenantName} login={session.login}
+        roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
+        onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} />
+      <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} />
       <main className="content">{body}</main>
     </div>
   );
