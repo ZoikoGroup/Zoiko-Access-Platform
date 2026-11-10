@@ -10,6 +10,7 @@ from modules.comms import api as comms
 from modules.waitlist import services as waitlist_services
 from modules.waitlist.models import WaitEntry
 from modules.waitlist.subscribers import register_subscribers
+from tests.conftest import publish_service
 from tests.test_api import Web, book
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
@@ -36,6 +37,7 @@ class Waiting(Web):
             "duration_minutes": 30}, subject="desk")
         assert made.status_code == 201
         self.cardio = json.loads(made.content)["service"]["id"]
+        publish_service(self.clinic.ctx, self.cardio)
         self.next_hour = 9
 
     def add_times(self, count=1):
@@ -245,6 +247,7 @@ def test_the_place_counts_per_service_and_closed_entries_drop_out(w):
     other = json.loads(w.post("services", {
         "organization": w.clinic.org, "name": "Dermatology", "category": "dermatology",
         "duration_minutes": 20}, subject="desk").content)["service"]["id"]
+    publish_service(w.clinic.ctx, other)
     a = json.loads(w.join("pat").content)["entry"]["id"]
     w.join("pat", service=other)
     w.join("pat2")

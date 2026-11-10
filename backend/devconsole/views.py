@@ -174,6 +174,7 @@ def _create_service(b: dict[str, Any], actor: str, decision: policy.Decision) ->
         organization_ref=_text(b, "organization"), name=_text(b, "name"),
         category=_text(b, "category"), duration_minutes=duration,
         mode=_text(b, "mode", False) or "in_person", description=_text(b, "description", False),
+        listing_state="published",          # development set-up only: the real API starts drafts
         actor_public_id=actor, decision=decision)
     return {"public_id": row["public_id"]}
 

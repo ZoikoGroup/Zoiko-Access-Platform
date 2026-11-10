@@ -6,7 +6,7 @@ from django.test import Client
 
 from foundation.cell_context import tenant_transaction
 from modules.trust import api as trust
-from modules.trust.models import CareRelationship
+from modules.trust.models import CareRelationship, RoleAssignment
 from tests.test_api import API, Web, book
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
@@ -29,6 +29,13 @@ class Practice(Web):
         self.doc = self.login("doc", trust.ActorType.CLINICIAN, "R03")
         self.doc2 = self.login("doc2", trust.ActorType.CLINICIAN, "R03")
         self.patient_actor, self.person = self.patient("pat")
+
+    def name_referral_owner(self, owner=None):
+        """The clinic's administrator names who answers referrals (DEV-109); default: doc2."""
+        if not hasattr(self, "boss"):
+            self.boss = self.login("boss", trust.ActorType.FACILITY_USER, "R13")
+        done = self.post("staff/referral-inbox", {"owner": owner or self.doc2}, subject="boss")
+        assert done.status_code == 200, done.content
 
     def add_times(self, provider, first="2027-09-01T09:00:00", count=2, subject="ops"):
         return self.post(
@@ -125,6 +132,22 @@ def test_the_care_link_lasts_until_thirty_days_after_the_visit(practice):
         assert link.status == "active" and link.contested is False
 
 
+def test_the_care_link_belongs_to_the_site_and_ends_with_the_doctors_role_there(practice):
+    """A doctor whose care role at the clinic ends loses the patients, even inside 30 days."""
+    practice.add_times(practice.doc)
+    booking = book(practice, practice.slot_of("doc"), subject="pat").json()["booking"]
+    practice.post(f"bookings/{booking['id']}/confirm", subject="ops")
+    with tenant_transaction(practice.clinic.ctx):
+        link = CareRelationship.objects.get(actor__public_id=practice.doc)
+        assert link.organization_ref == practice.clinic.org     # tied to the clinic site
+    assert [p["id"] for p in practice.my_patients()] == [practice.person]
+    with tenant_transaction(practice.clinic.ctx):
+        held = RoleAssignment.objects.get(actor__public_id=practice.doc, role__role_code="R03")
+        trust.end_assignment(held.public_id, reason="left_clinic", by="system")
+    # With no care role left, the doctor is refused outright, so no patient can be listed.
+    assert practice.get("clinician/patients", subject="doc").status_code == 403
+
+
 def test_other_doctors_and_other_patients_stay_invisible(practice):
     practice.add_times(practice.doc)
     booking = book(practice, practice.slot_of("doc"), subject="pat").json()["booking"]
@@ -154,6 +177,8 @@ def test_a_cancelled_appointment_leaves_the_schedule(practice):
     practice.post(f"bookings/{booking['id']}/confirm", subject="ops")
     assert len(practice.schedule()) == 1
     practice.post(f"bookings/{booking['id']}/cancel", subject="pat")
+    assert len(practice.schedule()) == 1                      # only asked: still on the schedule
+    practice.post(f"bookings/{booking['id']}/cancel", subject="ops")
     assert practice.schedule() == []
 
 

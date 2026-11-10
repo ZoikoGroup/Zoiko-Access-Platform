@@ -27,7 +27,9 @@ def dev_login(settings):
 
 @pytest.fixture
 def p():
-    return Practice()
+    practice = Practice()
+    practice.name_referral_owner()
+    return practice
 
 
 def deliver():
@@ -84,7 +86,7 @@ def test_a_referral_opens_work_until_it_is_decided(p):
     referral = refer(p)
     deliver()
     assert kinds(p) == ["decide_referral"]
-    p.post(f"referrals/{referral}/decide", {"decision": "accepted"}, subject="ops")
+    p.post(f"referrals/{referral}/decide", {"decision": "accepted"}, subject="doc2")
     deliver()
     assert items(p) == []
 

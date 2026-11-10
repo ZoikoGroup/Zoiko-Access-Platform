@@ -243,6 +243,8 @@ def test_the_domain_itself_refuses_another_sites_staff(p):
     with tenant_transaction(p.clinic.ctx):
         actor = next(a for a, label in trust.actor_labels().items() if label == other)
         org = next(o for o, name in trust.organization_names().items() if name == "Other Site")
+        # Policy now needs the patient connected to that site; the domain must still refuse.
+        trust.link_person_to_site(p.person, org, "booking")
     decision = p.clinic.allow(actor, "OPERATIONS", slot_org=org, person=p.person, op="write:comms")
     with tenant_transaction(p.clinic.ctx), pytest.raises(ZoikoError) as err:
         messaging.reply(thread_ref=thread, body="x", actor_public_id=actor, decision=decision,

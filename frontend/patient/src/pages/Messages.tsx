@@ -70,6 +70,9 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
             <b>{m.mine ? "You" : m.side === "staff" ? "The clinic" : "Someone you act for"}</b>
             <div style={{ whiteSpace: "pre-wrap" }}>{m.body || "(this message cannot be shown)"}</div>
             <small>{when(m.at)}</small>
+            {m.side === "patient" && (
+              <small>{m.seen_at ? `Opened by the clinic ${when(m.seen_at)}. That means a person opened it, not that it has been answered.` : "Sent. The clinic has not opened it yet."}</small>
+            )}
           </div>
         </div>
       ))}
@@ -115,7 +118,7 @@ export function Messages({ onChanged }: { onChanged: () => Promise<void> }) {
                   <b>{t.subject || "(no subject)"}</b>
                   <small>Last activity {when(t.last_message_at)}</small>
                 </div>
-                {t.unread > 0 && <Pill kind="warn">{t.unread} new</Pill>}
+                {(t.unread_for_me ?? t.unread) > 0 && <Pill kind="warn">{t.unread_for_me ?? t.unread} new</Pill>}
                 {t.status === "closed" && <Pill kind="info">Closed</Pill>}
                 <button className="btn ghost" onClick={() => setOpen(open === t.id ? "" : t.id)}>{open === t.id ? "Hide" : "Open"}</button>
               </div>

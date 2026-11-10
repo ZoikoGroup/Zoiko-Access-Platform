@@ -2,7 +2,7 @@ import type { Referral } from "../api";
 import { Card, Pill, type PillKind } from "../ui";
 
 const STATE: Record<Referral["state"], { text: string; kind: PillKind; hint: string }> = {
-  issued: { text: "Sent", kind: "warn", hint: "The clinic has your referral and will review it." },
+  issued: { text: "Sent", kind: "warn", hint: "Sent. Waiting for the clinic's answer." },
   accepted: { text: "Accepted", kind: "ok", hint: "The clinic accepted it. You can now book with them under Find Healthcare." },
   needs_info: { text: "More information needed", kind: "info", hint: "The clinic asked your doctor for more information." },
   declined: { text: "Declined", kind: "bad", hint: "The clinic could not take this referral. Ask your doctor what to do next." },

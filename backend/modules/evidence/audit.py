@@ -8,12 +8,13 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import QuerySet
 
 from foundation.cell_context import CellContext, require_context
 from foundation.payloads import check_reference_payload
-from foundation.request_context import get_request_id
+from foundation.request_context import get_audit_extra, get_request_id
 from foundation.timeutil import UTC, Clock, utc_now
 
 from .models import GENESIS_HASH, AuditEvent, AuditOutcome
@@ -48,6 +49,13 @@ def compute_hash(event: AuditEvent) -> str:
         "details": event.details,
         "prev_hash": event.prev_hash,
     }
+    if event.hash_version >= 2:               # version 1 rows keep the layout they were sealed with
+        body.update({
+            "hash_version": event.hash_version, "actor_kind": event.actor_kind,
+            "purpose_code": event.purpose_code, "session_ref": event.session_ref,
+            "source_service": event.source_service, "build_digest": event.build_digest,
+            "policy_digest": event.policy_digest,
+        })
     text = json.dumps(body, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode()).hexdigest()
 
@@ -61,9 +69,14 @@ def record(
     outcome: AuditOutcome,
     reason_code: str = "",
     details: dict[str, Any] | None = None,
+    purpose_code: str = "",
+    policy_digest: str = "",
     clock: Clock | None = None,
 ) -> AuditEvent:
-    """Append one event to the current tenant's chain. Call inside the business transaction."""
+    """Append one event to the current tenant's chain. Call inside the business transaction.
+    Who the signed-in person is (kind, session, stated purpose) comes from the request, and only
+    for events that person caused; `purpose_code` and `policy_digest` are given by the policy
+    engine for its own decisions."""
     if not connection.in_atomic_block:
         raise AuditError("record() must run inside the same transaction as the action")
     for value in (actor_ref, object_type, object_ref):
@@ -74,6 +87,8 @@ def record(
     if reason_code and not _NAME.match(reason_code):
         raise AuditError("reason code must be a plain identifier")
     ctx = require_context()
+    who = get_audit_extra()
+    mine = who if who.get("actor_ref") == actor_ref else {}    # never label someone else's event
 
     with transaction.atomic():
         # One writer per tenant at a time, or two events could claim the same position.
@@ -94,6 +109,13 @@ def record(
             outcome=outcome,
             reason_code=reason_code,
             request_id=get_request_id(),
+            actor_kind=mine.get("actor_kind", ""),
+            purpose_code=purpose_code or mine.get("purpose_code", ""),
+            session_ref=mine.get("session_ref", ""),
+            source_service=str(settings.ZOIKO_SERVICE_NAME)[:32],
+            build_digest=str(settings.ZOIKO_BUILD)[:64],
+            policy_digest=policy_digest,
+            hash_version=2,
             details=check_reference_payload(details or {}),
             prev_hash=GENESIS_HASH if last is None else last.event_hash,
         )

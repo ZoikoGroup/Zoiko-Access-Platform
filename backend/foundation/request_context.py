@@ -35,6 +35,41 @@ def get_request_id() -> str:
     return _request_id.get() or "-"
 
 
+# The reason a person says they are acting (GHE-06 "why": purpose_code). It is only a CLAIM: the
+# policy engine still refuses it unless the roles that person holds may act under it.
+_stated_purpose: ContextVar[str | None] = ContextVar("stated_purpose", default=None)
+_SAFE_PURPOSE = re.compile(r"^[A-Z_]{3,32}$")
+
+
+def set_stated_purpose(incoming: str | None) -> Token[str | None]:
+    return _stated_purpose.set(incoming if incoming and _SAFE_PURPOSE.match(incoming) else None)
+
+
+def reset_stated_purpose(token: Token[str | None]) -> None:
+    _stated_purpose.reset(token)
+
+
+def get_stated_purpose() -> str | None:
+    return _stated_purpose.get()
+
+
+# Facts about the signed-in person that the audit record keeps (GHE-10 audit_event): set by the
+# endpoint wrapper once the person is known, read when an event is written. Never a token.
+_audit_extra: ContextVar[dict[str, str] | None] = ContextVar("audit_extra", default=None)
+
+
+def set_audit_extra(values: dict[str, str]) -> Token[dict[str, str] | None]:
+    return _audit_extra.set(values)
+
+
+def reset_audit_extra(token: Token[dict[str, str] | None]) -> None:
+    _audit_extra.reset(token)
+
+
+def get_audit_extra() -> dict[str, str]:
+    return _audit_extra.get() or {}
+
+
 META_KEY = "ZOIKO_REQUEST_ID"
 
 

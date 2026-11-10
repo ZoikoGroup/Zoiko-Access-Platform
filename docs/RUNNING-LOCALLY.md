@@ -33,6 +33,10 @@ Development only. Nothing here is for a real server (that is `docs/DEPLOYMENT.md
    another port, and then an address you know opens the wrong app (this caused a blank page once).
    The first time only, run `npm install` in each app folder.
 
+## One page with every link
+
+Run `python scripts/dev_links.py`. It writes `dev-links.html` (ignored by git) and opens it: every app, the mail inbox, the developer console and the API check, with a green or red dot for each, and an **Open signed in** button for each demo account (no typing). The button uses a development-only sign-in that is removed from production builds.
+
 ## Demo logins (development only; the demo password is in `scripts/README.md`)
 
 | App | Organization | Login | Password |
@@ -82,6 +86,9 @@ docker compose exec backend sh -c "ruff check . && mypy . && lint-imports && pyt
 
 # each app: types and a build
 cd frontend/operations && npx tsc --noEmit && npx vite build
+# recovery rehearsal: back up the database, restore into a scratch copy, compare, check the audit chains
+python scripts/recovery_drill.py
+
 # browser tests: robots that click through the real apps (stack and the four apps must be running)
 python scripts/seed_e2e.py          # once: makes a separate "E2E Clinic"
 cd frontend/e2e && npx playwright test

@@ -43,4 +43,6 @@ export interface Referral {
   created_at: string;
   service: { id: string; name: string };
   organization: { id: string; name: string };
+  escalated?: boolean;                   // nobody answered for too long
+  responsible?: { id: string; name: string };
 }

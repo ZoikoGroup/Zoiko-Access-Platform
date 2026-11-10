@@ -13,10 +13,14 @@ Safety rules
   replaced by a masked form ("a***@example.org").
 - Only the exception CLASS of a failure is kept, never its message (it can echo the address).
 - Delivery is at least once: a crash after sending but before recording sends it again.
+- "Sent" means the mail server accepted it. That is not delivery to a person, and not that it was
+  opened (GHE-16). A fingerprint of what was sent (`content_digest`) is kept after the body is
+  wiped.
 """
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import re
 from dataclasses import dataclass
 
@@ -62,8 +66,10 @@ def queue_email(*, kind: str, to_address: str, subject: str, body: str) -> Queue
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["subject"])
     if len(subject) > 200 or len(body) > 5000:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["body"])
+    cleaned = subject.strip()
     return QueuedEmail.objects.create(
-        kind=kind, to_address=address, subject=subject.strip(), body=body)
+        kind=kind, to_address=address, subject=cleaned, body=body,
+        content_digest=hashlib.sha256(f"{cleaned}\n{body}".encode()).hexdigest())
 
 
 @dataclass(frozen=True)

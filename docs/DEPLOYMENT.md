@@ -32,6 +32,7 @@ before starting anything:
 | the secret key, the database password or the encryption keys still contain a placeholder word (`dev-only`, `replace-me`, `replace-with`, `change-me`, `changeme`, `test-only`), are empty, or the secret key is under 40 characters | set real secrets (from your secret store, never from `.env.example`) |
 | `DJANGO_ALLOWED_HOSTS` is empty, `*`, or only local addresses | list the real host names |
 | `ZOIKO_CELL_ID` starts with `DEV-` or `TEST-` | use the real cell id |
+| `ZOIKO_BUILD` is empty or `dev` | set it to the release id or commit the server was built from (every audit row records it) |
 | email goes to `localhost`, `mail`, `mailpit`, `mailhog` or port 1025 | set the real mail server (provider still undecided, DEV-016) |
 
 

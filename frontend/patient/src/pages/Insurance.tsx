@@ -19,7 +19,7 @@ function Row({ c, onChanged }: { c: CoverageRow; onChanged: () => Promise<void> 
           {c.valid_until ? `, until ${c.valid_until}` : ", no end date"}
         </small>
       </div>
-      <Pill kind={c.in_force ? "ok" : "warn"}>{c.in_force ? "In force" : "Expired"}</Pill>
+      <Pill kind={c.in_force ? "info" : "warn"}>{c.in_force ? "Dates current" : "Expired"}</Pill>
       {!asking && <button className="btn ghost" onClick={() => setAsking(true)}>Remove</button>}
       {asking && (
         <span>
@@ -119,7 +119,7 @@ export function Insurance({ coverage, hasPatient, onChanged }: {
     <>
       <div className="hero"><div>
         <h1>Insurance &amp; Claims</h1>
-        <p>Keep your insurance on file, and choose whether the clinic's staff may see it. Your member number is stored encrypted and shown only as its last four characters.</p>
+        <p>Keep your insurance on file, and choose whether the clinic's staff may see it. Your member number is stored encrypted and shown only as its last four characters. "Dates current" only means the end date you typed has not passed: we do not check with your insurer.</p>
       </div></div>
       {!hasPatient && <div className="notice">Your login is not linked to a patient record yet, so you cannot add insurance.</div>}
       <div className="grid">

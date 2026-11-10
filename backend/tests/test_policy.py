@@ -6,6 +6,7 @@ from django.db import DatabaseError, connection, transaction
 
 from foundation.cell_context import build_context, tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
+from foundation.timeutil import utc_now
 from modules.evidence.api import verify_chain
 from modules.evidence.models import AuditEvent
 from modules.policy.api import NoRelationships, Reason, decide
@@ -19,6 +20,7 @@ from modules.policy.rules import (
     VERBS,
 )
 from modules.trust import api as trust
+from modules.trust.models import Actor, Organization, Role, RoleAssignment
 from modules.trust.roles_seed import DEFAULT_ROLES
 from tests.conftest import as_app_role
 
@@ -31,7 +33,7 @@ class Verified:
     def __init__(self):
         self.asked = []
 
-    def verified(self, *, actor_public_id, condition, subject_ref):
+    def verified(self, *, actor_public_id, condition, subject_ref, site="", scope=""):
         self.asked.append((actor_public_id, condition, subject_ref))
         return True
 
@@ -51,13 +53,23 @@ class World:
 
     def person(self, *roles, org=None):
         self.n += 1
+        kind = {("R08",): trust.ActorType.EMPLOYER_USER,
+                ("R07",): trust.ActorType.PAYER_USER}.get(roles, trust.ActorType.FACILITY_USER)
+        mixed = len(roles) > 1 and {"R07", "R08"} & set(roles)
         with tenant_transaction(self.ctx):
-            actor = trust.register_actor(
-                actor_type=trust.ActorType.FACILITY_USER, issuer="idp", subject=f"u{self.n}")
+            actor = trust.register_actor(actor_type=kind, issuer="idp", subject=f"u{self.n}")
             for role in roles:
-                trust.assign_role(actor_public_id=actor.public_id,
-                                  organization_public_id=org or self.org,
-                                  role_code=role, by="system")
+                if mixed:
+                    # assign_role refuses this mix on purpose (DEV-105). The policy engine must
+                    # still hold if it ever happened, so the test creates it directly.
+                    RoleAssignment.objects.create(
+                        actor=Actor.objects.get(public_id=actor.public_id),
+                        organization=Organization.objects.get(public_id=org or self.org),
+                        role=Role.objects.get(role_code=role), effective_from=utc_now())
+                else:
+                    trust.assign_role(actor_public_id=actor.public_id,
+                                      organization_public_id=org or self.org,
+                                      role_code=role, by="system")
         return actor.public_id
 
     def ask(self, actor, operation, purpose, **kwargs):

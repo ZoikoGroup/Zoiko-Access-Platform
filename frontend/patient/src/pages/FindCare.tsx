@@ -213,8 +213,8 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery =
             )}
 
             {done && (
-              <div className="success">
-                Booked for {whenLabel(done.local_start, done.local_zone)}. The clinic will confirm it.{" "}
+              <div className="notice" role="status">
+                Request sent for {whenLabel(done.local_start, done.local_zone)}. It is not confirmed until the clinic confirms it.{" "}
                 <button className="btn ghost" onClick={() => goTo("appointments")}>View appointments</button>
               </div>
             )}

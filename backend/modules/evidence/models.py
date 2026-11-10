@@ -31,6 +31,16 @@ class AuditEvent(CellScopedModel):
     outcome = models.CharField(max_length=16, choices=AuditOutcome.choices)
     reason_code = models.CharField(max_length=64, blank=True, default="")
     request_id = models.CharField(max_length=64)
+    # Who and why, as the specification's audit_event lists (GHE-10). All blank on rows written
+    # before these existed (hash_version 1) and for events with no signed-in person (a system job).
+    actor_kind = models.CharField(max_length=16, blank=True, default="")    # patient, clinician...
+    purpose_code = models.CharField(max_length=32, blank=True, default="")  # DIRECT_CARE...
+    session_ref = models.CharField(max_length=32, blank=True, default="")  # a fingerprint
+    source_service = models.CharField(max_length=32, blank=True, default="")
+    build_digest = models.CharField(max_length=64, blank=True, default="")
+    policy_digest = models.CharField(max_length=64, blank=True, default="")  # the rules in force
+    # 1 = the layout this log started with; 2 = also covers the six fields above.
+    hash_version = models.PositiveSmallIntegerField(default=1)
     details = models.JSONField(default=dict)  # flat, reference-only (foundation.payloads)
     prev_hash = models.CharField(max_length=64)
     event_hash = models.CharField(max_length=64)

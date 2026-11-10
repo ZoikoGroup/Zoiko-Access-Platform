@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   addSlots, createLocation, createService, updateLocationContact, getDirectory, listLocations, listStaffServices,
-  listFreeTimes, setServiceStatus, withdrawSlot, withdrawSlots, type Staff,
+  listFreeTimes, setServiceStatus, withdrawSlot, withdrawSlots, changeListing, type Staff,
 } from "../api";
 import type { Directory, FreeTime, LocationRow, ServiceRow } from "../types";
 import { Card, Pill, Table } from "../ui";
@@ -15,6 +15,63 @@ function defaultStart(): string {
   d.setHours(9, 0, 0, 0);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T09:00`;
+}
+
+const LISTING: Record<ServiceRow["listing_state"], { text: string; kind: "ok" | "warn" | "info" | "bad" }> = {
+  draft: { text: "Draft: patients cannot book it", kind: "warn" },
+  evidence_pending: { text: "Waiting for review", kind: "info" },
+  reviewed: { text: "Reviewed: ready to publish", kind: "info" },
+  published: { text: "Published", kind: "ok" },
+  suspended: { text: "Withdrawn", kind: "bad" },
+};
+
+/** Where a service is on its way to patients, and the next step for this person. A service is offered
+ *  only when it is published; nobody approves a listing they asked for themselves. */
+function ListingCell({ s, onChange }: { s: ServiceRow; onChange: (work: () => Promise<unknown>, done: string) => void }) {
+  const [text, setText] = useState("");
+  const info = LISTING[s.listing_state];
+  const mine = s.listing?.you_requested ?? false;
+  const approver = s.listing?.can_approve ?? false;
+  const field = (label: string, ph: string) => (
+    <input aria-label={`${label} for ${s.name}`} placeholder={ph} value={text} maxLength={200}
+      onChange={(e) => setText(e.target.value)} style={{ marginTop: 4 }} />
+  );
+  return (
+    <span>
+      <Pill kind={info.kind}>{info.text}</Pill>
+      {s.listing?.evidence_note && s.listing_state !== "draft" && <small style={{ display: "block" }}>Evidence: {s.listing.evidence_note}</small>}
+      {s.listing_state === "draft" && (
+        <span style={{ display: "block" }}>
+          {field("Evidence", "Evidence reference, e.g. registration no.")}{" "}
+          <button className="btn ghost" disabled={text.trim().length < 5}
+            onClick={() => onChange(() => changeListing(s.id, "request", text), "Listing requested. A second administrator must review it.")}>Ask for listing</button>
+        </span>
+      )}
+      {s.listing_state === "evidence_pending" && (mine || !approver
+        ? <small style={{ display: "block" }}>{mine ? "You asked for this: another administrator must review it." : "A clinic administrator must review it."}</small>
+        : (
+          <span style={{ display: "block" }}>
+            <button className="btn ghost" onClick={() => onChange(() => changeListing(s.id, "review"), "Marked as reviewed.")}>Approve review</button>{" "}
+            {field("Reason", "Reason, to send it back")}{" "}
+            <button className="btn ghost" disabled={text.trim().length < 3}
+              onClick={() => onChange(() => changeListing(s.id, "return", text), "Sent back to draft.")}>Send back</button>
+          </span>
+        ))}
+      {s.listing_state === "reviewed" && (mine || !approver
+        ? <small style={{ display: "block" }}>{mine ? "You asked for this: another administrator must publish it." : "A clinic administrator must publish it."}</small>
+        : <button className="btn" style={{ marginTop: 4 }} onClick={() => onChange(() => changeListing(s.id, "publish"), "Published: patients can now book it.")}>Publish</button>)}
+      {s.listing_state === "published" && approver && (
+        <span style={{ display: "block" }}>
+          {field("Reason", "Reason to withdraw it")}{" "}
+          <button className="btn ghost" disabled={text.trim().length < 3}
+            onClick={() => onChange(() => changeListing(s.id, "suspend", text), "Listing withdrawn: no new bookings.")}>Withdraw</button>
+        </span>
+      )}
+      {s.listing_state === "suspended" && approver && (
+        <button className="btn ghost" style={{ marginTop: 4 }} onClick={() => onChange(() => changeListing(s.id, "restart"), "Back to draft: ask for a listing again.")}>Start again</button>
+      )}
+    </span>
+  );
 }
 
 export function Services({ staff }: { staff: Staff | null }) {
@@ -120,10 +177,11 @@ export function Services({ staff }: { staff: Staff | null }) {
       <div className="grid">
         <Card title={`${services?.length ?? 0} service${services?.length === 1 ? "" : "s"}`}>
           {services === null ? <div className="empty">Loading…</div> : (
-            <Table headers={["Service", "Category", "Length", "Mode", "Status", "Next free time", "Waiting", "Actions"]}
+            <Table headers={["Service", "Category", "Length", "Mode", "Listing", "Status", "Next free time", "Waiting", "Actions"]}
               empty="No services yet. Add one above."
               rows={services.map((s) => [
                 s.name, s.category, `${s.duration_minutes} min`, s.mode === "video" ? "Video" : "In person",
+                <ListingCell key="l" s={s} onChange={(work, done) => void run(work, done)} />,
                 <Pill key="s" kind={s.status === "active" ? "ok" : "bad"}>{s.status === "active" ? "Visible" : "Hidden"}</Pill>,
                 s.next_slot_local ? `${s.next_slot_local.replace("T", " ").slice(0, 16)} (${s.next_slot_zone})` : <Pill key="n" kind="warn">no free times</Pill>,
                 s.waiting ? <Pill key="w" kind="info">{s.waiting} waiting</Pill> : "",

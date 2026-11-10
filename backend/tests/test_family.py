@@ -39,7 +39,12 @@ def queue(p, subject="ops"):
     return json.loads(r.content)["requests"]
 
 
+ALL_SCOPES = ["appointments", "messages", "referrals", "insurance"]
+
+
 def decide(p, grant, verb, subject="ops", **body):
+    if verb == "approve" and "scopes" not in body:
+        body["scopes"] = ALL_SCOPES            # the staff screen always chooses; default: all four
     return p.post(f"staff/family-requests/{grant}/{verb}", body, subject=subject)
 
 
@@ -177,10 +182,11 @@ def test_rejecting_closes_the_request_and_the_empty_record(p):
     made = requested(p)
     assert decide(p, made["id"], "reject").status_code == 200
     assert family(p) == [] and queue(p) == []
-    assert decide(p, made["id"], "reject").status_code == 409
-    assert decide(p, made["id"], "approve", verified=True).status_code == 409
+    # The closed record cannot be reached at all now: 403, not "already decided".
+    assert decide(p, made["id"], "reject").status_code == 403
+    assert decide(p, made["id"], "approve", verified=True).status_code == 403
     assert booking_for(p, made["person"]).status_code == 403
-    assert record_status(p, made["person"]) == "ended"          # the empty record is closed
+    assert record_status(p, made["person"]) == "ended"
 
 
 # ------------------------------------------------------------------ withdrawing and ending

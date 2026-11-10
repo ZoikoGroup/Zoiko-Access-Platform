@@ -85,11 +85,18 @@ export async function signOutEverywhere(): Promise<void> {
   setSession(null);
 }
 
+/** Why this doctor is working right now. The server records it with every look at a patient and
+ * refuses it unless the role may act under it; "continuity of care" is read only (DEV-111). */
+export type Purpose = "DIRECT_CARE" | "CONTINUITY_OF_CARE";
+let purpose: Purpose = "DIRECT_CARE";
+export const getPurpose = (): Purpose => purpose;
+export const setPurpose = (p: Purpose) => { purpose = p; };
+
 async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
   const res = await fetch(`/api/v1/${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.token}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.token}`, "X-Zoiko-Purpose": purpose },
   });
   if (!(res.headers.get("Content-Type") ?? "").includes("json")) {
     throw new ApiError("The server sent something that is not JSON (is the backend reachable?)");
@@ -102,6 +109,9 @@ async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const getSchedule = async () => (await v1<{ appointments: Appointment[] }>("clinician/schedule")).appointments;
 export const getPatients = async () => (await v1<{ patients: PatientRow[] }>("clinician/patients")).patients;
 export const getReferrals = async () => (await v1<{ referrals: Referral[] }>("clinician/referrals")).referrals;
+export const getAnswerInbox = async () => (await v1<{ referrals: Referral[] }>("clinician/referral-inbox")).referrals;
+export const decideReferral = (id: string, decision: "accepted" | "needs_info" | "declined", reason: string) =>
+  v1<{ referral: Referral }>(`referrals/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify({ decision, reason }) });
 export const getServices = async () => (await v1<{ services: ServiceOption[] }>("services")).services;
 export const sendReferral = (body: { patient: string; service: string; reason: string; urgency: string }) =>
   v1<{ referral: Referral }>("clinician/referrals", { method: "POST", body: JSON.stringify(body) });

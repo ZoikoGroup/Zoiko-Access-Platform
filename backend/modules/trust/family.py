@@ -27,8 +27,16 @@ from foundation.outbox import emit
 from foundation.timeutil import Clock, utc_now
 from modules.policy import api as policy
 
-from .models import Actor, Person, ProxyGrant, ProxyStatus, Status
-from .people import approve_proxy_grant, create_person, propose_proxy_grant, revoke_proxy_grant
+from .models import PENDING_STATES, Actor, Person, ProxyGrant, ProxyStatus, Status
+from .people import (
+    approve_proxy_grant,
+    create_person,
+    link_person_to_site,
+    propose_proxy_grant,
+    resume_proxy_grant,
+    revoke_proxy_grant,
+    suspend_proxy_grant,
+)
 from .profile import get_person_profiles, store_profile
 from .services import _audit, _own, assign_role
 
@@ -46,11 +54,14 @@ def _scope() -> dict[str, Any]:
 def _grant_dict(g: ProxyGrant, names: dict[str, dict[str, str]]) -> dict[str, Any]:
     ref = g.person.public_id
     profile = names.get(ref, {})
+    ran_out = (g.status == ProxyStatus.ACTIVE and g.valid_until is not None
+               and g.valid_until <= utc_now())
     return {
-        "public_id": g.public_id, "status": g.status, "relationship": g.relationship_type,
+        "public_id": g.public_id, "relationship": g.relationship_type,
+        "status": ProxyStatus.EXPIRED.value if ran_out else g.status,
         "person_ref": ref, "name": profile.get("name", ""),
         "birth_date": profile.get("birth_date", ""),
-        "delegate_ref": g.delegate.public_id,
+        "delegate_ref": g.delegate.public_id, "scopes": list(g.rights or []),
         "valid_until": g.valid_until.isoformat() if g.valid_until else None,
         "created_at": g.created_at.isoformat(),
     }
@@ -59,7 +70,8 @@ def _grant_dict(g: ProxyGrant, names: dict[str, dict[str, str]]) -> dict[str, An
 def _close_empty_record(person: Person, by: str) -> None:
     """A record made only for a request that never became real is ended, not left lying around."""
     still_used = ProxyGrant.objects.filter(
-        person=person, status__in=(ProxyStatus.PROPOSED, ProxyStatus.ACTIVE)).exists()
+        person=person,
+        status__in=(*PENDING_STATES, ProxyStatus.ACTIVE, ProxyStatus.SUSPENDED)).exists()
     if not still_used and person.linked_actor_id is None and person.status == Status.ACTIVE:
         person.status = Status.ENDED
         person.entity_version += 1
@@ -100,10 +112,14 @@ def request_family_member(
         if own.linked_actor_id != requester.pk:
             raise ZoikoError(ErrorCode.POLICY_DENIED)         # only for your OWN record
         pending = ProxyGrant.objects.filter(
-            delegate=requester, status=ProxyStatus.PROPOSED, **_scope()).count()
+            delegate=requester, status__in=PENDING_STATES, **_scope()).count()
         if pending >= MAX_PENDING_PER_PERSON:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         child = create_person(by=requester_public_id)
+        if organization_public_id:
+            # The request goes to this clinic, so it may now deal with both records (DEV-107).
+            link_person_to_site(own_person_ref, organization_public_id, "family")
+            link_person_to_site(child.public_id, organization_public_id, "family")
         store_profile(child, legal_name=name, birth_date=birth_date, phone="",
                       by=requester_public_id, today=today)
         grant = propose_proxy_grant(
@@ -120,7 +136,7 @@ def list_family(requester_public_id: str) -> list[dict[str, Any]]:
     rows = [
         g for g in ProxyGrant.objects.filter(
             delegate__public_id=requester_public_id, person__status=Status.ACTIVE,
-            status__in=(ProxyStatus.PROPOSED, ProxyStatus.ACTIVE), **_scope()
+            status__in=(*PENDING_STATES, ProxyStatus.ACTIVE, ProxyStatus.SUSPENDED), **_scope()
         ).select_related("person", "delegate").order_by("-created_at")
         if g.valid_until is None or g.valid_until > now
     ]
@@ -139,7 +155,7 @@ def withdraw_family_member(*, grant_ref: str, requester_public_id: str) -> dict[
         grant = _own(ProxyGrant, grant_ref)
         if grant.delegate.public_id != requester_public_id:
             raise ZoikoError(ErrorCode.NOT_FOUND)
-        was_waiting = grant.status == ProxyStatus.PROPOSED
+        was_waiting = grant.status in PENDING_STATES
         revoke_proxy_grant(grant_ref, by=requester_public_id)
         if was_waiting:
             _close_empty_record(grant.person, requester_public_id)
@@ -152,8 +168,17 @@ def pending_family_requests() -> list[dict[str, Any]]:
     """Waiting requests of the bound customer, oldest first, for clinic staff to decide. The
     caller (staff) has been allowed to read patients."""
     rows = list(ProxyGrant.objects.filter(
-        status=ProxyStatus.PROPOSED, person__status=Status.ACTIVE, **_scope()
+        status__in=PENDING_STATES, person__status=Status.ACTIVE, **_scope()
     ).select_related("person", "delegate").order_by("created_at"))
+    names = get_person_profiles([g.person.public_id for g in rows])
+    return [_grant_dict(g, names) for g in rows]
+
+
+def approved_family_grants() -> list[dict[str, Any]]:
+    """Guardian links that are active or paused, newest first, so staff can pause or resume one."""
+    rows = list(ProxyGrant.objects.filter(
+        status__in=(ProxyStatus.ACTIVE, ProxyStatus.SUSPENDED), person__status=Status.ACTIVE,
+        **_scope()).select_related("person", "delegate").order_by("-created_at"))
     names = get_person_profiles([g.person.public_id for g in rows])
     return [_grant_dict(g, names) for g in rows]
 
@@ -161,7 +186,7 @@ def pending_family_requests() -> list[dict[str, Any]]:
 def pending_family_count() -> int:
     """How many requests wait for the clinic, as a bare number (no details are read)."""
     return ProxyGrant.objects.filter(
-        status=ProxyStatus.PROPOSED, person__status=Status.ACTIVE, **_scope()).count()
+        status__in=PENDING_STATES, person__status=Status.ACTIVE, **_scope()).count()
 
 
 def _staff_check(
@@ -182,13 +207,17 @@ def approve_family_member(
     decision: policy.Decision,
     organization_public_id: str,
     verified: bool,
+    scopes: list[str] | None = None,
     valid_until: str = "",
     clock: Clock | None = None,
 ) -> dict[str, Any]:
-    """Step 2. Staff confirm they checked proof of identity and authority (`verified`)."""
+    """Step 2. Staff confirm they checked proof of identity and authority (`verified`) and choose
+    what the guardian may do (`scopes`, at least one; the minimum necessary, GHE-06)."""
     now = utc_now(clock)
     if verified is not True:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["verified"])
+    if not scopes:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["scopes"])
     until: dt.datetime | None = None
     if (valid_until or "").strip():
         try:
@@ -201,7 +230,8 @@ def approve_family_member(
     with transaction.atomic():
         grant = _own(ProxyGrant, grant_ref)
         _staff_check(grant, approver_public_id, decision, organization_public_id)
-        approve_proxy_grant(grant_ref, approver_public_id, valid_until=until, clock=clock)
+        approve_proxy_grant(
+            grant_ref, approver_public_id, valid_until=until, rights=scopes, clock=clock)
         try:
             with transaction.atomic():
                 assign_role(
@@ -228,11 +258,81 @@ def reject_family_member(
     with transaction.atomic():
         grant = _own(ProxyGrant, grant_ref)
         _staff_check(grant, approver_public_id, decision, organization_public_id)
-        if grant.status != ProxyStatus.PROPOSED:
+        if grant.status not in PENDING_STATES:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
-        revoke_proxy_grant(grant_ref, by=approver_public_id)
+        grant.status = ProxyStatus.REJECTED            # never active: not "revoked"
+        grant.valid_until = utc_now()
+        grant.entity_version += 1
+        grant.save(update_fields=["status", "valid_until", "entity_version", "updated_at"])
         _close_empty_record(grant.person, approver_public_id)
         _audit(approver_public_id, "family.reject", "proxy_grant", grant.public_id)
         _decided(grant, "rejected")
+        grant.refresh_from_db()
+        return _grant_dict(grant, {})
+
+
+# ---------------------------------------------------------- the steps between asking and deciding
+def _step(
+    grant_ref: str, approver_public_id: str, decision: policy.Decision,
+    organization_public_id: str | None, *, from_states: tuple[ProxyStatus, ...],
+    to_state: ProxyStatus, action: str,
+) -> dict[str, Any]:
+    with transaction.atomic():
+        grant = _own(ProxyGrant, grant_ref)
+        _staff_check(grant, approver_public_id, decision, organization_public_id)
+        if grant.status not in from_states:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        grant.status = to_state
+        grant.entity_version += 1
+        grant.save(update_fields=["status", "entity_version", "updated_at"])
+        _audit(approver_public_id, action, "proxy_grant", grant.public_id)
+        grant.refresh_from_db()
+        return _grant_dict(grant, {})
+
+
+def ask_for_proof(
+    *, grant_ref: str, approver_public_id: str, decision: policy.Decision,
+    organization_public_id: str | None,
+) -> dict[str, Any]:
+    """Staff need to see proof of identity and authority first. Still no access."""
+    return _step(grant_ref, approver_public_id, decision, organization_public_id,
+                 from_states=(ProxyStatus.PROPOSED,), to_state=ProxyStatus.PROOF_REQUIRED,
+                 action="family.proof_required")
+
+
+def mark_proof_received(
+    *, grant_ref: str, approver_public_id: str, decision: policy.Decision,
+    organization_public_id: str | None,
+) -> dict[str, Any]:
+    """The proof has arrived and the request waits for the clinic's decision."""
+    return _step(grant_ref, approver_public_id, decision, organization_public_id,
+                 from_states=(ProxyStatus.PROPOSED, ProxyStatus.PROOF_REQUIRED),
+                 to_state=ProxyStatus.APPROVAL_PENDING, action="family.proof_received")
+
+
+def suspend_family_member(
+    *, grant_ref: str, approver_public_id: str, decision: policy.Decision,
+    organization_public_id: str | None, reason: str,
+) -> dict[str, Any]:
+    """Pause a guardian's access, with a reason (the audit keeps it). Nothing is shown to them."""
+    reason = (reason or "").strip()
+    if not 3 <= len(reason) <= 200:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["reason"])
+    with transaction.atomic():
+        grant = _own(ProxyGrant, grant_ref)
+        _staff_check(grant, approver_public_id, decision, organization_public_id)
+        suspend_proxy_grant(grant_ref, by=approver_public_id, reason=reason)
+        grant.refresh_from_db()
+        return _grant_dict(grant, {})
+
+
+def resume_family_member(
+    *, grant_ref: str, approver_public_id: str, decision: policy.Decision,
+    organization_public_id: str | None,
+) -> dict[str, Any]:
+    with transaction.atomic():
+        grant = _own(ProxyGrant, grant_ref)
+        _staff_check(grant, approver_public_id, decision, organization_public_id)
+        resume_proxy_grant(grant_ref, by=approver_public_id)
         grant.refresh_from_db()
         return _grant_dict(grant, {})

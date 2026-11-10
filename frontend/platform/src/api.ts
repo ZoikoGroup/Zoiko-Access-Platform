@@ -156,7 +156,7 @@ export const cancelSuspension = (id: string) =>
 export interface IncidentRow {
   id: string;
   title: string;
-  severity: "low" | "medium" | "high";
+  severity: "sev0" | "sev1" | "sev2" | "sev3";
   happened_on: string;
   details: string;
   status: "open" | "resolved";
@@ -270,3 +270,23 @@ export async function saveDisplayName(name: string): Promise<string> {
 export async function clearDisplayName(): Promise<void> {
   await v1("auth/display-name", { method: "DELETE" });
 }
+
+/** The hazard register. Reading: support and safety staff; deciding: safety officers only. */
+export interface HazardRow {
+  id: string; ref_no: string; library: "product" | "ai"; title: string; hazardous_situation: string;
+  exposure_path: string; affected_groups: string; severity: number; probability: number;
+  basis_method: string; residual_risk: string; owner: string; linked_build: string;
+  assessed_by: string; reviewer: string; status: "OPEN" | "VERIFIED" | "REJECTED" | "ACCEPTED" | "RETIRED";
+  assessed: boolean;
+}
+export const getHazards = async () =>
+  v1<{ me: string; can_decide: boolean; hazards: HazardRow[] }>("platform/hazards");
+const hazardPost = (id: string, action: string, body: unknown) =>
+  v1<{ hazard: HazardRow }>(`platform/hazards/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(body) });
+export const assessHazard = (id: string, body: {
+  severity: number; probability: number; residual_risk: string; basis_method: string; hazardous_situation: string;
+}) => hazardPost(id, "assess", body);
+export const reviewHazard = (id: string, verdict: "verified" | "rejected", note: string) =>
+  hazardPost(id, "review", { verdict, note });
+export const acceptHazard = (id: string, note: string) => hazardPost(id, "accept", { note });
+export const retireHazard = (id: string, reason: string) => hazardPost(id, "retire", { reason });

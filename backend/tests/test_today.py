@@ -73,6 +73,7 @@ def test_a_cancelled_appointment_is_not_counted(p):
     make(p, count=1)
     booking = take(p, slots(p)[0], confirm=True)
     p.post(f"bookings/{booking}/cancel", subject="pat")
+    p.post(f"bookings/{booking}/cancel", subject="ops")          # the clinic answers
     assert counts(p, EARLY) == {"confirmed": 0, "waiting": 0, "still_to_come": 0}
 
 

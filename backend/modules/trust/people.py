@@ -13,15 +13,18 @@ from django.db.models import Q
 
 from foundation.cell_context import require_context
 from foundation.errors import ErrorCode, ZoikoError
+from foundation.outbox import emit
 from foundation.timeutil import Clock, utc_now
 
 from .models import (
+    PENDING_STATES,
     Actor,
     ActorType,
     CareBasis,
     CareRelationship,
     Credential,
     Person,
+    PersonSite,
     ProxyGrant,
     ProxyStatus,
     Status,
@@ -66,12 +69,29 @@ def _in_window(queryset, at: dt.datetime, start: str, end: str):
 
 
 # ------------------------------------------------------------------ care relationships
+def _care_sites(actor_public_id: str, at: dt.datetime) -> set[str]:
+    """The sites where this login holds a care role right now."""
+    return {org for role, org in active_roles(actor_public_id, at=at) if role in CARE_ROLES}
+
+
+def _site_holds(link: CareRelationship, held: dict[str, set[str]], at: dt.datetime) -> bool:
+    """A link tied to a site counts only while the clinician still holds a care role there
+    (a doctor who moves away or loses the role keeps no access). An untied link always counts."""
+    if not link.organization_ref:
+        return True
+    who = link.actor.public_id
+    if who not in held:
+        held[who] = _care_sites(who, at)
+    return link.organization_ref in held[who]
+
+
 def start_care_relationship(
     *,
     actor_public_id: str,
     person_public_id: str,
     basis: CareBasis,
     valid_until: dt.datetime | None = None,
+    organization_ref: str = "",
     by: str,
     clock: Clock | None = None,
 ) -> CareRelationship:
@@ -87,10 +107,14 @@ def start_care_relationship(
         if not CARE_ROLES & {role for role, _ in active_roles(actor_public_id, at=now)}:
             raise ZoikoError(ErrorCode.POLICY_DENIED)
         link = CareRelationship.objects.create(
-            actor=actor, person=person, basis=basis, valid_from=now, valid_until=valid_until
+            actor=actor, person=person, basis=basis, valid_from=now, valid_until=valid_until,
+            organization_ref=organization_ref,
         )
+        if organization_ref:
+            link_person_to_site(person_public_id, organization_ref, "care")
         _audit(by, "care.start", "care_relationship", link.public_id,
-               actor=actor.public_id, person=person.public_id, basis=basis)
+               actor=actor.public_id, person=person.public_id, basis=basis,
+               site=organization_ref)
         return link
 
 
@@ -100,6 +124,7 @@ def ensure_care_relationship(
     person_public_id: str,
     basis: CareBasis,
     valid_until: dt.datetime | None = None,
+    organization_ref: str = "",
     by: str,
     clock: Clock | None = None,
 ) -> CareRelationship:
@@ -111,13 +136,15 @@ def ensure_care_relationship(
         person = _own(Person, person_public_id)
         existing = _in_window(
             CareRelationship.objects.filter(
-                actor=actor, person=person, status=Status.ACTIVE, contested=False),
+                actor=actor, person=person, status=Status.ACTIVE, contested=False,
+                organization_ref=organization_ref),
             now, "valid_from", "valid_until",
         ).first()
         if existing is None:
             return start_care_relationship(
                 actor_public_id=actor_public_id, person_public_id=person_public_id,
-                basis=basis, valid_until=valid_until, by=by, clock=clock)
+                basis=basis, valid_until=valid_until, organization_ref=organization_ref,
+                by=by, clock=clock)
         if (valid_until is not None and existing.valid_until is not None
                 and valid_until > existing.valid_until):
             existing.valid_until = valid_until
@@ -136,10 +163,11 @@ def care_patients(actor_public_id: str, *, at: dt.datetime | None = None) -> lis
             actor__public_id=actor_public_id, actor__status=Status.ACTIVE,
             person__status=Status.ACTIVE, status=Status.ACTIVE, contested=False, **scope),
         when, "valid_from", "valid_until",
-    ).select_related("person").order_by("created_at")
+    ).select_related("person", "actor").order_by("created_at")
+    held: dict[str, set[str]] = {}
     return [
         {"person_ref": r.person.public_id, "basis": r.basis, "since": r.valid_from.isoformat()}
-        for r in rows
+        for r in rows if _site_holds(r, held, when)
     ]
 
 
@@ -167,10 +195,11 @@ def care_team_of(person_public_id: str, *, at: dt.datetime | None = None) -> lis
             actor__status=Status.ACTIVE, status=Status.ACTIVE, contested=False, **scope),
         when, "valid_from", "valid_until",
     ).select_related("actor").order_by("created_at")
+    held: dict[str, set[str]] = {}
     return [
         {"actor_ref": r.actor.public_id, "basis": r.basis, "since": r.valid_from.isoformat(),
          "until": r.valid_until.isoformat() if r.valid_until else ""}
-        for r in rows
+        for r in rows if _site_holds(r, held, when)
     ]
 
 
@@ -189,6 +218,30 @@ def end_care_relationship(
         return link
 
 
+def end_care_links(
+    *, actor_public_id: str, person_public_id: str, basis: CareBasis, organization_ref: str,
+    by: str, clock: Clock | None = None,
+) -> int:
+    """End the active links of this basis between this clinician and patient at this site
+    (for example the ones a referral made, once it is decided). Returns how many were ended."""
+    now = utc_now(clock)
+    ctx = require_context()
+    ended = 0
+    with transaction.atomic():
+        links = CareRelationship.objects.filter(
+            actor__public_id=actor_public_id, person__public_id=person_public_id, basis=basis,
+            organization_ref=organization_ref, status=Status.ACTIVE,
+            cell_id=ctx.cell_id, tenant_id=ctx.tenant_id)
+        for link in links:
+            link.status = Status.ENDED
+            link.valid_until = now
+            link.entity_version += 1
+            link.save(update_fields=["status", "valid_until", "entity_version", "updated_at"])
+            _audit(by, "care.end", "care_relationship", link.public_id)
+            ended += 1
+    return ended
+
+
 def set_care_contested(link_public_id: str, contested: bool, *, by: str) -> CareRelationship:
     """Flag a link as disputed (for example by the patient). A contested link grants nothing."""
     with transaction.atomic():
@@ -202,6 +255,11 @@ def set_care_contested(link_public_id: str, contested: bool, *, by: str) -> Care
 
 
 # ------------------------------------------------------------------ proxy grants
+# What a guardian can be allowed to do. "records" (diagnostics, medication, billing) is NOT here:
+# the specification blocks it until market rules and evidence exist (DEV-110).
+PROXY_SCOPES = ("appointments", "messages", "referrals", "insurance")
+
+
 def propose_proxy_grant(
     *, delegate_public_id: str, person_public_id: str, relationship_type: str, by: str
 ) -> ProxyGrant:
@@ -227,16 +285,22 @@ def approve_proxy_grant(
     approver_public_id: str,
     *,
     valid_until: dt.datetime | None = None,
+    rights: list[str] | None = None,
     clock: Clock | None = None,
 ) -> ProxyGrant:
-    """Someone other than the delegate approves. Only then does the grant count."""
+    """Someone other than the delegate approves. Only then does the grant count. `rights` lists
+    what the delegate may do (None = every scope in PROXY_SCOPES, for trusted internal callers;
+    the staff screen always chooses explicitly)."""
     now = utc_now(clock)
+    chosen = list(PROXY_SCOPES) if rights is None else sorted(set(rights))
+    if not chosen or not set(chosen) <= set(PROXY_SCOPES):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["scopes"])
     if valid_until is not None and _aware(valid_until, "valid_until") <= now:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["valid_until"])
     with transaction.atomic():
         grant = _own(ProxyGrant, grant_public_id)
         approver = _own(Actor, approver_public_id)
-        if grant.status != ProxyStatus.PROPOSED:
+        if grant.status not in PENDING_STATES:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         if approver.pk == grant.delegate_id or approver.status != Status.ACTIVE:
             raise ZoikoError(ErrorCode.POLICY_DENIED)
@@ -244,9 +308,11 @@ def approve_proxy_grant(
         grant.approved_by = approver
         grant.valid_from = now
         grant.valid_until = valid_until
+        grant.rights = chosen
         grant.entity_version += 1
         grant.save(update_fields=[
-            "status", "approved_by", "valid_from", "valid_until", "entity_version", "updated_at"])
+            "status", "approved_by", "valid_from", "valid_until", "rights", "entity_version",
+            "updated_at"])
         _audit(approver.public_id, "proxy.approve", "proxy_grant", grant.public_id)
         return grant
 
@@ -257,42 +323,119 @@ def revoke_proxy_grant(
     """From now on only; the history stays. Repeating it changes nothing."""
     with transaction.atomic():
         grant = _own(ProxyGrant, grant_public_id)
-        if grant.status == ProxyStatus.REVOKED:
+        if grant.status in (ProxyStatus.REVOKED, ProxyStatus.REJECTED):
             return grant
+        was_in_use = grant.status in (ProxyStatus.ACTIVE, ProxyStatus.SUSPENDED)
         grant.status = ProxyStatus.REVOKED
         grant.valid_until = utc_now(clock)
         grant.entity_version += 1
         grant.save(update_fields=["status", "valid_until", "entity_version", "updated_at"])
         _audit(by, "proxy.revoke", "proxy_grant", grant.public_id)
+        if was_in_use:     # a request that was never active ceased to authorize nothing
+            _announce_ceased(grant)
         return grant
+
+
+def _announce_ceased(grant: ProxyGrant) -> None:
+    """Downstream consumers re-check on delivery (GHE-06). Only references: no patient identity."""
+    emit(event_type="delegation.revoked.v1", aggregate_type="delegation",
+         aggregate_ref=grant.public_id,
+         payload={"grant_ref": grant.public_id, "delegate_ref": grant.delegate.public_id})
+
+
+def suspend_proxy_grant(grant_public_id: str, *, by: str, reason: str) -> ProxyGrant:
+    """Stop a guardian's access for now (for example on a safeguarding concern); the clinic can
+    resume it. A suspended grant authorizes nothing."""
+    with transaction.atomic():
+        grant = _own(ProxyGrant, grant_public_id)
+        if grant.status != ProxyStatus.ACTIVE:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        grant.status = ProxyStatus.SUSPENDED
+        grant.entity_version += 1
+        grant.save(update_fields=["status", "entity_version", "updated_at"])
+        _audit(by, "proxy.suspend", "proxy_grant", grant.public_id, reason=reason)
+        _announce_ceased(grant)
+        return grant
+
+
+def resume_proxy_grant(
+    grant_public_id: str, *, by: str, clock: Clock | None = None
+) -> ProxyGrant:
+    """Give a suspended guardian their access back, unless it has run out in the meantime."""
+    with transaction.atomic():
+        grant = _own(ProxyGrant, grant_public_id)
+        if grant.status != ProxyStatus.SUSPENDED:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        if grant.valid_until is not None and grant.valid_until <= utc_now(clock):
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        grant.status = ProxyStatus.ACTIVE
+        grant.entity_version += 1
+        grant.save(update_fields=["status", "entity_version", "updated_at"])
+        _audit(by, "proxy.resume", "proxy_grant", grant.public_id)
+        return grant
+
+
+# ------------------------------------------------------------------ patient and clinic site
+SITE_REASONS = frozenset({"booking", "referral", "waitlist", "message", "care", "family"})
+
+
+def link_person_to_site(person_public_id: str, organization_ref: str, reason: str) -> None:
+    """Record that this patient is connected to this clinic site. Safe to repeat. A patient who
+    cannot be found is ignored: the caller's own work must not fail because of this note."""
+    if reason not in SITE_REASONS or not organization_ref:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["site"])
+    ctx = require_context()
+    person = Person.objects.filter(
+        public_id=person_public_id, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id).first()
+    if person is None:
+        return
+    try:
+        with transaction.atomic():
+            PersonSite.objects.get_or_create(
+                person=person, organization_ref=organization_ref, defaults={"reason": reason})
+    except IntegrityError:
+        return      # someone else just recorded the same link
+
+
+def person_at_site(person_public_id: str, organization_ref: str) -> bool:
+    """Is this patient connected to this clinic site?"""
+    ctx = require_context()
+    return PersonSite.objects.filter(
+        person__public_id=person_public_id, organization_ref=organization_ref,
+        cell_id=ctx.cell_id, tenant_id=ctx.tenant_id).exists()
 
 
 # ------------------------------------------------------------------ the question policy asks
 def relationship_verified(
-    *, actor_public_id: str, condition: str, subject_ref: str, at: dt.datetime | None = None
+    *, actor_public_id: str, condition: str, subject_ref: str, at: dt.datetime | None = None,
+    site: str = "", scope: str = "",
 ) -> bool:
     """Is the OWN / REL / PROXY link between this actor and this patient real right now?"""
     when = utc_now() if at is None else _aware(at, "at")
     ctx = require_context()
-    scope = {"cell_id": ctx.cell_id, "tenant_id": ctx.tenant_id}
-    actor = Actor.objects.filter(public_id=actor_public_id, status=Status.ACTIVE, **scope).first()
-    person = Person.objects.filter(public_id=subject_ref, status=Status.ACTIVE, **scope).first()
+    tenant = {"cell_id": ctx.cell_id, "tenant_id": ctx.tenant_id}
+    actor = Actor.objects.filter(public_id=actor_public_id, status=Status.ACTIVE, **tenant).first()
+    person = Person.objects.filter(public_id=subject_ref, status=Status.ACTIVE, **tenant).first()
     if actor is None or person is None:
         return False
+    if condition == "SITE":
+        return person_at_site(subject_ref, site)
     if condition == "OWN":
         return person.linked_actor_id == actor.pk
     if condition == "REL":
-        return _in_window(
+        links = _in_window(
             CareRelationship.objects.filter(
-                actor=actor, person=person, status=Status.ACTIVE, contested=False, **scope),
+                actor=actor, person=person, status=Status.ACTIVE, contested=False, **tenant),
             when, "valid_from", "valid_until",
-        ).exists()
+        ).select_related("actor")
+        held: dict[str, set[str]] = {}
+        return any(_site_holds(link, held, when) for link in links)
     if condition == "PROXY":
-        return _in_window(
-            ProxyGrant.objects.filter(
-                delegate=actor, person=person, status=ProxyStatus.ACTIVE, **scope),
-            when, "valid_from", "valid_until",
-        ).exists()
+        grants = ProxyGrant.objects.filter(
+            delegate=actor, person=person, status=ProxyStatus.ACTIVE, **tenant)
+        if scope:                       # the part of the grant this kind of data needs
+            grants = grants.filter(rights__contains=[scope])
+        return _in_window(grants, when, "valid_from", "valid_until").exists()
     return False
 
 

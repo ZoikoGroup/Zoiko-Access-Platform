@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { dropDevLogin } from "@shared/devLogin";
 import { ApiError, resendVerification, getBookings, getCoverage, getMe, getProfiles, getReferrals, getWaitlist, getNotifications, loadSession, setSession, signOutEverywhere, type Booking, type Me, type Notice, type CoverageRow, type ProfileRow, type Referral, type Session, type WaitEntry } from "./api";
 import { displayName } from "./format";
 import { Appointments } from "./pages/Appointments";
@@ -50,6 +51,7 @@ function startPage(): PageId {
 
 export default function App() {
   const [session, setSessionState] = useState<Session | null>(loadSession());
+  useEffect(() => { if (session) dropDevLogin(); }, [session]);   // development only
   const [me, setMe] = useState<Me | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [referrals, setReferrals] = useState<Referral[]>([]);
@@ -135,6 +137,7 @@ export default function App() {
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main">Skip to main content</a>
       <header className="topbar">
         <div className="brand">
           <Logo />
@@ -170,7 +173,7 @@ export default function App() {
           <div className="cell">{me?.cell ?? "…"}</div>
         </div>
       </nav>
-      <main className="content">
+      <main className="content" id="main" tabIndex={-1}>
         {me?.email?.email && !me.email.verified && <VerifyBanner address={me.email.email} />}
         {error && <div className="error">Cannot reach the backend: {error}. Is it running (<code>docker compose up -d</code>)?</div>}
         {body}

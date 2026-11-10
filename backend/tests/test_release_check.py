@@ -30,7 +30,7 @@ def good(**over):
         "DATABASES": {"default": {"PASSWORD": "Vr7Qm2Xk9LpT4wYb8NsHd3GfJc6AeU1o"}},
         "FIELD_KEYS": "k1:3q2+7w==realkeymaterialnotaplaceholder0123456789abcdef",
         "ALLOWED_HOSTS": ["care.example.org"], "ZOIKO_CELL_ID": "EU-WEST-01",
-        "EMAIL_HOST": "smtp.example.org", "EMAIL_PORT": 587,
+        "EMAIL_HOST": "smtp.example.org", "EMAIL_PORT": 587, "ZOIKO_BUILD": "2026.11.07-a1b2c3d",
     }
     values.update(over)
     return SimpleNamespace(**values)
@@ -47,6 +47,11 @@ def test_settings_that_are_fine_for_a_real_server_have_no_problems():
 
 def test_every_pinned_placeholder_word_is_still_in_the_code():
     assert set(PINNED_MARKERS) <= set(PLACEHOLDER_MARKERS)
+
+
+def test_the_placeholder_build_id_is_a_problem():
+    for placeholder in ("dev", "DEV", ""):
+        assert any("ZOIKO_BUILD" in p for p in one(ZOIKO_BUILD=placeholder))
 
 
 # ------------------------------------------------------------------ each development-only thing

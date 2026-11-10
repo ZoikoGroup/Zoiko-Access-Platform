@@ -6,7 +6,9 @@ Two different support logins are needed to try the two-person approval of a cust
 
     vikram@zoiko.example   support (R11)
     priya@zoiko.example    support (R11), the second person
-    iyer@zoiko.example     safety officer (R12): can look, cannot decide
+    iyer@zoiko.example     safety officer (R12): can look, cannot decide customer suspensions;
+                           assesses hazards in the hazard register
+    rao@zoiko.example      second safety officer (R12): the independent reviewer of hazards
 
 Organization name at sign-in: Zoiko Platform. Password: see scripts/README.md.
 """
@@ -16,7 +18,8 @@ import urllib.request
 BASE = "http://127.0.0.1:8000/dev/api/"
 PASSWORD = "Demo-Pass-2026!"
 LOGINS = (("vikram@zoiko.example", "R11"), ("priya@zoiko.example", "R11"),
-          ("iyer@zoiko.example", "R12"))
+          ("iyer@zoiko.example", "R12"),
+          ("rao@zoiko.example", "R12"))
 
 
 def call(action, **body):

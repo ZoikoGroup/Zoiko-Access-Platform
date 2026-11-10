@@ -134,6 +134,9 @@ class QueuedEmail(CellScopedModel):
     locked_until = models.DateTimeField(null=True, blank=True)   # a claim that expires if we crash
     sent_at = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=64, blank=True, default="")  # exception CLASS only
+    # SHA-256 of "subject, a line break, body" as queued. It stays after the body is wiped, so there
+    # is evidence of exactly what was sent without keeping a one-time link (GHE-16, DEV-113).
+    content_digest = models.CharField(max_length=64, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [

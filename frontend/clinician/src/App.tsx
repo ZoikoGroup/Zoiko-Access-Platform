@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { changePassword, clearDisplayName, getDisplayName, getNameCheck, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, loadSession, setSession, signOutEverywhere, type Session } from "./api";
+import { dropDevLogin } from "@shared/devLogin";
+import { changePassword, clearDisplayName, getDisplayName, getNameCheck, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, getPurpose, loadSession, setPurpose, setSession, signOutEverywhere, type Purpose, type Session } from "./api";
 import { NAV, type PageId } from "./nav";
 import { Account } from "./Account";
 import { Patients } from "./pages/Patients";
@@ -19,6 +20,7 @@ function startPage(): PageId {
 
 export default function App() {
   const [session, setSessionState] = useState<Session | null>(loadSession());
+  useEffect(() => { if (session) dropDevLogin(); }, [session]);   // development only
   const [link, setLink] = useState(readLinkAction());
   if (link) {
     return <LinkPage link={link} onDone={() => { clearLink(); setLink(null); }} />;
@@ -39,6 +41,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   const [patientQuery, setPatientQuery] = useState("");      // set by the top-bar search
   const [health, setHealth] = useState<{ api: Health; database: Health }>({ api: "checking", database: "checking" });
   const me = useLoad(getMe, 120_000);
+  const [why, setWhy] = useState<Purpose>(getPurpose());         // the reason sent with every request
 
   const poll = useCallback(async () => setHealth(await checkHealth()), []);
   useEffect(() => {
@@ -60,11 +63,23 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main">Skip to main content</a>
       <Topbar displayName={shownName} tenantName={session.tenantName} login={session.login}
         roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
         onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} />
       <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} />
-      <main className="content">{body}</main>
+      <main className="content" id="main" tabIndex={-1}>
+        <div className="notice" role="group" aria-label="Why you are working" style={{ marginBottom: 12 }}>
+          <label>Why are you opening patient records?{" "}
+            <select value={why} onChange={(e) => { setPurpose(e.target.value as Purpose); setWhy(e.target.value as Purpose); }}>
+              <option value="DIRECT_CARE">To treat my patients (direct care)</option>
+              <option value="CONTINUITY_OF_CARE">To follow up earlier care (read only)</option>
+            </select>
+          </label>
+          {why === "CONTINUITY_OF_CARE" && <small style={{ display: "block" }}>Read only: you cannot refer, book or decide while following up. Each look is recorded with this reason.</small>}
+        </div>
+        <div key={why}>{body}</div>
+      </main>
     </div>
   );
 }

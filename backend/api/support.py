@@ -1,6 +1,7 @@
 """Shared plumbing for the HTTP endpoints: login, tenant binding, request parsing."""
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from functools import wraps
@@ -10,6 +11,11 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 
 from foundation.cell_context import bind_context
 from foundation.errors import ErrorCode, ZoikoError
+from foundation.request_context import (
+    get_stated_purpose,
+    reset_audit_extra,
+    set_audit_extra,
+)
 from modules.policy import api as policy
 from modules.trust import api as trust
 
@@ -68,9 +74,20 @@ def endpoint(*methods: str) -> Callable[[View], Callable[..., HttpResponse]]:
                 response = JsonResponse({"code": "METHOD_NOT_ALLOWED"}, status=405)
                 response["Allow"] = ", ".join(methods)
                 return response
-            auth = trust.authenticate(request.headers.get("Authorization"))
-            with bind_context(auth.context):
-                return view(request, auth, *args, **kwargs)
+            header = request.headers.get("Authorization") or ""
+            auth = trust.authenticate(header or None)
+            # What the audit record keeps about this person: their kind of login, which session
+            # (a fingerprint of the token, never the token) and the reason they stated.
+            token = set_audit_extra({
+                "actor_ref": auth.actor_public_id, "actor_kind": auth.actor_type,
+                "purpose_code": purpose_for(auth),
+                "session_ref": hashlib.sha256(header.encode()).hexdigest()[:16],
+            })
+            try:
+                with bind_context(auth.context):
+                    return view(request, auth, *args, **kwargs)
+            finally:
+                reset_audit_extra(token)
 
         return run
 
@@ -107,6 +124,12 @@ PURPOSE_BY_ROLE = (
 
 
 def purpose_for(auth: trust.Authenticated) -> str:
+    """The reason this request is made. A person may state it (the doctor app sends it); the
+    policy engine then refuses it unless one of their roles may act under it. With none stated,
+    the default for their role is used."""
+    stated = get_stated_purpose()
+    if stated:
+        return stated
     for role, purpose in PURPOSE_BY_ROLE:
         if role in auth.roles:
             return purpose
@@ -126,7 +149,7 @@ def is_allowed(auth: trust.Authenticated, operation: str, **kwargs: Any) -> bool
     try:
         policy.authorize(
             actor_public_id=auth.actor_public_id, operation=operation,
-            purpose_code=purpose_for(auth), **kwargs,
+            purpose_code=purpose_for(auth), announce=False, **kwargs,
         )
     except ZoikoError:
         return False

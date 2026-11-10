@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { AuthShell, GoogleButton, PasswordField } from "../AuthShell";
+import { useEffect, useState } from "react";
+import { readDevLogin } from "@shared/devLogin";
+import { AuthShell, PasswordField, RememberRow, SsoButtons } from "../AuthShell";
 import { setSession, signIn, type Session } from "../api";
 
 // Where each kind of person belongs.
@@ -17,8 +18,17 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
   const [error, setError] = useState("");
   const [elsewhere, setElsewhere] = useState<string | null>(null);
 
+  useEffect(() => {                       // development only: see shared/src/devLogin.ts
+    const dev = readDevLogin();
+    if (dev) void attempt(dev.org, dev.login, dev.pw);
+  }, []);                                 // eslint-disable-line react-hooks/exhaustive-deps
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    await attempt(organization, login, password);
+  }
+
+  async function attempt(organization: string, login: string, password: string) {
     setBusy(true); setError(""); setElsewhere(null);
     try {
       const reply = await signIn(organization, login, password);
@@ -40,13 +50,14 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
 
   const other = elsewhere ? OTHER_APPS[elsewhere] : undefined;
   return (
-    <AuthShell headline="Keep every customer's care running safely."
+    <AuthShell headline="Keep every customer's care" accent="running safely."
+      subtitle="Customers, incidents, releases and safety work for Zoiko staff."
       points={["See the health of every customer at a glance", "Spot tampering or backlogs early", "Never see a patient's information"]}>
       <div className="auth-card">
         <h2>Platform sign in</h2>
         <p className="lead">For Zoiko support and safety staff only.</p>
 
-        <GoogleButton />
+        <SsoButtons />
         <div className="divider">or use your Zoiko login</div>
 
         <form onSubmit={(e) => void submit(e)}>
@@ -58,6 +69,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
             autoComplete="username" required />
           <PasswordField id="password" label="Password" value={password} onChange={setPassword}
             autoComplete="current-password" />
+          <RememberRow />
           {error && <div className="error" role="alert">{error}</div>}
           {elsewhere && (
             <div className="notice" role="alert">
@@ -66,7 +78,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
             </div>
           )}
           <button className="btn wide" type="submit" disabled={busy || !organization || !login || !password}>
-            {busy ? "Signing in…" : "Sign in"}
+            {busy ? "Signing in…" : "Log In"}
           </button>
         </form>
         <p className="switch">Every view in this console is recorded in the platform audit log.</p>

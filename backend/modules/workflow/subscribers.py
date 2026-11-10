@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import datetime as dt
 
-from django.conf import settings
-
 from foundation.dispatch import subscribe, subscriptions
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.outbox import PublishedEvent
@@ -17,6 +15,7 @@ from foundation.timeutil import utc_now
 from modules.messaging import api as messaging
 from modules.referral import api as referral
 from modules.scheduling import api as scheduling
+from modules.trust import api as trust
 
 from .models import Kind, Status
 from .services import close_item, open_item
@@ -26,8 +25,9 @@ REFERRAL_CONSUMER = "workflow.referral_queue"
 MESSAGE_CONSUMER = "workflow.message_queue"
 
 
-def _due() -> dt.datetime:
-    return utc_now() + dt.timedelta(hours=settings.RESPONSE_TARGET_HOURS)
+def _due(organization_ref: str) -> dt.datetime:
+    """When work for this clinic is due: its own response target from now."""
+    return utc_now() + dt.timedelta(hours=trust.response_target_hours(organization_ref))
 
 
 def _gone(exc: ZoikoError) -> None:
@@ -52,7 +52,7 @@ def on_booking_event(event: PublishedEvent) -> None:
             if booking["status"] == "requested":
                 open_item(organization_ref=booking["slot"]["organization_ref"],
                           kind=Kind.CONFIRM_BOOKING, subject_ref=booking["public_id"],
-                          due_at=_due())
+                          due_at=_due(booking["slot"]["organization_ref"]))
         elif event.event_type == "booking.confirmed.v1":
             close_item(kind=Kind.CONFIRM_BOOKING, subject_ref=ref, actor_ref=_closer(event))
         elif event.event_type == "booking.cancelled.v1":
@@ -69,7 +69,8 @@ def on_referral_event(event: PublishedEvent) -> None:
             found = referral.get_referral(ref)
             if found["state"] == "issued":
                 open_item(organization_ref=found["destination_organization_ref"],
-                          kind=Kind.DECIDE_REFERRAL, subject_ref=found["public_id"], due_at=_due())
+                          kind=Kind.DECIDE_REFERRAL, subject_ref=found["public_id"],
+                          due_at=_due(found["destination_organization_ref"]))
         elif event.event_type == "referral.decided.v1":
             close_item(kind=Kind.DECIDE_REFERRAL, subject_ref=ref, actor_ref=_closer(event))
     except ZoikoError as exc:
@@ -84,7 +85,8 @@ def on_message_event(event: PublishedEvent) -> None:
         if event.payload.get("side") == "patient":
             thread = messaging.get_thread(ref)
             open_item(organization_ref=thread["organization_ref"], kind=Kind.ANSWER_MESSAGE,
-                      subject_ref=thread["public_id"], due_at=_due())
+                      subject_ref=thread["public_id"],
+                      due_at=_due(thread["organization_ref"]))
         else:
             close_item(kind=Kind.ANSWER_MESSAGE, subject_ref=ref, actor_ref=_closer(event))
     except ZoikoError as exc:

@@ -6,7 +6,7 @@ import pytest
 from django.conf import settings
 from django.db import connection
 
-from foundation.cell_context import CellContext
+from foundation.cell_context import CellContext, tenant_transaction
 from foundation.dbgrants import grant_statements
 from foundation.rls import enable_rls_sql
 
@@ -47,3 +47,12 @@ def as_app_role() -> Iterator[None]:
     with connection.cursor() as cursor:
         cursor.execute(f"SET LOCAL ROLE {APP_ROLE}")
     yield
+
+
+def publish_service(ctx: CellContext, service_ref: str) -> None:
+    """Set-up shortcut for tests that are about something else. A service made through the app
+    starts as a draft nobody can book (DEV-115); this makes it published without the review steps,
+    which test_listing_states.py covers on their own."""
+    from modules.catalog.models import Service
+    with tenant_transaction(ctx):
+        Service.objects.filter(public_id=service_ref).update(listing_state="published")

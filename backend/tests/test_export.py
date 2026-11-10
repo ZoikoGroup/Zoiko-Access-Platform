@@ -106,15 +106,18 @@ def steps_of(data, booking):
 
 def test_it_holds_every_appointments_steps_worded_as_the_app_shows_them(p):
     booking = booked(p, confirm=True)
-    p.post(f"bookings/{booking}/cancel", {"reason": "schedule_conflict"}, subject="pat")
+    p.post(f"bookings/{booking}/cancel", {"reason": "schedule_conflict"}, subject="pat")  # asks
+    p.post(f"bookings/{booking}/cancel", subject="ops")                      # the clinic answers
     _, data = export(p)
     entry = steps_of(data, booking)
     assert [(e["event"], e["text"]) for e in entry["events"]] == [
-        ("requested", "Requested"), ("confirmed", "Confirmed"), ("cancelled", "Cancelled")]
+        ("requested", "Requested"), ("confirmed", "Confirmed"),
+        ("cancel_requested", "Cancellation asked for: waiting for the clinic"),
+        ("cancelled", "Cancelled")]
     assert [e["who"] for e in entry["events"]] == [
-        "You or your family", "The clinic", "You or your family"]
+        "You or your family", "The clinic", "You or your family", "The clinic"]
     assert entry["events"][-1]["reason"] == "schedule_conflict" and entry["chain_ok"] is True
-    assert [e["seq"] for e in entry["events"]] == [1, 2, 3]
+    assert [e["seq"] for e in entry["events"]] == [1, 2, 3, 4]
 
 
 def test_the_export_holds_the_same_steps_as_the_history_button(p):
@@ -154,9 +157,13 @@ def test_a_moved_appointment_exports_both_bookings_steps(p):
     target = p.slot_of("doc", index=1)
     moved = p.post(f"bookings/{old}/reschedule", {"slot": target}, subject="pat")
     new = json.loads(moved.content)["booking"]["id"]
+    _, data = export(p)                          # the original stays until the clinic answers
+    assert [e["event"] for e in steps_of(data, old)["events"]][-1] == "change_requested"
+    assert [e["event"] for e in steps_of(data, new)["events"]] == ["requested"]
+    p.post(f"bookings/{new}/confirm", subject="ops")
     _, data = export(p)
     assert [e["event"] for e in steps_of(data, old)["events"]][-1] == "moved_away"
-    assert [e["event"] for e in steps_of(data, new)["events"]] == ["moved_here"]
+    assert [e["event"] for e in steps_of(data, new)["events"]][-1] == "moved_here"
 
 
 def test_the_steps_never_show_which_staff_member_acted_or_anyone_elses_data(p):

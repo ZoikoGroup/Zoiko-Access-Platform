@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { AuthShell, GoogleButton, PasswordField } from "../AuthShell";
+import { useEffect, useState } from "react";
+import { readDevLogin } from "@shared/devLogin";
+import { AuthShell, PasswordField, RememberRow, SsoButtons } from "../AuthShell";
 import { setSession, signIn, type Session } from "../api";
 
 // Where each kind of person belongs. Only the patient app exists besides this one.
@@ -17,8 +18,17 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
   const [error, setError] = useState("");
   const [elsewhere, setElsewhere] = useState<string | null>(null);
 
+  useEffect(() => {                       // development only: see shared/src/devLogin.ts
+    const dev = readDevLogin();
+    if (dev) void attempt(dev.org, dev.login, dev.pw);
+  }, []);                                 // eslint-disable-line react-hooks/exhaustive-deps
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    await attempt(organization, login, password);
+  }
+
+  async function attempt(organization: string, login: string, password: string) {
     setBusy(true); setError(""); setElsewhere(null);
     try {
       const reply = await signIn(organization, login, password);
@@ -41,13 +51,14 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
 
   const other = elsewhere ? OTHER_APPS[elsewhere] : undefined;
   return (
-    <AuthShell headline="Run your clinic's day with confidence."
+    <AuthShell headline="Run your clinic's day" accent="with confidence."
+      subtitle="Bookings, referrals and messages for your clinic, with every action recorded."
       points={["Manage services and open times", "Confirm and track bookings", "Every action is recorded for audit"]}>
       <div className="auth-card">
         <h2>Staff sign in</h2>
         <p className="lead">For clinic operations, support, safety and integration staff.</p>
 
-        <GoogleButton />
+        <SsoButtons />
         <div className="divider">or use your work login</div>
 
         <form onSubmit={(e) => void submit(e)}>
@@ -59,6 +70,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
             autoComplete="username" required />
           <PasswordField id="password" label="Password" value={password} onChange={setPassword}
             autoComplete="current-password" />
+          <RememberRow />
           {error && <div className="error" role="alert">{error}</div>}
           {elsewhere && (
             <div className="notice" role="alert">
@@ -67,7 +79,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
             </div>
           )}
           <button className="btn wide" type="submit" disabled={busy || !organization || !login || !password}>
-            {busy ? "Signing in…" : "Sign in"}
+            {busy ? "Signing in…" : "Log In"}
           </button>
         </form>
 

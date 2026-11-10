@@ -180,7 +180,8 @@ def test_the_doctor_sees_the_new_time_only_once_the_clinic_confirms_it():
     moved = move(practice, first["id"], practice.slot_of("doc", 0))     # the time still free
     assert moved.status_code == 200
     new = json.loads(moved.content)["booking"]
-    assert practice.schedule() == []                       # moved: waiting for the clinic
+    # The original stays on the schedule until the clinic confirms the new time (WF-13).
+    assert [a["id"] for a in practice.schedule()] == [first["id"]]
     practice.post(f"bookings/{new['id']}/confirm", subject="ops")
     assert [a["id"] for a in practice.schedule()] == [new["id"]]
 

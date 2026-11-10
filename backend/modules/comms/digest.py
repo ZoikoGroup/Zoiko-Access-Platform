@@ -31,10 +31,10 @@ def send_late_digest(clock: Clock | None = None) -> int:
     """For the bound customer: queue one digest per organization that has late work and has not
     been told today. Returns how many emails were queued."""
     ctx = require_context()
-    hours = settings.RESPONSE_TARGET_HOURS
     day = utc_now(clock).date().isoformat()
     queued = 0
     for org, name in trust.organization_names().items():
+        hours = trust.response_target_hours(org)        # this clinic's own target
         bookings = scheduling.overdue_requests(hours, clock, organization_ref=org)
         threads = messaging.overdue_threads_for_staff(org, hours, clock)
         if bookings + threads == 0:

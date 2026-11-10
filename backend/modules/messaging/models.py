@@ -53,3 +53,21 @@ class Message(CellScopedModel):
             models.Index(fields=["cell_id", "tenant_id"], name="message_scope_idx"),
             models.Index(fields=["thread", "created_at"], name="message_thread_idx"),
         ]
+
+
+class MessageView(CellScopedModel):
+    """A signed-in person opened a message written by the OTHER side (GHE-16: secure viewing is its
+    own state, separate from delivery and from clinical review). One row per login and message,
+    written once and never changed. Opening is not reading with understanding and is never a
+    clinician's acknowledgment (DEV-113)."""
+
+    message = models.ForeignKey(Message, on_delete=models.PROTECT, related_name="views")
+    viewer_ref = models.CharField(max_length=22)            # the login that opened it
+    side = models.CharField(max_length=16, choices=Side.choices)   # which side that login is on
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="msgview_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "message", "viewer_ref"], name="message_view_once"),
+        ]

@@ -273,3 +273,26 @@ def test_dev_login_accepts_email_style_login_ids_but_not_spaces_or_colons():
         for bad in ("asha p@example.org", "asha:p@example.org"):
             with pytest.raises(ZoikoError):
                 trust.authenticate(f"Bearer dev:{tenant.public_id}:dev-idp:{bad}")
+
+
+def test_employer_and_payer_roles_only_fit_employer_and_payer_logins():
+    """Prohibition 1: no clinic login gets the employer role, nor the reverse."""
+    _, ctx = make_tenant()
+    with tenant_transaction(ctx):
+        org = trust.create_organization(name="North", by="system").public_id
+        def actor(kind, subject):
+            return trust.register_actor(actor_type=kind, issuer="idp", subject=subject).public_id
+        clinic, boss, insurer = (actor(trust.ActorType.FACILITY_USER, "c"),
+                                 actor(trust.ActorType.EMPLOYER_USER, "e"),
+                                 actor(trust.ActorType.PAYER_USER, "p"))
+        def give(who, code):
+            return trust.assign_role(actor_public_id=who, organization_public_id=org,
+                                     role_code=code, by="system")
+        for who, code in ((clinic, "R08"), (clinic, "R07"), (boss, "R04"), (boss, "R03"),
+                          (insurer, "R04"), (insurer, "R08")):
+            with pytest.raises(ZoikoError) as refused:
+                give(who, code)
+            assert refused.value.code == ErrorCode.POLICY_DENIED
+        give(boss, "R08")
+        give(insurer, "R07")
+        give(clinic, "R04")

@@ -14,7 +14,7 @@ from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
 
-from .models import Location, Mode, Service, Status
+from .models import ListingState, Location, Mode, Service, Status
 
 _CATEGORY = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 
@@ -109,10 +109,16 @@ def create_service(
     duration_minutes: int,
     mode: str = Mode.IN_PERSON,
     description: str = "",
+    listing_state: str = ListingState.DRAFT,
     actor_public_id: str,
     decision: policy.Decision,
 ) -> dict[str, Any]:
+    """Make a service. It starts as a DRAFT: nobody can book it until it has been requested,
+    reviewed by a second person and published. Only trusted set-up code (the development console)
+    passes another `listing_state`."""
     _receipt(decision, actor_public_id, organization_ref)
+    if listing_state not in ListingState.values:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["listing_state"])
     if not name.strip():
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["name"])
     if not _CATEGORY.match(category):
@@ -128,12 +134,83 @@ def create_service(
                 row = Service.objects.create(
                     organization_ref=organization_ref, name=name.strip(), category=category,
                     duration_minutes=duration_minutes, mode=mode,
-                    description=description.strip()[:300],
+                    description=description.strip()[:300], listing_state=listing_state,
                 )
         except IntegrityError:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None
         _audit(actor_public_id, "service.create", "service", row.public_id)
         return service_dict(row)
+
+
+LISTING_ROLES = frozenset({"R04", "R13"})       # may ask for a listing
+LISTING_APPROVERS = frozenset({"R13"})          # may review, publish, suspend
+_ACTIONS = {"request", "return", "review", "publish", "suspend", "restart"}
+
+
+def change_listing(
+    service_ref: str, action: str, *, note: str = "", actor_public_id: str,
+    decision: policy.Decision,
+) -> dict[str, Any]:
+    """Move a service along DRAFT, EVIDENCE_PENDING, REVIEWED, PUBLISHED (GHE-14 WF-04).
+
+    request: staff ask for a listing and give an evidence reference (DRAFT to EVIDENCE_PENDING).
+    review / return: a clinic administrator who is NOT the one who asked reviews it, or sends it
+    back with a reason. publish: a clinic administrator who did not ask publishes a reviewed
+    service. suspend: a clinic administrator withdraws a listing with a reason; restart makes it
+    a draft again."""
+    if action not in _ACTIONS:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["action"])
+    note = (note or "").strip()
+    with transaction.atomic():
+        row = _own(Service, service_ref)
+        _receipt(decision, actor_public_id, row.organization_ref)
+        role = decision.role_code
+        state = row.listing_state
+        if action == "request":
+            if role not in LISTING_ROLES or state != ListingState.DRAFT:
+                raise ZoikoError(ErrorCode.CONFLICT_VERSION if role in LISTING_ROLES
+                                 else ErrorCode.POLICY_DENIED)
+            if not 5 <= len(note) <= 200:
+                raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["note"])
+            row.evidence_note, row.requested_by_ref = note, actor_public_id
+            row.reviewed_by_ref = row.published_by_ref = ""
+            row.listing_state = ListingState.EVIDENCE_PENDING
+        else:
+            if role not in LISTING_APPROVERS:
+                raise ZoikoError(ErrorCode.POLICY_DENIED)
+            own_request = actor_public_id == row.requested_by_ref
+            if action in ("review", "return", "publish") and own_request:
+                raise ZoikoError(ErrorCode.POLICY_DENIED)      # nobody approves their own request
+            if action in ("return", "suspend") and not 3 <= len(note) <= 200:
+                raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["note"])
+            if action in ("review", "return"):
+                if state != ListingState.EVIDENCE_PENDING:
+                    raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+                row.listing_state = (ListingState.REVIEWED if action == "review"
+                                     else ListingState.DRAFT)
+                row.reviewed_by_ref = actor_public_id if action == "review" else ""
+            elif action == "publish":
+                if state != ListingState.REVIEWED:
+                    raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+                row.listing_state, row.published_by_ref = ListingState.PUBLISHED, actor_public_id
+            elif action == "suspend":
+                if state not in (ListingState.PUBLISHED, ListingState.REVIEWED):
+                    raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+                row.listing_state = ListingState.SUSPENDED
+            else:                                                  # restart
+                if state != ListingState.SUSPENDED:
+                    raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+                row.listing_state = ListingState.DRAFT
+                row.requested_by_ref = row.reviewed_by_ref = row.published_by_ref = ""
+        row.entity_version += 1
+        row.save()
+        _audit(actor_public_id, f"service.listing_{action}", "service", row.public_id)
+        return service_dict(row)
+
+
+def is_offered(service: dict[str, Any]) -> bool:
+    """Can patients see and book this service? Active (the clinic's switch) and published."""
+    return service["status"] == Status.ACTIVE and service["listing_state"] == ListingState.PUBLISHED
 
 
 def set_service_status(
@@ -174,6 +251,9 @@ def service_dict(row: Service) -> dict[str, Any]:
         "public_id": row.public_id, "organization_ref": row.organization_ref, "name": row.name,
         "category": row.category, "description": row.description,
         "duration_minutes": row.duration_minutes, "mode": row.mode, "status": row.status,
+        "listing_state": row.listing_state, "evidence_note": row.evidence_note,
+        "requested_by_ref": row.requested_by_ref, "reviewed_by_ref": row.reviewed_by_ref,
+        "published_by_ref": row.published_by_ref,
     }
 
 
@@ -198,8 +278,8 @@ def list_services(
     `category`, `mode` and `organization_ref` narrow the result exactly."""
     ctx = require_context()
     rows = Service.objects.filter(cell_id=ctx.cell_id, tenant_id=ctx.tenant_id)
-    if active_only:
-        rows = rows.filter(status=Status.ACTIVE)
+    if active_only:                  # what patients may see: switched on AND published
+        rows = rows.filter(status=Status.ACTIVE, listing_state=ListingState.PUBLISHED)
     word = query.strip()
     if word:
         rows = rows.filter(
@@ -218,7 +298,7 @@ def list_categories() -> list[dict[str, Any]]:
     """The categories that have at least one ACTIVE service, with how many, for filter menus."""
     ctx = require_context()
     rows = (Service.objects.filter(cell_id=ctx.cell_id, tenant_id=ctx.tenant_id,
-                                   status=Status.ACTIVE)
+                                   status=Status.ACTIVE, listing_state=ListingState.PUBLISHED)
             .values("category").annotate(count=Count("id")).order_by("category"))
     return [{"category": r["category"], "count": r["count"]} for r in rows]
 

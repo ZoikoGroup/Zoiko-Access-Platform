@@ -9,21 +9,21 @@ export interface NameCheckInfo {
   basis_text?: string; checked_on?: string; reason?: string;
 }
 
-/** Whether the clinic has checked the name this person is shown by (patients see a Verified mark). */
+/** Whether the clinic has checked the name this person is shown by (patients see a "Name checked" mark). */
 function NameCheckCard({ load }: { load: () => Promise<NameCheckInfo> }) {
   const [info, setInfo] = useState<NameCheckInfo | null>(null);
   useEffect(() => { void load().then(setInfo).catch(() => setInfo(null)); }, [load]);
   if (!info) return null;
   const words: Record<NameCheckInfo["state"], string> = {
     none: "Your name has not been checked yet. An administrator at your clinic can check it.",
-    verified: `Your name was checked: ${info.basis_text ?? ""} on ${info.checked_on ?? ""}. Patients see a Verified mark next to it.`,
-    name_changed: "You changed your name after it was checked, so the Verified mark is off until an administrator checks the new name.",
-    withdrawn: `The check of your name was withdrawn${info.reason ? `: ${info.reason}` : ""}. Patients do not see a Verified mark.`,
+    verified: `Your name was checked: ${info.basis_text ?? ""} on ${info.checked_on ?? ""}. Patients see a "Name checked" mark next to it. This is a desk check by your clinic, not a licence check by Zoiko.`,
+    name_changed: "You changed your name after it was checked, so the \"Name checked\" mark is off until an administrator checks the new name.",
+    withdrawn: `The check of your name was withdrawn${info.reason ? `: ${info.reason}` : ""}. Patients do not see a "Name checked" mark.`,
   };
   return (
     <Card title="Is my name checked?">
       <p><Pill kind={info.state === "verified" ? "ok" : info.state === "none" ? "info" : "warn"}>
-        {info.state === "verified" ? "Verified" : info.state === "none" ? "Not checked" : info.state === "name_changed" ? "Check ended" : "Check withdrawn"}
+        {info.state === "verified" ? "Name checked" : info.state === "none" ? "Not checked" : info.state === "name_changed" ? "Check ended" : "Check withdrawn"}
       </Pill></p>
       <p>{words[info.state]}</p>
     </Card>

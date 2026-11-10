@@ -39,7 +39,7 @@ def work(world, subject="sam"):
     return json.loads(r.content)["work"]
 
 
-def incident(world, title="Mail delayed", severity="medium"):
+def incident(world, title="Mail delayed", severity="sev2"):
     r = post(world, "platform/incidents",
              {"title": title, "severity": severity, "happened_on": utc_now().date().isoformat()})
     assert r.status_code == 201, r.content
@@ -65,16 +65,16 @@ def test_a_quiet_platform_has_nothing_open(platform):
 
 
 def test_open_incidents_are_counted_and_the_high_ones_apart(platform):
-    incident(platform, severity="low")
-    incident(platform, severity="medium")
-    incident(platform, severity="high")
-    incident(platform, severity="high")
+    incident(platform, severity="sev3")
+    incident(platform, severity="sev2")
+    incident(platform, severity="sev0")
+    incident(platform, severity="sev1")
     assert work(platform) == {**QUIET, "open_incidents": 4, "high_incidents": 2}
 
 
 def test_a_closed_incident_is_no_longer_counted(platform):
-    keep = incident(platform, severity="high")
-    done = incident(platform, severity="high")
+    keep = incident(platform, severity="sev1")
+    done = incident(platform, severity="sev1")
     post(platform, f"platform/incidents/{done}/resolve", {"resolution": "fixed"})
     shown = work(platform)
     assert shown["open_incidents"] == 1 and shown["high_incidents"] == 1
@@ -106,7 +106,7 @@ def test_the_latest_release_is_the_newest_date_then_the_newest_entry(platform):
 
 
 def test_only_counts_and_a_version_are_shown_never_the_text_people_wrote(platform):
-    incident(platform, title="SECRET-TITLE", severity="high")
+    incident(platform, title="SECRET-TITLE", severity="sev1")
     ask(platform, World(), reason="SECRET-REASON")
     release(platform, "7.7", summary="SECRET-SUMMARY")
     text = json.dumps(work(platform))
@@ -117,7 +117,7 @@ def test_only_counts_and_a_version_are_shown_never_the_text_people_wrote(platfor
 
 def test_the_safety_officer_sees_the_same_numbers(platform):
     platform.staff("iyer", "R12")
-    incident(platform, severity="high")
+    incident(platform, severity="sev1")
     ask(platform, World())
     release(platform, "2.0")
     assert work(platform, "iyer") == work(platform)
@@ -125,7 +125,7 @@ def test_the_safety_officer_sees_the_same_numbers(platform):
 
 
 def test_another_platform_tenant_has_its_own_numbers(platform):
-    incident(platform, severity="high")
+    incident(platform, severity="sev1")
     other = Platform()
     other.staff("zed", "R11")
     assert work(other, "zed") == QUIET

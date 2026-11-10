@@ -9,7 +9,7 @@ const NEXT: Record<string, string[]> = {
   VALIDATION: ["SANDBOX"], SANDBOX: ["SHADOW"], SHADOW: ["RELEASE_REVIEW"],
   RELEASE_REVIEW: ["AUTHORIZED"], AUTHORIZED: ["SUSPENDED", "CHANGE_REVIEW"],
   SUSPENDED: ["CORRECTIVE_ACTION"], CORRECTIVE_ACTION: ["REVALIDATION"],
-  REVALIDATION: ["RELEASE_REVIEW"], CHANGE_REVIEW: ["RELEASE_REVIEW"], RETIRED: [],
+  REVALIDATION: ["RELEASE_REVIEW"], CHANGE_REVIEW: ["VALIDATION", "AUTHORIZED"], RETIRED: [],
 };
 const WORDS: Record<string, string> = {
   PROPOSED: "Proposed", QUALIFICATION: "Qualification", DESIGN_CONTROL: "Design control",
@@ -86,7 +86,8 @@ function View({ me, rows, onChanged }: { me: string; rows: AiPermit[]; onChanged
                 {p.expiry && <small>Valid until {new Date(p.expiry).toLocaleDateString()}</small>}
                 {p.steps.length > 0 && <small>History: {p.steps.map((s) => `${WORDS[s.to] ?? s.to}${s.reason ? ` (${s.reason})` : ""}`).join(" > ")}</small>}
               </div>
-              {p.state === "RELEASE_REVIEW" && (
+              {(p.state === "RELEASE_REVIEW" || p.state === "CHANGE_REVIEW") && (
+                // CHANGE_REVIEW: sign and authorize = the change is approved as NOT material; "Move to Validation" = material.
                 <div className="form-row">
                   <span>Signed by {p.signers.length} of 2 needed.</span>
                   <button className="btn ghost" disabled={busy === p.id || p.created_by === me || p.signers.includes(me)}

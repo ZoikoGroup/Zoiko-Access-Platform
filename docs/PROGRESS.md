@@ -1,7 +1,7 @@
 # Zoiko Access: progress report
 
-Written 2026-11-06. These numbers are estimates unless a row says it was counted. Details of every
-change are in `docs/decisions/REGISTER.md` (DEV-001 to DEV-097); what is left is in `docs/BACKLOG.md`.
+Written 2026-11-06, updated the same day. These numbers are estimates unless a row says it was counted. Details of every
+change are in `docs/decisions/REGISTER.md` (DEV-001 to DEV-101); what is left is in `docs/BACKLOG.md`.
 
 ## How far along are we?
 
@@ -37,10 +37,12 @@ The table figure is low because most of the 244 tables belong to the items waiti
 
 | Check | Result |
 |---|---|
-| Full backend test run (2026-11-06, before the last few additions) | 1404 passed, 1 skipped, 1 failed (since fixed) |
-| Newer tests run once each after that | all passed |
-| Browser robots (open the real apps and click) | 13 tests, all passed on their last run |
-| Style, type and import-rule checks | clean |
+| Full backend test run (2026-11-06, latest) | 1430 passed, 1 skipped, 0 failed |
+| Browser robots (open the real apps and click) | 11 files, 29 tests. The last whole-set run (13 tests) passed; the accessibility scan (5 tests) and the direct-login check (11 tests) passed on their own runs |
+| Accessibility (automated, WCAG 2.2 AA rules) | Passes on every page; a person with a keyboard and screen reader has not tested yet |
+| Backup and restore rehearsal | Passed at development size (44 tables, 11 audit chains); failed on purpose when an audit row was tampered with |
+| The five product prohibitions | One named test each (prohibition 3 is a tripwire: results are not built) |
+| Style, type and import-rule checks | Clean on everything changed |
 | Hand click-through by a person | **not done** |
 | Security, privacy and clinical reviews | **not done** |
 

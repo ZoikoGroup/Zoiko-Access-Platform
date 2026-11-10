@@ -103,7 +103,9 @@ def test_a_clinic_reason_of_other_adds_nothing_to_the_notice(p):
 
 def test_the_patients_own_reason_is_not_repeated_back_to_them(p):
     booking = booked(p, confirm=True)
-    cancel(p, booking, "schedule_conflict")
+    cancel(p, booking, "schedule_conflict")              # asks; nothing is cancelled yet
+    assert notices(p) == []
+    cancel(p, booking, subject="ops")                    # the clinic answers
     (notice,) = notices(p)
     assert "The clinic said" not in notice["body"] and "cannot make" not in notice["body"]
 

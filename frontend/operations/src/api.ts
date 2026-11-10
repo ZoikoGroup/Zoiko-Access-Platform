@@ -4,7 +4,7 @@ import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
 import type {
-  ClinicSettings, CoverageRow, WorkItem, FamilyRequest, FreeTime, IncomingReferral, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
+  ClinicSettings, CoverageRow, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
   BookingRow, Compliance, Dashboard, Directory, Health, LocationRow, Me, PatientRow, ServiceRow,
 } from "./types";
 
@@ -159,9 +159,11 @@ export const addPatientCoverage = (person: string, body: {
 }) => post("coverage", { person, ...body });
 export const endPatientCoverage = (id: string) => post(`coverage/${encodeURIComponent(id)}/end`);
 export const listFamilyRequests = async () =>
-  (await v1<{ requests: FamilyRequest[] }>("staff/family-requests")).requests;
-export const approveFamily = (id: string, validUntil: string) =>
-  post(`staff/family-requests/${encodeURIComponent(id)}/approve`, { verified: true, valid_until: validUntil });
+  await v1<{ requests: FamilyRequest[]; approved: FamilyRequest[] }>("staff/family-requests");
+export const familyStep = (id: string, step: "proof-needed" | "proof-received" | "suspend" | "resume", reason = "") =>
+  post(`staff/family-requests/${encodeURIComponent(id)}/${step}`, reason ? { reason } : {});
+export const approveFamily = (id: string, validUntil: string, scopes: string[]) =>
+  post(`staff/family-requests/${encodeURIComponent(id)}/approve`, { verified: true, valid_until: validUntil, scopes });
 export const rejectFamily = (id: string) => post(`staff/family-requests/${encodeURIComponent(id)}/reject`);
 export const listMessageThreads = async () => (await v1<{ threads: MessageThread[] }>("messages/threads")).threads;
 export const getMessageThread = async (id: string) =>
@@ -208,6 +210,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
 }
 
 export const getSettings = () => v1<ClinicSettings>("staff/settings");
+export const setResponseTarget = (hours: number | null) => post("staff/settings", { hours });
 export const getProviders = async () =>
   (await v1<{ days: number; can_manage: boolean; bases: Record<string, string>; providers: ProviderRow[] }>("staff/providers"));
 export const verifyProviderName = (id: string, basis: string, note: string) =>
@@ -231,6 +234,8 @@ export const createService = (body: {
   mode: string; description: string;
 }) => post("services", body);
 
+export const changeListing = (id: string, action: string, note = "") =>
+  post(`services/${encodeURIComponent(id)}/listing`, { action, note });
 export const setServiceStatus = (id: string, status: "active" | "inactive") =>
   post(`services/${encodeURIComponent(id)}/status`, { status });
 
@@ -257,8 +262,10 @@ export const withdrawSlot = (slotId: string) =>
   post<{ withdrawn: boolean }>(`slots/${encodeURIComponent(slotId)}/withdraw`, {});
 
 export const listIncomingReferrals = async () => (await v1<{ referrals: IncomingReferral[] }>("referrals/incoming")).referrals;
-export const decideReferral = (id: string, decision: "accepted" | "needs_info" | "declined", reason: string) =>
-  post(`referrals/${encodeURIComponent(id)}/decide`, { decision, reason });
+export const acknowledgeReferral = (id: string) => post(`referrals/${encodeURIComponent(id)}/acknowledge`);
+export const getReferralInbox = () => v1<ReferralInbox>("staff/referral-inbox");
+export const setReferralInbox = (owner: string, fallback: string) =>
+  post<ReferralInbox>("staff/referral-inbox", { owner, fallback });
 export const getMe = () => v1<Me>("me");
 export const getDashboard = () => v1<Dashboard>("staff/dashboard");
 export const getCompliance = () => v1<Compliance>("staff/compliance");

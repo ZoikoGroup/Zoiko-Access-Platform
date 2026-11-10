@@ -18,7 +18,7 @@ function View({ data }: { data: ComplianceData }) {
       <div className="hero">
         <div>
           <h1>Compliance</h1>
-          <p>Every access check and every change is recorded. The audit log cannot be edited, and tampering would break its chain.</p>
+          <p>Access checks and changes made through this system are recorded. The log is chained, so an edit to it would be detected by the chain check.</p>
         </div>
         <span className="spacer" />
         {chain && (chain.ok

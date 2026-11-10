@@ -36,6 +36,8 @@ A failed robot leaves a screenshot and a trace under `test-results/` (not commit
 | 8 | The administrator records that a doctor's name was checked; a patient sees "Verified" next to that doctor's free times; withdrawing the check removes it. |
 | 9 | Staff see a patient's insurance only after the patient shares it, and lose sight of it when the patient takes the choice back. |
 | 10 | An automated accessibility scan (WCAG 2.2 AA rules) of every page of all four apps and the sign-in pages; fails on any serious or critical finding. |
+| 11 | Every "Open signed in" button on the local launcher page really lands signed in, and the password leaves the address bar. |
+| 12 | One safety officer assesses a hazard, a different one verifies and accepts it, and the first cannot review their own work. |
 
 ## Good to know
 

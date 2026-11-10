@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { AuthShell, GoogleButton, PasswordField } from "../AuthShell";
+import { useEffect, useState } from "react";
+import { readDevLogin } from "@shared/devLogin";
+import { AuthShell, PasswordField, RememberRow, SsoButtons } from "../AuthShell";
 import { forgotPassword, registerAccount, setSession, signIn, type LoginReply, type Session } from "../api";
 
 // Where each kind of person belongs. Only the staff console exists besides this app.
@@ -8,6 +9,28 @@ const OTHER_APPS: Record<string, { name: string; url: string }> = {
   platform: { name: "the platform console", url: "http://localhost:5175/" },
   clinician: { name: "the doctor app", url: "http://localhost:5176/" },
 };
+
+// What the left panel says. Two of the owner's lines were softened because nothing backs them yet
+// ("trusted and compliant": no compliance review; "better outcomes": nothing measures outcomes).
+const BRAND = {
+  headline: "Your gateway to a", accent: "healthier, smarter", after: "tomorrow.",
+  subtitle: "Access care, services and insights in one secure platform, for individuals, families and organisations.",
+  points: [
+    { title: "Connected healthcare", sub: "People • Providers • Services", icon: "patients" },
+    { title: "Private by design", sub: "Privacy • Security • Governance", icon: "shield" },
+    { title: "Simpler access", sub: "Find, book and manage with ease", icon: "services" },
+    { title: "Clear insights", sub: "See your care and who has looked at it", icon: "reports" },
+  ],
+  chips: [
+    { title: "Care", sub: "Made easier" }, { title: "Appointments", sub: "Simplified" },
+    { title: "Health", sub: "On your terms" },
+  ],
+  strip: "PEOPLE / CARE / SERVICES / INSIGHTS / A HEALTHIER TOMORROW",
+};
+
+const TABS = [
+  { id: "signin", label: "Login" }, { id: "register", label: "Register" }, { id: "forgot", label: "Reset password" },
+];
 
 export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
   const [mode, setMode] = useState<"signin" | "register" | "forgot">("signin");
@@ -21,12 +44,18 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
 
   const registering = mode === "register";
 
+  useEffect(() => {                       // development only: see shared/src/devLogin.ts
+    const dev = readDevLogin();
+    if (dev) void devSignIn(dev.org, dev.login, dev.pw);
+  }, []);                                 // eslint-disable-line react-hooks/exhaustive-deps
+
   function switchTo(next: "signin" | "register" | "forgot") {
     setMode(next); setError(""); setElsewhere(null); setPassword(""); setConfirm("");
   }
 
   if (mode === "forgot") {
-    return <Forgot organization={organization} login={login} onBack={() => switchTo("signin")} />;
+    return <Forgot organization={organization} login={login} onBack={() => switchTo("signin")}
+      onTab={(id) => switchTo(id)} />;
   }
 
   function finish(reply: LoginReply) {
@@ -38,6 +67,13 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
     const session = { token: reply.token, tenantName: reply.tenant.name, login: reply.actor.login };
     setSession(session);
     onSignedIn(session);
+  }
+
+  async function devSignIn(org: string, who: string, secret: string) {   // development only
+    setError(""); setElsewhere(null); setBusy(true);
+    try { finish(await signIn(org, who, secret)); }
+    catch (err) { setError(err instanceof Error ? err.message : "Something went wrong"); }
+    finally { setBusy(false); }
   }
 
   async function submit(e: React.FormEvent) {
@@ -57,13 +93,13 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
 
   const other = elsewhere ? OTHER_APPS[elsewhere] : undefined;
   return (
-    <AuthShell headline="Your care, all in one place."
-      points={["Find care and book appointments", "Keep your family's care together", "See who has looked at your information"]}>
+    <AuthShell {...BRAND}
+      tabs={TABS} tab={mode} onTab={(id) => switchTo(id as "signin" | "register" | "forgot")}>
       <div className="auth-card">
-        <h2>{registering ? "Create your account" : "Welcome back"}</h2>
+        <h2>{registering ? "Create your account" : "Welcome back!"}</h2>
         <p className="lead">{registering ? "It takes a minute." : "Sign in to your Zoiko Access account."}</p>
 
-        <GoogleButton />
+        <SsoButtons />
         <div className="divider">or use your email</div>
 
         <form onSubmit={(e) => void submit(e)}>
@@ -75,9 +111,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
             onChange={(e) => setLogin(e.target.value)} autoComplete={registering ? "email" : "username"} required />
           <PasswordField id="password" label="Password" value={password} onChange={setPassword}
             autoComplete={registering ? "new-password" : "current-password"} />
-          {!registering && (
-            <button type="button" className="linklike" onClick={() => switchTo("forgot")}>Forgot password?</button>
-          )}
+          {!registering && <RememberRow onForgot={() => switchTo("forgot")} />}
           {registering && (
             <PasswordField id="confirm" label="Confirm password" value={confirm} onChange={setConfirm}
               autoComplete="new-password" />
@@ -92,13 +126,13 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
           )}
           <button className="btn wide" type="submit"
             disabled={busy || !organization || !login || !password || (registering && !confirm)}>
-            {busy ? "Please wait…" : registering ? "Create account" : "Sign in"}
+            {busy ? "Please wait…" : registering ? "Create account" : "Log In"}
           </button>
         </form>
 
         <p className="switch">
           {registering ? <>Already have an account? <button onClick={() => switchTo("signin")}>Sign in</button></>
-            : <>New to Zoiko Access? <button onClick={() => switchTo("register")}>Create an account</button></>}
+            : <>New to Zoiko Access? <button onClick={() => switchTo("register")}>Register</button></>}
         </p>
       </div>
     </AuthShell>
@@ -106,7 +140,9 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
 }
 
 /** "Forgot password": always shows the same confirmation, so it never reveals who has an account. */
-function Forgot({ organization, login, onBack }: { organization: string; login: string; onBack: () => void }) {
+function Forgot({ organization, login, onBack, onTab }: {
+  organization: string; login: string; onBack: () => void; onTab: (id: "signin" | "register") => void;
+}) {
   const [org, setOrg] = useState(organization);
   const [email, setEmail] = useState(login);
   const [busy, setBusy] = useState(false);
@@ -125,8 +161,8 @@ function Forgot({ organization, login, onBack }: { organization: string; login: 
   }
 
   return (
-    <AuthShell headline="Your care, all in one place."
-      points={["Find care and book appointments", "Keep your family's care together", "See who has looked at your information"]}>
+    <AuthShell {...BRAND}
+      tabs={TABS} tab="forgot" onTab={(id) => { if (id !== "forgot") onTab(id as "signin" | "register"); }}>
       <div className="auth-card">
         <h2>Reset your password</h2>
         {sent ? (

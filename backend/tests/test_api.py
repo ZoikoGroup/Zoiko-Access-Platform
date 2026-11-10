@@ -9,6 +9,7 @@ from foundation.cell_context import tenant_transaction
 from foundation.timeutil import utc_now
 from modules.policy.models import AccessDecision
 from modules.trust import api as trust
+from tests.conftest import publish_service
 from tests.test_scheduling import Clinic
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
@@ -43,8 +44,9 @@ class Web:
     def get(self, path, subject="pat", **extra):
         return self.client.get(API + path, **self.header(subject), **extra)
 
-    def post(self, path, body=None, subject="pat", key=None):
+    def post(self, path, body=None, subject="pat", key=None, **more):
         extra = self.header(subject)
+        extra.update(more)
         if key is not None:
             extra["HTTP_IDEMPOTENCY_KEY"] = key
         return self.client.post(API + path, json.dumps(body or {}), content_type="application/json",
@@ -241,6 +243,9 @@ def test_staff_build_a_catalog_and_patients_then_see_it(web):
     assert made.status_code == 201 and made.json()["created"] == 4
 
     web.patient()
+    drafts = [s["name"] for s in web.get("services").json()["services"]]
+    assert "Dental check" not in drafts                  # a new service is a draft: not offered yet
+    publish_service(web.clinic.ctx, service)             # (the review steps are tested elsewhere)
     names = [s["name"] for s in web.get("services").json()["services"]]
     assert "Dental check" in names
     slots = web.get(f"services/{service}/slots").json()["slots"]

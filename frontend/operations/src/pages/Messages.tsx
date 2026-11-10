@@ -37,6 +37,9 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
             <b>{m.side === "staff" ? (m.mine ? "You" : m.from || "Clinic staff") : <Patient name={view.patient_name} id={view.patient} />}</b>
             <div style={{ whiteSpace: "pre-wrap" }}>{m.body || "(this message cannot be shown)"}</div>
             <small>{when(m.at)}</small>
+            {m.side === "staff" && (
+              <small>{m.seen_at ? `Opened by the patient ${when(m.seen_at)}.` : "Sent. The patient has not opened it yet."}</small>
+            )}
           </div>
         </div>
       ))}
@@ -71,12 +74,12 @@ export function Messages({ staff }: { staff: Staff | null }) {
   }, [load]);
 
   if (!staff) return <NoStaff />;
-  const waiting = (threads ?? []).filter((t) => t.unread > 0).length;
+  const waiting = (threads ?? []).filter((t) => (t.unread_for_me ?? t.unread) > 0).length;
   return (
     <>
       <div className="hero"><div>
         <h1>Messages</h1>
-        <p>Patients writing to {staff.organizationName}. Messages are stored encrypted. These are for appointments and everyday questions, not clinical advice. {waiting > 0 ? `${waiting} waiting for an answer.` : ""}</p>
+        <p>Patients writing to {staff.organizationName}. Messages are stored encrypted. These are for appointments and everyday questions, not clinical advice. {waiting > 0 ? `${waiting} unread.` : ""}</p>
       </div></div>
       {error && <div className="error">{error}</div>}
       <div className="grid">
@@ -89,7 +92,7 @@ export function Messages({ staff }: { staff: Staff | null }) {
                   <b>{t.subject || "(no subject)"}</b>
                   <small><Patient name={t.patient_name} id={t.patient} /> - last activity {when(t.last_message_at)}</small>
                 </div>
-                {t.unread > 0 && <Pill kind="warn">{t.unread} new</Pill>}
+                {(t.unread_for_me ?? t.unread) > 0 && <Pill kind="warn">{t.unread_for_me ?? t.unread} new</Pill>}
                 {t.status === "closed" && <Pill kind="info">Closed</Pill>}
                 <button className="btn ghost" onClick={() => setOpen(open === t.id ? "" : t.id)}>{open === t.id ? "Hide" : "Open"}</button>
               </div>

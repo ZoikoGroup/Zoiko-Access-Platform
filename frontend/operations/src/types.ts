@@ -102,6 +102,7 @@ export interface BookingRow {
   rescheduled_from: string | null;
   attendance: "attended" | "no_show" | null;
   cancel_reason?: string | null;
+  pending_change?: "cancel" | "rebook" | null;   // a change the patient asked for, not yet answered
   late?: boolean;
   patient_name?: string | null;
 }
@@ -121,6 +122,7 @@ export interface CoverageRow {
 export interface FamilyRequest {
   id: string;
   status: string;
+  scopes?: string[];
   relationship: string;
   person: string;
   name: string;
@@ -138,10 +140,11 @@ export interface MessageThread {
   patient_name?: string | null;
   last_message_at: string;
   unread: number;
+  unread_for_me?: number;                // what THIS login has not opened (others' openings do not count)
 }
 
 export interface ThreadView extends MessageThread {
-  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; from: string }[];
+  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; from: string; seen_at?: string | null }[];
 }
 
 export interface Timing {
@@ -191,6 +194,8 @@ export interface WorkItem {
 
 export interface ClinicSettings {
   response_target_hours: number;
+  response_target_default?: number;       // what it is when the clinic has not chosen
+  can_set_target?: boolean;               // only the clinic administrator can change it
   reminder_lead_hours: number;
   waitlist_offer_hours: number;
   late_email_recipients: number;
@@ -247,6 +252,8 @@ export interface ServiceRow {
   duration_minutes: number;
   mode: string;
   status: "active" | "inactive";
+  listing_state: "draft" | "evidence_pending" | "reviewed" | "published" | "suspended";
+  listing?: { evidence_note: string; requested_by: string; reviewed_by: string; you_requested: boolean; can_approve: boolean };
   organization: { id: string; name: string };
   next_slot_local: string | null;
   next_slot_zone: string | null;
@@ -276,4 +283,15 @@ export interface IncomingReferral {
   from_organization: { id: string; name: string };
   service: { id: string; name: string };
   organization: { id: string; name: string };
+  acknowledged_at: string | null;        // staff saw it: this is NOT acceptance of care
+  escalated: boolean;                    // no answer for too long: it goes to the fallback
+  owner: { id: string; name: string } | null;
+  responsible: { id: string; name: string };
+}
+
+export interface ReferralInbox {
+  owner: { id: string; name: string } | null;
+  fallback: { id: string; name: string } | null;
+  doctors: { id: string; name: string }[];
+  can_manage: boolean;
 }

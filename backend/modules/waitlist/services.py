@@ -21,6 +21,7 @@ from modules.catalog import api as catalog
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.scheduling import api as scheduling
+from modules.trust import api as trust
 
 from .models import OPEN_STATES, CloseReason, WaitEntry, WaitState
 
@@ -64,7 +65,7 @@ def join(
     policy.check_receipt(
         decision, actor_public_id=actor_public_id, operation=WRITE_BOOKING,
         organization_public_id=service["organization_ref"], subject_ref=person_ref)
-    if service["status"] != "active":
+    if not catalog.is_offered(service):
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["service"])
     if scheduling.list_open_slots(service_ref, limit=1, clock=clock):
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["service"])   # just book a time
@@ -74,6 +75,7 @@ def join(
                 person_ref=person_ref, service_ref=service_ref,
                 organization_ref=service["organization_ref"], joined_by_ref=actor_public_id,
                 **_scope())
+            trust.link_person_to_site(person_ref, service["organization_ref"], "waitlist")
             _audit(actor_public_id, "waitlist.join", entry.public_id)
             return entry_dict(entry)
     except IntegrityError:

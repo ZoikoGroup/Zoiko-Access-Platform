@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from tests.conftest import publish_service
 from tests.test_api import Web, book
 from tests.test_clinician import Practice
 
@@ -16,7 +17,9 @@ def dev_login(settings):
 
 @pytest.fixture
 def p():
-    return Practice()
+    practice = Practice()
+    practice.name_referral_owner()
+    return practice
 
 
 def attention(p, subject="ops"):
@@ -38,7 +41,9 @@ def booked(p, confirm):
 def empty_service(p, name="Cardiology"):
     made = p.post("services", {"organization": p.clinic.org, "name": name,
                                "category": "cardiology", "duration_minutes": 30}, subject="ops")
-    return json.loads(made.content)["service"]["id"]
+    service = json.loads(made.content)["service"]["id"]
+    publish_service(p.clinic.ctx, service)
+    return service
 
 
 def test_a_quiet_clinic_has_nothing_waiting(p):
@@ -60,7 +65,7 @@ def test_each_kind_of_waiting_work_is_counted_and_clears_when_handled(p):
     p.post(f"bookings/{waiting_booking}/confirm", subject="ops")
     p.post(f"staff/family-requests/{family['request']['id']}/reject", {}, subject="ops")
     referral = json.loads(p.get("referrals/incoming", subject="ops").content)["referrals"][0]
-    p.post(f"referrals/{referral['id']}/decide", {"decision": "accepted"}, subject="ops")
+    p.post(f"referrals/{referral['id']}/decide", {"decision": "accepted"}, subject="doc2")
     entry = json.loads(p.get("staff/waitlist", subject="ops").content)["entries"][0]
     p.post(f"waitlist/{entry['id']}/leave", subject="ops")
     assert attention(p) == {"bookings_to_confirm": 0, "family_requests": 0, "waiting_list": 0,
@@ -74,7 +79,7 @@ def test_a_referral_waiting_for_more_information_is_not_counted_as_needing_a_dec
                                    "urgency": "routine"}, subject="doc")
     referral = json.loads(p.get("referrals/incoming", subject="ops").content)["referrals"][0]
     p.post(f"referrals/{referral['id']}/decide",
-           {"decision": "needs_info", "reason": "Send the ECG"}, subject="ops")
+           {"decision": "needs_info", "reason": "Send the ECG"}, subject="doc2")
     assert attention(p)["referrals_to_decide"] == 0
 
 

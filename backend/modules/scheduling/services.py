@@ -287,6 +287,7 @@ def booking_dict(booking: Booking) -> dict[str, Any]:
         "rescheduled_from_ref": booking.rescheduled_from_ref,
         "attendance": booking.attendance,
         "cancel_reason": booking.cancel_reason,
+        "pending_change": booking.pending_change,
         "attendance_at": booking.attendance_at.isoformat() if booking.attendance_at else None,
     }
 
@@ -319,12 +320,15 @@ def book(
         )
         if slot.status != SlotStatus.OPEN or slot.starts_at <= utc_now(clock):
             raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["slot"])
+        if not catalog.is_offered(catalog.get_service(slot.service_ref)):
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["slot"])   # not published yet
         try:
             with transaction.atomic():
                 booking = Booking.objects.create(
                     slot=slot, person_ref=person_ref, booked_by_ref=actor_public_id)
         except IntegrityError:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None  # someone else got it
+        trust.link_person_to_site(person_ref, slot.organization_ref, "booking")
         _audit(actor_public_id, "booking.request", "booking", booking.public_id)
         _event("booking.requested.v1", booking, actor_ref=actor_public_id,
                side=side_of(decision.role_code))
@@ -360,6 +364,7 @@ def confirm(
         log_event(booking, "confirmed", state_from=BookingStatus.REQUESTED,
                   state_to=booking.status, source=side_of(decision.role_code),
                   actor_ref=actor_public_id)
+        _finish_move(booking, actor_public_id, side_of(decision.role_code))
         return booking_dict(booking)
 
 
@@ -368,8 +373,10 @@ CARE_LINK_AFTER_VISIT = dt.timedelta(days=30)
 
 def _link_doctor(booking: Booking, confirmed_by: str) -> None:
     """A confirmed appointment gives the doctor a care relationship with the patient (the link
-    the access rules require before a doctor may see them). It runs until 30 days after the
-    visit. If the doctor can no longer hold one, the booking is still confirmed."""
+    the access rules require before a doctor may see them). It is tied to the clinic site
+    (it counts only while the doctor holds a care role there) and runs until 30 days after the
+    visit (30 is our own number, DEV-106). If the doctor can no longer hold one, the booking is
+    still confirmed."""
     slot = booking.slot
     if not slot.provider_ref:
         return
@@ -378,7 +385,8 @@ def _link_doctor(booking: Booking, confirmed_by: str) -> None:
             trust.ensure_care_relationship(
                 actor_public_id=slot.provider_ref, person_public_id=booking.person_ref,
                 basis=trust.CareBasis.APPOINTMENT,
-                valid_until=slot.ends_at + CARE_LINK_AFTER_VISIT, by=confirmed_by)
+                valid_until=slot.ends_at + CARE_LINK_AFTER_VISIT,
+                organization_ref=slot.organization_ref, by=confirmed_by)
     except ZoikoError:
         return
 
@@ -391,6 +399,50 @@ def _check_reason(reason: str, role_code: str) -> str:
     if reason and reason not in allowed:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["reason"])
     return reason
+
+
+def _origin_waiting(booking: Booking) -> Booking | None:
+    """The confirmed appointment this new request is meant to replace, if it still waits."""
+    if not booking.rescheduled_from_ref:
+        return None
+    origin = Booking.objects.select_related("slot").filter(
+        public_id=booking.rescheduled_from_ref, **_scope()).first()
+    if origin and origin.status == BookingStatus.CONFIRMED and origin.pending_change == "rebook":
+        return origin
+    return None
+
+
+def _restore_origin(booking: Booking, actor_ref: str, side: str) -> None:
+    """A requested move was cancelled or turned down: the original appointment is untouched and
+    simply stops waiting (T-27)."""
+    origin = _origin_waiting(booking)
+    if origin is None:
+        return
+    origin.pending_change = ""
+    origin.entity_version += 1
+    origin.save(update_fields=["pending_change", "entity_version", "updated_at"])
+    log_event(origin, "change_withdrawn", state_from=origin.status, state_to=origin.status,
+              source=side, actor_ref=actor_ref, related_ref=booking.public_id)
+
+
+def _finish_move(booking: Booking, actor_ref: str, side: str) -> None:
+    """The clinic confirmed the new time: only now is the original appointment let go (WF-13)."""
+    origin = _origin_waiting(booking)
+    if origin is None:
+        return
+    origin.status = BookingStatus.CANCELLED
+    origin.pending_change = ""
+    origin.cancelled_by_ref = actor_ref
+    origin.entity_version += 1
+    origin.save(update_fields=["status", "pending_change", "cancelled_by_ref",
+                               "entity_version", "updated_at"])
+    log_event(origin, "moved_away", state_from=BookingStatus.CONFIRMED, state_to=origin.status,
+              source=side, actor_ref=actor_ref, related_ref=booking.public_id)
+    log_event(booking, "moved_here", state_from=BookingStatus.CONFIRMED,
+              state_to=booking.status, source=side, actor_ref=actor_ref,
+              related_ref=origin.public_id)
+    if origin.slot.starts_at > utc_now():
+        _times_opened(origin.slot.service_ref)                 # the old time is free again
 
 
 def cancel(
@@ -406,22 +458,69 @@ def cancel(
         )
         if booking.status == BookingStatus.CANCELLED:
             return booking_dict(booking)
-        booking.cancel_reason = _check_reason(reason, decision.role_code)
+        clean_reason = _check_reason(reason, decision.role_code)
+        if (decision.role_code in PATIENT_SIDE_ROLES and booking.status == BookingStatus.CONFIRMED
+                and booking.slot.starts_at > utc_now()):
+            # The patient asks; the appointment stays until the clinic answers (T-26).
+            if booking.pending_change == "cancel":
+                return booking_dict(booking)                # asked already
+            if booking.pending_change:
+                raise ZoikoError(ErrorCode.CONFLICT_VERSION)    # a move is waiting for the clinic
+            booking.pending_change = "cancel"
+            booking.cancel_reason = clean_reason
+            booking.entity_version += 1
+            booking.save(update_fields=["pending_change", "cancel_reason", "entity_version",
+                                        "updated_at"])
+            _audit(actor_public_id, "booking.cancel_request", "booking", booking.public_id)
+            log_event(booking, "cancel_requested", state_from=booking.status,
+                      state_to=booking.status, source=side_of(decision.role_code),
+                      actor_ref=actor_public_id, reason_code=clean_reason)
+            return booking_dict(booking)
+        # The clinic answers (or cancels by itself), or there is nothing confirmed to protect.
+        booking.cancel_reason = clean_reason or (
+            booking.cancel_reason if booking.pending_change == "cancel" else "")
         was = booking.status
         booking.status = BookingStatus.CANCELLED
+        booking.pending_change = ""
         booking.cancelled_by_ref = actor_public_id
         booking.entity_version += 1
         booking.save(update_fields=["status", "cancelled_by_ref", "cancel_reason",
-                                    "entity_version", "updated_at"])
+                                    "pending_change", "entity_version", "updated_at"])
         _audit(actor_public_id, "booking.cancel", "booking", booking.public_id)
         _event("booking.cancelled.v1", booking, actor_ref=actor_public_id,
                side=side_of(decision.role_code))
         log_event(booking, "cancelled", state_from=was, state_to=booking.status,
                   source=side_of(decision.role_code), actor_ref=actor_public_id,
                   reason_code=booking.cancel_reason)
+        if was == BookingStatus.REQUESTED:
+            _restore_origin(booking, actor_public_id, side_of(decision.role_code))
         if booking.slot.starts_at > utc_now():
             _times_opened(booking.slot.service_ref)             # the time is free again
         return booking_dict(booking)
+
+
+def _ask_to_move(
+    old: Booking, slot: Slot, actor_ref: str, decision: policy.Decision, clock: Clock | None
+) -> dict[str, Any]:
+    """The patient asks for a new time. The original stays confirmed until the clinic answers."""
+    side = side_of(decision.role_code)
+    try:
+        with transaction.atomic():
+            new = Booking.objects.create(
+                slot=slot, person_ref=old.person_ref, booked_by_ref=actor_ref,
+                rescheduled_from_ref=old.public_id, status=BookingStatus.REQUESTED)
+    except IntegrityError:
+        raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None      # someone took that time
+    old.pending_change = "rebook"
+    old.entity_version += 1
+    old.save(update_fields=["pending_change", "entity_version", "updated_at"])
+    _audit(actor_ref, "booking.reschedule_request", "booking", new.public_id)
+    _event("booking.rescheduled.v1", new, actor_ref=actor_ref, side=side)
+    log_event(old, "change_requested", state_from=old.status, state_to=old.status, source=side,
+              actor_ref=actor_ref, related_ref=new.public_id, clock=clock)
+    log_event(new, "requested", state_from="", state_to=new.status, source=side,
+              actor_ref=actor_ref, related_ref=old.public_id, clock=clock)
+    return booking_dict(new)
 
 
 def reschedule(
@@ -434,9 +533,12 @@ def reschedule(
 ) -> dict[str, Any]:
     """Move an appointment to another free time of the SAME service at the SAME organization.
 
-    The old booking is cancelled and a new one made in one step: if the new time was just taken,
-    nothing changes. A patient's move must be confirmed again by the clinic; a move made by
-    clinic staff of a confirmed appointment stays confirmed."""
+    A patient moving a CONFIRMED appointment only asks: the original stays confirmed, and keeps
+    its time, until the clinic confirms the new one (then it is let go); if the clinic turns the
+    new time down, or the patient withdraws it, nothing changed (GHE-14 WF-13, T-27). Otherwise
+    (a waiting request, or the clinic's own move) the old booking is cancelled and a new one
+    made in one step; if the new time was just taken, nothing changes. A move made by clinic
+    staff of a confirmed appointment stays confirmed."""
     now = utc_now(clock)
     with transaction.atomic():
         old = _own_booking(booking_ref)
@@ -453,18 +555,27 @@ def reschedule(
                 or slot.organization_ref != old.slot.organization_ref
                 or slot.status != SlotStatus.OPEN or slot.starts_at <= now):
             raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["slot"])
+        if decision.role_code in PATIENT_SIDE_ROLES and old.pending_change:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)       # a change already waits
+        if decision.role_code in PATIENT_SIDE_ROLES and old.status == BookingStatus.CONFIRMED:
+            return _ask_to_move(old, slot, actor_public_id, decision, clock)
         keep_confirmed = (old.status == BookingStatus.CONFIRMED
                           and decision.role_code in CONFIRMING_ROLES)
+        # A new request that replaces an earlier request keeps pointing at the original
+        # appointment that is still waiting to be replaced.
+        origin = _origin_waiting(old) if old.status == BookingStatus.REQUESTED else None
         was = old.status
         old.status = BookingStatus.CANCELLED
+        old.pending_change = ""
         old.cancelled_by_ref = actor_public_id
         old.entity_version += 1
-        old.save(update_fields=["status", "cancelled_by_ref", "entity_version", "updated_at"])
+        old.save(update_fields=["status", "pending_change", "cancelled_by_ref",
+                                "entity_version", "updated_at"])
         try:
             with transaction.atomic():
                 new = Booking.objects.create(
                     slot=slot, person_ref=old.person_ref, booked_by_ref=actor_public_id,
-                    rescheduled_from_ref=old.public_id,
+                    rescheduled_from_ref=origin.public_id if origin else old.public_id,
                     status=BookingStatus.CONFIRMED if keep_confirmed else BookingStatus.REQUESTED)
         except IntegrityError:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None  # someone took it: undo all
@@ -767,6 +878,11 @@ def report(
 FORECAST_DAYS = 7
 FORECAST_HISTORY_DAYS = 56          # eight weeks of past appointments
 FORECAST_MIN_HISTORY_DAYS = 14      # under two weeks of history there is nothing fair to average
+FORECAST_MIN_BOOKINGS = 10          # and a handful of bookings is too few to call anything usual
+
+
+def enough_history(history_days: int, past_bookings: int) -> bool:
+    return history_days >= FORECAST_MIN_HISTORY_DAYS and past_bookings >= FORECAST_MIN_BOOKINGS
 
 
 def usual_by_weekday(
@@ -816,7 +932,7 @@ def forecast_week(organization_ref: str, clock: Clock | None = None) -> dict[str
     today = now.date()
     past_days = [d for d in per_day if d < today]
     history = (today - min(past_days)).days if past_days else 0
-    enough = history >= FORECAST_MIN_HISTORY_DAYS
+    enough = enough_history(history, sum(per_day[d] for d in past_days))
     usual = usual_by_weekday(per_day, today, min(history, FORECAST_HISTORY_DAYS)) if enough else {}
     days = []
     for ahead in range(FORECAST_DAYS):

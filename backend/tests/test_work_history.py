@@ -35,6 +35,7 @@ def dev_login(settings):
 def p():
     practice = Practice()
     practice.staff("ops2")                                          # a second receptionist
+    practice.name_referral_owner()
     return practice
 
 
@@ -362,7 +363,7 @@ def test_a_referral_decision_closes_the_work_in_the_name_of_the_decider(p):
     deliver()
     items = json.loads(p.get("staff/work", subject="ops").content)["items"]
     (item,) = [i["id"] for i in items if i["kind"] == "decide_referral"]
-    p.post(f"referrals/{referral}/decide", {"decision": "accepted"}, subject="ops2")
+    p.post(f"referrals/{referral}/decide", {"decision": "accepted"}, subject="doc2")
     deliver()
     last = history(p, item)["events"][-1]
     assert last["event"] == "done"
@@ -400,10 +401,11 @@ def test_the_events_name_a_clinic_login_but_never_a_patient(p):
     booking = booked(p, confirm=False)
     p.post(f"bookings/{booking}/confirm", subject="ops")
     p.post(f"bookings/{booking}/cancel", subject="pat")
+    p.post(f"bookings/{booking}/cancel", subject="ops")          # the clinic answers
     thread = started(p)
     reply(p, thread, subject="ops")
     referral = refer(p)
-    p.post(f"referrals/{referral}/decide", {"decision": "accepted"}, subject="ops")
+    p.post(f"referrals/{referral}/decide", {"decision": "accepted"}, subject="doc2")
     with tenant_transaction(p.clinic.ctx):
         sent = {e.event_type + ":" + str(e.payload.get("side", "")): e.payload
                 for e in events_of("booking.requested.v1", "booking.confirmed.v1",
@@ -411,10 +413,10 @@ def test_the_events_name_a_clinic_login_but_never_a_patient(p):
                                    "referral.decided.v1")}
     assert sent["booking.confirmed.v1:clinic"]["actor_ref"] == p.desk
     assert sent["booking.requested.v1:patient"].get("actor_ref") is None     # a patient: no id
-    assert sent["booking.cancelled.v1:patient"].get("actor_ref") is None
+    assert sent["booking.cancelled.v1:clinic"]["actor_ref"] == p.desk
     assert sent["message.sent.v1:patient"].get("actor_ref") is None
     assert sent["message.sent.v1:staff"]["actor_ref"] == p.desk
-    assert sent["referral.decided.v1:"]["actor_ref"] == p.desk
+    assert sent["referral.decided.v1:"]["actor_ref"] == p.doc2
     for payload in sent.values():
         assert p.person not in json.dumps(payload)
 

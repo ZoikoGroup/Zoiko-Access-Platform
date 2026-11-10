@@ -80,4 +80,17 @@ def display_names() -> dict[str, str]:
 
 
 def display_name_of(actor_public_id: str) -> str:
-    return display_names().get(actor_public_id, "")
+    """One person's display name: decrypts only that person's row, not everyone's."""
+    ctx = require_context()
+    token = (
+        ActorName.objects.filter(
+            actor__public_id=actor_public_id, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id)
+        .values_list("name_enc", flat=True)
+        .first()
+    )
+    if not token:
+        return ""
+    try:
+        return decrypt(token, tenant_id=ctx.tenant_id, context=_context(actor_public_id))
+    except CryptoError:
+        return ""

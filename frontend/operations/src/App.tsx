@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { dropDevLogin } from "@shared/devLogin";
 import { checkHealth, getDisplayName, getMe, loadSession, setSession, signOutEverywhere, staffFromSession, type Session } from "./api";
 import { NAV, type PageId } from "./nav";
 import { Sidebar, Topbar } from "./Shell";
@@ -30,6 +31,7 @@ function startPage(): PageId {
 
 export default function App() {
   const [session, setSessionState] = useState<Session | null>(loadSession());
+  useEffect(() => { if (session) dropDevLogin(); }, [session]);   // development only
   const [link, setLink] = useState(readLinkAction());
   if (link) {
     return <LinkPage link={link} onDone={() => { clearLink(); setLink(null); }} />;
@@ -83,11 +85,12 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main">Skip to main content</a>
       <Topbar displayName={shownName} tenantName={session.tenantName} login={session.login}
         roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
         onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} />
       <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} />
-      <main className="content">{body}</main>
+      <main className="content" id="main" tabIndex={-1}>{body}</main>
     </div>
   );
 }

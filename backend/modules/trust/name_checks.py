@@ -21,7 +21,7 @@ from foundation.cell_context import require_context
 from foundation.errors import ErrorCode, ZoikoError
 from modules.evidence.api import AuditOutcome, record
 
-from .display_names import display_names
+from .display_names import display_name_of, display_names
 from .models import Actor, ActorType, NameCheck, NameCheckStatus
 from .services import clinicians_at
 
@@ -125,12 +125,14 @@ def withdraw_check(
     return states().get(actor_ref, {"state": "none"})
 
 
-def states() -> dict[str, dict[str, Any]]:
+def states(only: str | None = None) -> dict[str, dict[str, Any]]:
     """actor ref -> the state of the check: verified, name_changed (the name is not the one that
     was checked) or withdrawn. A doctor with no row is simply absent (state "none")."""
-    names = display_names()
+    names = {only: display_name_of(only)} if only else display_names()
     out: dict[str, dict[str, Any]] = {}
     rows = NameCheck.objects.filter(**_scope()).select_related("actor")
+    if only:
+        rows = rows.filter(actor__public_id=only)
     for row in rows:
         ref = row.actor.public_id
         if row.status == NameCheckStatus.WITHDRAWN:

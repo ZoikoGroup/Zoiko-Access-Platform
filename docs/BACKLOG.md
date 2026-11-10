@@ -35,7 +35,9 @@ Written 2026-11-04. Built work is recorded in `docs/decisions/REGISTER.md` (DEV-
 | B9 | Google sign-in | M | Choice of sign-in provider (DEV-016). |
 | B10 | Real mail provider | S | Choice of provider and sending domain (DEV-016). |
 | B11 | Retention periods, key rotation, data transfer rules | L | DEV-013: legal and privacy. |
-| B12 | One incident severity scale | S | DEV-014. |
+| B12 | One incident severity scale | S | DEV-014. Built on GHE-20's SEV-0 to SEV-3 as a temporary choice (DEV-118); owners still to confirm. |
+| B18 | Seven privacy and safety gaps found by the conformance audit (patient scope per site, care-link site and tail, guardian rights, pending reschedule and cancel states, referral owner and fallback, purpose reasons, role by customer type) | M each | Lead decisions listed in docs/CONFORMANCE-AUDIT.md section 2 and the lead note. |
+| B17 | Safety controls, intended-purpose statements and the qualification dossier (the rest of the safety tables) | M | Needs a clinical safety lead to define them; the hazard register itself is built (DEV-103). |
 | B13 | Statuses the documents never list (qualifications, claim verification, and similar) | M | DEV-015. |
 | B14 | AI features: who may create and approve AI permits, and which AI features, if any, to switch on | M | Lead: roles for Legal, Clinical, QA and SRE sign-off. The rules, tables and a staff screen exist and are off; today any clinic administrator (R13) may use the screen, a temporary rule (DEV-093, DEV-094). |
 | B15 | A real AI model provider (today only a fixed template) | M | Lead: cost, contract, region and privacy approval. No patient data may reach an outside model without it. |
@@ -53,10 +55,10 @@ The source documents say the first deliverable is a working slice of ONE journey
 | 04 | A versioned, durable workflow with accountable parties, transitions and exceptions | Partly built (work items and their history). Versioned definitions and timers wait on ADR-08. |
 | 05 | At least one real contracted partner connector with provenance, timeout and reconciliation | **Not built.** Needs a partner. |
 | 06 | Protected UIs with correct statuses and accessibility testing | Built; automated accessibility scan added (DEV-098). A hand test with a screen reader and keyboard is still needed. |
-| 07 | Denial of unauthorized employer access and unauthorized cross-cell disclosure, shown by tests | Partly: employer access is prohibited in the policy table and cross-tenant access is blocked by the database. A named test for each of the five "product prohibitions" is not written yet. |
-| 08 | Release evidence: test runs, clinical sign-off, a regional recovery test, country approval | Test runs: yes. **Recovery (backup and restore) rehearsal: not done.** Sign-offs and approval: need people. |
+| 07 | Denial of unauthorized employer access and unauthorized cross-cell disclosure, shown by tests | Built: `backend/tests/test_prohibitions.py` has one named test for each of the five product prohibitions (DEV-099). Prohibition 3 (critical results) is only a tripwire because results are not built. |
+| 08 | Release evidence: test runs, clinical sign-off, a regional recovery test, country approval | Test runs: yes. Backup-and-restore rehearsal: **done at development size** (`python scripts/recovery_drill.py`, evidence in `docs/evidence/`, DEV-100); a regional failover, scheduled backups and production-size timing still need the hosting decisions. Sign-offs and approval: need people. |
 
-Next from this list that needs no decision: the five prohibitions as named tests (07) and a backup-and-restore rehearsal (08).
+Nothing further in this list can be built without decisions or people: parts 01 and 05 need the first market and a partner, 04 needs the workflow-engine choice (ADR-08), and the sign-offs in 08 need named people.
 
 ## C. Needs another team or outside system
 

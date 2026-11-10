@@ -6,7 +6,7 @@ import pytest
 from foundation.cell_context import tenant_transaction
 from foundation.timeutil import UTC, FixedClock
 from modules.scheduling import api as scheduling
-from modules.scheduling.services import usual_by_weekday
+from modules.scheduling.services import enough_history, usual_by_weekday
 from tests.test_clinician import Practice
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
@@ -64,3 +64,10 @@ def test_a_week_with_history_shows_booked_and_usual_per_day():
     assert tuesday["weekday"] == 1 and tuesday["booked"] == 0     # free times are not bookings
     assert tuesday["open"] == 2                       # both free times fall on the Tuesday
     assert week["days"][2]["open"] == 0
+
+
+def test_a_usual_day_needs_both_enough_days_and_enough_bookings():
+    assert enough_history(14, 10) is True
+    assert enough_history(13, 500) is False         # too short a history, however busy
+    assert enough_history(400, 9) is False          # long, but a handful of bookings is not "usual"
+    assert enough_history(0, 0) is False

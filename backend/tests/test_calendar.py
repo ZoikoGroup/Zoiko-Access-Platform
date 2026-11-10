@@ -49,6 +49,7 @@ def test_the_file_holds_no_personal_data(p):
 def test_a_cancelled_appointment_has_no_calendar_file(p):
     booking = booked(p, confirm=True)
     p.post(f"bookings/{booking}/cancel", subject="pat")
+    p.post(f"bookings/{booking}/cancel", subject="ops")          # the clinic answers
     assert p.get(f"bookings/{booking}/calendar", subject="pat").status_code == 404
 
 

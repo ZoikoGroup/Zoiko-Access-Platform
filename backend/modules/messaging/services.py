@@ -26,8 +26,9 @@ from foundation.stats import summarize
 from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
+from modules.trust import api as trust
 
-from .models import Message, Side, Thread, ThreadStatus
+from .models import Message, MessageView, Side, Thread, ThreadStatus
 
 WRITE_COMMS = "write:comms"
 PATIENT_ROLES = frozenset({"R01", "R02"})
@@ -98,10 +99,11 @@ def thread_dict(t: Thread) -> dict[str, Any]:
     }
 
 
-def _message_dict(m: Message) -> dict[str, Any]:
+def _message_dict(m: Message, seen_at: dt.datetime | None = None) -> dict[str, Any]:
     return {"public_id": m.public_id, "side": m.side, "author_ref": m.author_ref,
             "body": _open(m.body_enc, "message", m.public_id, "body"),
-            "at": m.created_at.isoformat()}
+            "at": m.created_at.isoformat(),
+            "seen_at": seen_at.isoformat() if seen_at else None}
 
 
 def _event(thread: Thread, side: str, actor_ref: str = "") -> None:
@@ -136,6 +138,7 @@ def start_thread(
         thread.subject_enc = _seal(subject, "thread", thread.public_id, "subject")
         thread.save()
         _add(thread, actor_public_id, Side.PATIENT, body)
+        trust.link_person_to_site(person_ref, organization_ref, "message")
         _audit(actor_public_id, "message.start", thread.public_id)
         _event(thread, Side.PATIENT, actor_public_id)
         return thread_dict(thread)
@@ -188,17 +191,35 @@ def get_thread(thread_ref: str) -> dict[str, Any]:
     return thread_dict(_own(thread_ref))
 
 
-def open_thread(thread_ref: str, *, side: str) -> dict[str, Any]:
-    """The messages, oldest first. Opening a thread marks it read for the side that opened it.
-    The caller has been allowed to read it (and is on the right side)."""
+def open_thread(thread_ref: str, *, side: str, viewer_ref: str = "") -> dict[str, Any]:
+    """The messages, oldest first. Opening a thread marks it read for the side that opened it, and
+    records that THIS login opened each message the other side wrote (`seen_at` on a message is
+    when the other side first opened it). The caller has been allowed to read it."""
     with transaction.atomic():
         thread = _own(thread_ref)
         field = "patient_unread" if side == Side.PATIENT else "staff_unread"
         if getattr(thread, field):
             setattr(thread, field, 0)
             thread.save(update_fields=[field, "updated_at"])
-        rows = Message.objects.filter(thread=thread, **_scope()).order_by("created_at")
-        return {"thread": thread_dict(thread), "messages": [_message_dict(m) for m in rows]}
+        rows = list(Message.objects.filter(thread=thread, **_scope()).order_by("created_at"))
+        if viewer_ref:
+            theirs = [m for m in rows if m.side != side and m.author_ref != viewer_ref]
+            done = set(MessageView.objects.filter(
+                viewer_ref=viewer_ref, message__in=theirs, **_scope()
+            ).values_list("message_id", flat=True))
+            MessageView.objects.bulk_create(
+                [MessageView(message=m, viewer_ref=viewer_ref, side=side, **_scope())
+                 for m in theirs if m.pk not in done],
+                ignore_conflicts=True)
+        first_seen: dict[Any, dt.datetime] = {}
+        side_of = {m.pk: m.side for m in rows}
+        for view in MessageView.objects.filter(message__thread=thread, **_scope()):
+            if view.side != side_of.get(view.message_id):    # only the OTHER side's opening counts
+                current = first_seen.get(view.message_id)
+                if current is None or view.created_at < current:
+                    first_seen[view.message_id] = view.created_at
+        return {"thread": thread_dict(thread),
+                "messages": [_message_dict(m, first_seen.get(m.pk)) for m in rows]}
 
 
 def read_messages(thread_ref: str) -> list[dict[str, Any]]:
@@ -231,15 +252,32 @@ def close_thread(
 
 
 def list_threads(
-    *, person_refs: list[str] | None = None, organization_ref: str = "", limit: int = 100
+    *, person_refs: list[str] | None = None, organization_ref: str = "", limit: int = 100,
+    viewer_ref: str = "", viewer_side: str = "",
 ) -> list[dict[str, Any]]:
-    """Newest activity first. The caller has authorized each patient or organization it asks for."""
+    """Newest activity first. The caller has authorized each patient or organization it asks for.
+    With a viewer, each thread also says how many messages from the other side THIS login has not
+    opened (`unread_for_me`): one staff member's reply or opening never clears it for another."""
     rows = Thread.objects.filter(**_scope())
     if person_refs is not None:
         rows = rows.filter(person_ref__in=person_refs)
     if organization_ref:
         rows = rows.filter(organization_ref=organization_ref)
-    return [thread_dict(t) for t in rows.order_by("-last_message_at")[: max(1, min(limit, 200))]]
+    threads = list(rows.order_by("-last_message_at")[: max(1, min(limit, 200))])
+    out = [thread_dict(t) for t in threads]
+    if viewer_ref and viewer_side:
+        seen = set(MessageView.objects.filter(
+            viewer_ref=viewer_ref, message__thread__in=threads, **_scope()
+        ).values_list("message_id", flat=True))
+        unseen: dict[Any, int] = {}
+        for thread_id, message_id, author in Message.objects.filter(
+            thread__in=threads, **_scope()
+        ).exclude(side=viewer_side).values_list("thread_id", "pk", "author_ref"):
+            if message_id not in seen and author != viewer_ref:
+                unseen[thread_id] = unseen.get(thread_id, 0) + 1
+        for t, d in zip(threads, out, strict=True):
+            d["unread_for_me"] = unseen.get(t.pk, 0)
+    return out
 
 
 def unread_threads_for_staff(organization_ref: str) -> int:

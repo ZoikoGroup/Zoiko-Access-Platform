@@ -29,7 +29,7 @@ export function Providers({ staff }: { staff: Staff | null }) {
 
   function mark(p: ProviderRow) {
     const c = p.name_check;
-    if (c.state === "verified") return <Pill kind="ok">Verified</Pill>;
+    if (c.state === "verified") return <Pill kind="ok">Name checked</Pill>;
     if (c.state === "name_changed") return <Pill kind="warn">Name changed: check again</Pill>;
     if (c.state === "withdrawn") return <Pill kind="bad">Check withdrawn</Pill>;
     return <Pill kind="info">Not checked</Pill>;
@@ -42,7 +42,7 @@ export function Providers({ staff }: { staff: Staff | null }) {
           <div className="hero"><div>
             <h1>Providers</h1>
             <p>The doctors of {staff.organizationName} and how busy they are in the next {d.days} days. A doctor chooses their own name.
-              {d.can_manage ? " As an administrator you can record that you checked a name (for example on the licence register); patients then see a Verified mark. If the doctor changes the name, the mark goes until it is checked again." : " An administrator can record that a name was checked."}
+              {d.can_manage ? " As an administrator you can record that you checked a name (for example on the licence register); patients then see a “Name checked” mark (a desk check by the clinic: Zoiko does not verify licences). If the doctor changes the name, the mark goes until it is checked again." : " An administrator can record that a name was checked."}
               {" "}Qualifications and privileges are not built yet.</p>
           </div></div>
           {error && <div className="error" role="alert">{error}</div>}

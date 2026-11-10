@@ -61,6 +61,8 @@ def release_problems(conf: Any = settings) -> list[str]:
         problems.append("ZOIKO_CELL_ID is still a development or test id")
     if conf.EMAIL_HOST.lower() in DEVELOPMENT_MAIL_HOSTS or conf.EMAIL_PORT == 1025:
         problems.append("email still goes to a development inbox (EMAIL_HOST, EMAIL_PORT)")
+    if getattr(conf, "ZOIKO_BUILD", "").strip().lower() in ("", "dev"):
+        problems.append("ZOIKO_BUILD is still 'dev' (every audit row records which build wrote it)")
     return problems
 
 

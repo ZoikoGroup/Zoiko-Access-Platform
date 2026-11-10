@@ -23,7 +23,7 @@ export async function signIn(page: Page, app: keyof typeof APPS, login: string, 
   await page.getByLabel("Organization").fill(org);
   await page.getByLabel(app === "patient" ? "Email" : "Login").fill(login);
   await page.getByLabel("Password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await page.getByRole("button", { name: "Log In", exact: true }).click();
 }
 
 /** Sign in through the API (no screen) to set things up or tidy afterwards. Returns the token. */
@@ -67,6 +67,13 @@ export async function cancelPatientsBookings(request: APIRequestContext) {
     { id: string; status: string }[];
   for (const b of rows.filter((x) => x.status !== "cancelled")) {
     await request.post(`${API}bookings/${b.id}/cancel`, { headers, data: {} });
+  }
+  // A patient's cancel of a CONFIRMED appointment only asks; the clinic answers it (GHE-14 T-26).
+  const staff = bearer(await apiToken(request, LOGINS.admin));
+  const left = (await (await request.get(`${API}bookings`, { headers: staff })).json()).bookings as
+    { id: string; status: string }[];
+  for (const b of left.filter((x) => x.status !== "cancelled")) {
+    await request.post(`${API}bookings/${b.id}/cancel`, { headers: staff, data: {} });
   }
 }
 
@@ -138,3 +145,5 @@ export async function patientInsurance(request: APIRequestContext) {
     },
   };
 }
+
+export const SAFETY = { first: "iyer@zoiko.example", second: "rao@zoiko.example" };

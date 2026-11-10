@@ -141,7 +141,7 @@ def on_booking_event(event: PublishedEvent) -> None:
 REFERRAL_CONSUMER = "comms.referral_notifier"
 _REFERRAL_STATES = {
     "issued": ("referral_issued", "Referral sent"),
-    "accepted": ("referral_accepted", "Referral accepted"),
+    "accepted": ("referral_accepted", "Referral accepted by the clinic"),
     "needs_info": ("referral_needs_info", "Referral needs more information"),
     "declined": ("referral_declined", "Referral declined"),
 }

@@ -41,7 +41,7 @@ class Clinic(World):
                 **self.cat)["public_id"]
             self.service = catalog.create_service(
                 organization_ref=self.org, name="General check-up", category="general_physician",
-                duration_minutes=30, **self.cat)["public_id"]
+                duration_minutes=30, listing_state="published", **self.cat)["public_id"]
 
     def rights(self, org=None, actor=None):
         """Authorize a staff login for write:catalog (outside a transaction, so it is recorded)
@@ -108,7 +108,7 @@ def test_catalog_validates_and_lists(clinic):
                 catalog.create_service(**args)
         catalog.create_service(organization_ref=clinic.org, name="Skin review",
                                category="dermatology", duration_minutes=20, mode="video",
-                               **clinic.cat)
+                               listing_state="published", **clinic.cat)
         assert [s["name"] for s in catalog.list_services()] == ["General check-up", "Skin review"]
         assert [s["name"] for s in catalog.list_services(query="skin")] == ["Skin review"]
         assert [s["name"] for s in catalog.list_services(query="general physician")] == [

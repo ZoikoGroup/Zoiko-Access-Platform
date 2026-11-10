@@ -27,7 +27,7 @@ Tick each line when it looks right and the words make sense to a non-technical p
 - [ ] Work Queue: open and closed items, History, nothing duplicated.
 - [ ] Waiting list, Family requests, Referrals, Messages: each works end to end with a second login.
 - [ ] Team, Providers, Organizations, Patients: lists load; the receptionist cannot do what the administrator can.
-- [ ] Providers: an administrator can record that a doctor's name was checked and withdraw it; patients then see (or stop seeing) a Verified mark.
+- [ ] Providers: an administrator can record that a doctor's name was checked and withdraw it; patients then see (or stop seeing) a "Name checked" mark.
 - [ ] Patients, Edit: insurance shows a clear notice when the patient has not shared it, and the details once they have.
 - [ ] AI permits (administrator only): propose, move and retire a permit; the page says AI is switched off.
 - [ ] Reports: "The next 7 days" shows booked versus usual per day and says it is a plain average; a new clinic sees the "not enough history" note.
@@ -43,7 +43,8 @@ Tick each line when it looks right and the words make sense to a non-technical p
 ## 4. Platform app (http://localhost:5175, Zoiko Platform, `vikram` then `priya`)
 - [ ] Overview, Customers, Incidents, Releases and Settings open and the numbers match what you know.
 - [ ] Suspension: `vikram` asks, the request shows as waiting and he cannot approve it himself; `priya` approves; that customer's staff can no longer sign in; reinstate the same way. (Use a throw-away customer, not Demo Clinic.)
-- [ ] `iyer` (safety officer) can look but not decide.
+- [ ] `iyer` (safety officer) can look but not decide on customer suspensions.
+- [ ] Hazards: the list shows 20 product hazards and 16 AI hazards. As `iyer`, open one, save an assessment; as `rao`, verify it and accept the remaining risk. `iyer` cannot verify or accept their own assessment, and a HIGH remaining risk cannot be accepted. `vikram` (support) can read but has no buttons.
 - [ ] Incident and release logs: add a line, it appears, and it cannot be edited afterwards.
 
 ## 5. Across all apps

@@ -7,7 +7,8 @@ still decide who may ask for the plain value.
 How it works
 - A MASTER key per key id comes from the environment (`ZOIKO_FIELD_KEYS`, "id:base64,id:base64").
   The current id (`ZOIKO_FIELD_KEY_ID`) encrypts; every listed id can still decrypt, so a key can
-  be rotated by adding a new one and re-encrypting over time (`needs_rotation`).
+  be rotated by adding a new one. `needs_rotation` says which values still use an old key, but
+  nothing re-encrypts them automatically yet (a re-encrypt job is not built).
 - Each customer (tenant) gets its OWN data key, derived from the master key with HKDF, so one
   customer's key never opens another's data.
 - Each value is bound to where it lives with AES-GCM "associated data": tenant, table, field and

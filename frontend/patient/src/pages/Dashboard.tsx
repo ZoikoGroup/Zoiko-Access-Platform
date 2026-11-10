@@ -26,7 +26,8 @@ export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
   name: string; me: Me; bookings: Booking[]; notices: Notice[]; referrals: Referral[]; goTo: (p: PageId) => void;
 }) {
   const [services, setServices] = useState<Service[]>([]);
-  useEffect(() => { getServices().then(setServices).catch(() => setServices([])); }, []);
+  const [servicesFailed, setServicesFailed] = useState(false);
+  useEffect(() => { getServices().then(setServices).catch(() => setServicesFailed(true)); }, []);
 
   const now = new Date().toISOString();
   const upcoming = bookings
@@ -41,7 +42,7 @@ export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
       <div className="hero banner">
         <div>
           <h1>Welcome back, {name}!</h1>
-          <p>Your health and care, all in one place with Zoiko Access.</p>
+          <p>Find care and manage your appointments with Zoiko Access.</p>
         </div>
         <span className="spacer" />
         <Pill kind="info">{me.persons.length > 0 ? "Patient record linked" : "No patient record linked yet"}</Pill>
@@ -94,9 +95,10 @@ export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
       </div>
 
       <div className="grid cols-2">
-        <Card title="Recommended for You" sub="Services you can book now, from the clinics' live catalog"
+        <Card title="Services you can book" sub="The first few from the clinics' live catalog (not personalised)"
           action={<button className="btn ghost" onClick={() => goTo("find")}>View all</button>}>
-          {services.length === 0 ? <div className="empty">No services are available yet.</div> : (
+          {servicesFailed ? <div className="error" role="alert">The list of services could not be loaded. Try again in a moment.</div>
+            : services.length === 0 ? <div className="empty">No services are available yet.</div> : (
             <div className="service-grid">
               {services.slice(0, 4).map((s) => (
                 <div key={s.id} className="service">

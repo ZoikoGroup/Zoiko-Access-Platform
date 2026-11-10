@@ -4,6 +4,7 @@ import pytest
 
 from foundation.cell_context import tenant_transaction
 from modules.evidence.models import AuditEvent
+from modules.trust import api as trust
 from tests.test_api import Web
 from tests.test_clinician import Practice
 
@@ -18,7 +19,10 @@ def dev_login(settings):
 
 @pytest.fixture
 def p():
-    return Practice()
+    practice = Practice()
+    with tenant_transaction(practice.clinic.ctx):   # staff deal only with their own site's patients
+        trust.link_person_to_site(practice.person, practice.clinic.org, "booking")
+    return practice
 
 
 def add(web, subject="pat", **over):
@@ -97,6 +101,8 @@ def test_staff_and_others_cannot_choose_for_a_patient(p):
 
 def test_each_patients_choice_is_their_own(p):
     _, other = p.patient("pat2")
+    with tenant_transaction(p.clinic.ctx):
+        trust.link_person_to_site(other, p.clinic.org, "booking")
     add(p)
     add(p, subject="pat2", insurer="Other Insurer")
     share(p, True, subject="pat2")
@@ -135,3 +141,26 @@ def test_staff_can_still_record_insurance_but_cannot_read_it_back_without_sharin
     assert staff_view(p, p.person) == {"coverage": [], "shared": False}
     row = json.loads(made.content)["coverage"]
     assert p.post(f"coverage/{row['id']}/end", subject="ops").status_code == 200
+
+
+def test_removing_an_unshared_insurance_shows_staff_no_details_but_the_patient_still_sees_theirs(p):
+    recorded = add(p, subject="ops", person=p.person, insurer="HDFC Ergo")
+    made = json.loads(recorded.content)["coverage"]
+    ended = p.post(f"coverage/{made['id']}/end", subject="ops")
+    assert ended.status_code == 200
+    body = json.loads(ended.content)["coverage"]
+    assert body == {"id": made["id"], "status": "ended"}      # nothing else, not even the insurer
+    assert "HDFC" not in ended.content.decode()
+
+
+def test_removing_a_shared_insurance_still_answers_with_its_details(p):
+    row = json.loads(add(p).content)["coverage"]
+    share(p, True)
+    ended = json.loads(p.post(f"coverage/{row['id']}/end", subject="ops").content)["coverage"]
+    assert ended["insurer"] == "Star Health" and ended["status"] == "ended"
+
+
+def test_the_patient_removing_their_own_insurance_gets_the_details_back(p):
+    row = json.loads(add(p).content)["coverage"]
+    own = json.loads(p.post(f"coverage/{row['id']}/end", subject="pat").content)["coverage"]
+    assert own["insurer"] == "Star Health" and own["status"] == "ended"

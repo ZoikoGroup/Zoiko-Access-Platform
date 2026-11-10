@@ -24,7 +24,7 @@ DIGEST_VERSION = 2
 PATIENT_SIDE_ROLES = frozenset({"R01", "R02"})          # patient or guardian
 EVENT_TYPES = frozenset({
     "requested", "confirmed", "cancelled", "moved_away", "moved_here", "attended", "no_show",
-    "reminder_sent",
+    "reminder_sent", "cancel_requested", "change_requested", "change_withdrawn",
 })
 
 

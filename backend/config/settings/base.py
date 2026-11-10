@@ -37,6 +37,9 @@ REQUIRE_PRODUCTION_SETTINGS = True
 
 # Identifies this deployment. Used later to bind every request and every row to one cell.
 ZOIKO_CELL_ID = env("ZOIKO_CELL_ID", required=True)
+# Which program wrote an audit row, and which build it was (a release id or commit; "dev" locally).
+ZOIKO_SERVICE_NAME = env("ZOIKO_SERVICE_NAME", "backend")
+ZOIKO_BUILD = env("ZOIKO_BUILD", "dev")
 # Google sign-in is offered only when a Google OAuth client id is configured (empty = off).
 GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", "")
 DEV_AUTH_STUB = False  # unsigned dev login; only dev settings turn it on
@@ -56,6 +59,7 @@ INSTALLED_APPS = [
     "modules.waitlist",
     "modules.coverage",
     "modules.ai",
+    "modules.safety",
     "modules.messaging",
     "modules.comms",
     "modules.evidence",

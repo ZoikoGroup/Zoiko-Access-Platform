@@ -32,6 +32,8 @@ APPEND_ONLY = frozenset({
     "ai_aipermitevent",
     "ai_airequest",
     "ai_airesponseevidence",
+    "safety_hazardevent",
+    "messaging_messageview",
 })
 
 # The one place the app deletes rows (finished plumbing). probe_probe exists only under test

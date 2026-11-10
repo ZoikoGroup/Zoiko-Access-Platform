@@ -71,6 +71,10 @@ class Booking(CellScopedModel):
     cancelled_by_ref = models.CharField(max_length=22, blank=True, default="")
     # Why it was cancelled: a code from CANCEL_REASONS (empty when nobody said).
     cancel_reason = models.CharField(max_length=24, blank=True, default="")
+    # A change the patient asked for on a CONFIRMED booking that the clinic has not yet answered
+    # (GHE-14 WF-13, T-26, T-27): "cancel" = wants it cancelled, "rebook" = asked to move it to a
+    # new time. The booking stays confirmed, and keeps its time, until the clinic acts.
+    pending_change = models.CharField(max_length=10, blank=True, default="")
     # The booking this one replaced, when the patient or the clinic moved an appointment.
     rescheduled_from_ref = models.CharField(max_length=22, blank=True, default="")
     reminder_sent_at = models.DateTimeField(null=True, blank=True)   # the patient was reminded

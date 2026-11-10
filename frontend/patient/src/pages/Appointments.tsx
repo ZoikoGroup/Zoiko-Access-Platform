@@ -11,7 +11,7 @@ const STATUS: Record<Booking["status"], { text: string; kind: PillKind }> = {
   cancelled: { text: "Cancelled", kind: "bad" },
 };
 
-function Row({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> }) {
+function Row({ b, onChanged, earlierStays }: { b: Booking; onChanged: () => Promise<void>; earlierStays: boolean }) {
   const [asking, setAsking] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const loadHistory = useCallback(() => getBookingHistory(b.id), [b.id]);
@@ -21,8 +21,12 @@ function Row({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> }) {
   const [moving, setMoving] = useState<Slot[] | null>(null);       // free times, once "Change time" is clicked
   const block = dateBlock(b.local_start);
   const shown = b.attendance === "attended" ? { text: "Attended", kind: "ok" as PillKind }
-    : b.attendance === "no_show" ? { text: "Missed", kind: "bad" as PillKind } : STATUS[b.status];
+    : b.attendance === "no_show" ? { text: "Missed", kind: "bad" as PillKind }
+    : b.pending_change === "cancel" ? { text: "Cancel asked: waiting for the clinic", kind: "warn" as PillKind }
+    : b.pending_change === "rebook" ? { text: "New time asked: waiting for the clinic", kind: "warn" as PillKind }
+    : STATUS[b.status];
   const upcoming = b.status !== "cancelled" && b.starts_at > new Date().toISOString();
+  const waiting = b.pending_change !== null;                      // the clinic has a change to answer
 
   async function cancel() {
     setBusy(true); setError("");
@@ -58,7 +62,11 @@ function Row({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> }) {
         <b>{b.service.name}</b>
         <small>{b.organization.name}, {b.location.name}{b.location.address ? ` - ${b.location.address}` : ""}</small>
         <small>{timeLabel(b.local_start)} ({b.local_zone}) - {b.service.mode === "video" ? "Video" : "In person"}{b.provider ? ` - with ${b.provider.name} ` : ""}{b.provider && <VerifiedMark on={b.provider.verified} />}</small>
-        {b.rescheduled_from && <small>Moved from an earlier time.</small>}
+        {b.rescheduled_from && (b.status === "requested" && earlierStays
+          ? <small>You asked to move here from an earlier time. The earlier time stays until the clinic confirms this one.</small>
+          : <small>Moved from an earlier time.</small>)}
+        {b.pending_change === "cancel" && <small>You asked to cancel. This appointment stays until the clinic confirms the cancellation.</small>}
+        {b.pending_change === "rebook" && <small>You asked for a new time. This appointment stays until the clinic confirms the new one.</small>}
         {error && <small style={{ color: "var(--bad)" }}>{error}</small>}
       </div>
       <Pill kind={shown.kind}>{shown.text}</Pill>
@@ -66,22 +74,23 @@ function Row({ b, onChanged }: { b: Booking; onChanged: () => Promise<void> }) {
       {upcoming && !asking && !moving && (
         <button className="btn ghost" onClick={() => void downloadCalendar(b.id).catch(() => setError("Could not make the calendar file"))}>Add to calendar</button>
       )}
-      {upcoming && !asking && !moving && <button className="btn ghost" onClick={() => void openTimes()}>Change time</button>}
-      {upcoming && !asking && <button className="btn ghost" onClick={() => setAsking(true)}>Cancel</button>}
-      {upcoming && asking && (
+      {upcoming && !waiting && !asking && !moving && <button className="btn ghost" onClick={() => void openTimes()}>Change time</button>}
+      {upcoming && !waiting && !asking && <button className="btn ghost" onClick={() => setAsking(true)}>{b.status === "requested" ? "Cancel" : "Ask to cancel"}</button>}
+      {upcoming && !waiting && asking && (
         <span>
+          {b.status === "confirmed" && <small style={{ display: "block" }}>The clinic must confirm the cancellation. Until then this appointment stays.</small>}
           <select aria-label="Why are you cancelling? (optional)" value={why} onChange={(e) => setWhy(e.target.value)}>
             <option value="">Why? (optional)</option>
             {Object.entries(PATIENT_REASONS).map(([code, text]) => <option key={code} value={code}>{text}</option>)}
           </select>{" "}
-          <button className="btn" disabled={busy} onClick={() => void cancel()}>{busy ? "Cancelling…" : "Yes, cancel it"}</button>{" "}
+          <button className="btn" disabled={busy} onClick={() => void cancel()}>{busy ? "Sending…" : b.status === "confirmed" ? "Yes, ask to cancel" : "Yes, cancel it"}</button>{" "}
           <button className="btn ghost" onClick={() => setAsking(false)}>Keep it</button>
         </span>
       )}
       {showHistory && <div style={{ flexBasis: "100%" }}><BookingHistory load={loadHistory} /></div>}
       {moving && (
         <div style={{ flexBasis: "100%" }}>
-          <b>Pick a new time</b> <small>(the clinic will confirm it again)</small>
+          <b>Pick a new time</b> <small>(the clinic must confirm the new time; your current time stays until it does)</small>
           {moving.length === 0 ? <div className="empty">There are no other free times for this service right now.</div> : (
             [...byDay.entries()].map(([day, list]) => (
               <div key={day}>
@@ -128,6 +137,8 @@ export function Appointments({ bookings, waiting, onChanged }: {
   bookings: Booking[]; waiting: WaitEntry[]; onChanged: () => Promise<void>;
 }) {
   const now = new Date().toISOString();
+  // True while the earlier appointment this one would replace is still standing.
+  const stays = (b: Booking) => !!b.rescheduled_from && bookings.some((x) => x.id === b.rescheduled_from && x.status !== "cancelled");
   const upcoming = bookings.filter((b) => b.status !== "cancelled" && b.starts_at > now);
   const other = bookings.filter((b) => !upcoming.includes(b)).reverse();
   return (
@@ -135,7 +146,7 @@ export function Appointments({ bookings, waiting, onChanged }: {
       <div className="hero"><div><h1>Appointments</h1><p>Your bookings and their status. A clinic must confirm a new booking.</p></div></div>
       <div className="grid">
         <Card title={`Upcoming (${upcoming.length})`}>
-          {upcoming.length === 0 ? <div className="empty">Nothing upcoming.</div> : upcoming.map((b) => <Row key={b.id} b={b} onChanged={onChanged} />)}
+          {upcoming.length === 0 ? <div className="empty">Nothing upcoming.</div> : upcoming.map((b) => <Row key={b.id} b={b} onChanged={onChanged} earlierStays={stays(b)} />)}
         </Card>
         {waiting.length > 0 && (
           <Card title={`Waiting list (${waiting.length})`} sub="Services with no free time that you asked to hear about.">
@@ -143,7 +154,7 @@ export function Appointments({ bookings, waiting, onChanged }: {
           </Card>
         )}
         <Card title={`Past and cancelled (${other.length})`}>
-          {other.length === 0 ? <div className="empty">Nothing here yet.</div> : other.map((b) => <Row key={b.id} b={b} onChanged={onChanged} />)}
+          {other.length === 0 ? <div className="empty">Nothing here yet.</div> : other.map((b) => <Row key={b.id} b={b} onChanged={onChanged} earlierStays={stays(b)} />)}
         </Card>
       </div>
     </>

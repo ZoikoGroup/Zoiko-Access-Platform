@@ -20,6 +20,7 @@ from foundation.cell_context import (
 )
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.models import CellScopedModel
+from foundation.outbox import emit
 from foundation.timeutil import Clock, TimeError, require_aware, utc_now
 from modules.evidence.api import AuditOutcome, record
 
@@ -133,6 +134,13 @@ def _in_force(queryset: QuerySet[Any], at: dt.datetime) -> QuerySet[Any]:
     )
 
 
+# Prohibition 1 (the employer protection): an employer's or payer's login holds only that role, and
+# that role goes only to such a login. The full table of which roles fit which customer type is
+# still the lead's decision (docs/CONFORMANCE-AUDIT.md item 7); this smaller check needs no table.
+_ONLY_FOR_ACTOR_TYPE = {"R07": "payer_user", "R08": "employer_user"}
+_ONLY_ROLE_OF_ACTOR_TYPE = {"payer_user": "R07", "employer_user": "R08"}
+
+
 def assign_role(
     *,
     actor_public_id: str,
@@ -165,6 +173,9 @@ def assign_role(
                 default_prohibitions=known[3])
         if actor.status != Status.ACTIVE or org.status != Status.ACTIVE:
             raise ZoikoError(ErrorCode.POLICY_DENIED)
+        if (_ONLY_FOR_ACTOR_TYPE.get(role_code, actor.actor_type) != actor.actor_type
+                or _ONLY_ROLE_OF_ACTOR_TYPE.get(actor.actor_type, role_code) != role_code):
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
         sponsor = _own(Actor, sponsor_public_id) if sponsor_public_id else None
         if _in_force(RoleAssignment.objects.filter(actor=actor, organization=org, role=role), now):
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
@@ -175,6 +186,9 @@ def assign_role(
         _audit(by, "role.assign", "role_assignment", assignment.public_id,
                actor=actor.public_id, role=role_code)
         return assignment
+
+
+CARE_ROLE_CODES = frozenset({"R03", "R09"})      # clinician, community or home-care partner
 
 
 def end_assignment(
@@ -192,6 +206,15 @@ def end_assignment(
         assignment.save(update_fields=[
             "status", "effective_until", "removal_reason", "entity_version", "updated_at"])
         _audit(by, "role.end", "role_assignment", assignment.public_id, reason=reason)
+        if assignment.role.role_code in CARE_ROLE_CODES:
+            # A doctor's or care partner's role at this site ended: their access to patients through
+            # it ends too, and anything waiting on them needs a fallback (GHE-06).
+            emit(event_type="professional.privilege.revoked.v1", aggregate_type="role_assignment",
+                 aggregate_ref=assignment.public_id,
+                 payload={"assignment_ref": assignment.public_id,
+                          "actor_ref": assignment.actor.public_id,
+                          "role_code": assignment.role.role_code,
+                          "organization_ref": assignment.organization.public_id})
         return assignment
 
 
@@ -314,6 +337,35 @@ def context_for(tenant_public_id: str) -> CellContext:
     if tenant is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     return build_context(tenant.id)
+
+
+MAX_RESPONSE_TARGET_HOURS = 168       # a week
+
+
+def response_target_hours(organization_public_id: str) -> int:
+    """How many hours this clinic aims to answer within: its own choice, or the service default."""
+    ctx = require_context()
+    own = Organization.objects.filter(
+        public_id=organization_public_id, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id
+    ).values_list("response_target_hours", flat=True).first()
+    return int(own or settings.RESPONSE_TARGET_HOURS)
+
+
+def set_response_target(organization_public_id: str, hours: int | None, *, by: str) -> int:
+    """Set this clinic's response target (1 to 168 hours), or None to use the service default.
+    Returns the target now in force."""
+    if hours is not None and (
+            isinstance(hours, bool) or not isinstance(hours, int)
+            or not 1 <= hours <= MAX_RESPONSE_TARGET_HOURS):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["hours"])
+    with transaction.atomic():
+        org = _own(Organization, organization_public_id)
+        org.response_target_hours = hours
+        org.entity_version += 1
+        org.save(update_fields=["response_target_hours", "entity_version", "updated_at"])
+        _audit(by, "organization.set_response_target", "organization", org.public_id,
+               hours=hours if hours is not None else 0)
+    return response_target_hours(organization_public_id)
 
 
 def get_organization(public_id: str) -> dict[str, str] | None:

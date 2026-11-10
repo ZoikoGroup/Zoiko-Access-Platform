@@ -43,8 +43,9 @@ TRANSITIONS: dict[str, frozenset[str]] = {
     S.SUSPENDED: frozenset({S.CORRECTIVE_ACTION, S.RETIRED}),
     S.CORRECTIVE_ACTION: frozenset({S.REVALIDATION, S.RETIRED}),
     S.REVALIDATION: frozenset({S.RELEASE_REVIEW, S.RETIRED}),
-    # The docs do not say where a change review leads; it goes back to a release review (DEV-093).
-    S.CHANGE_REVIEW: frozenset({S.RELEASE_REVIEW, S.RETIRED}),
+    # GHE-23 (state model): CHANGE_REVIEW leads to VALIDATION when the change is material, or to
+    # AUTHORIZED when it is approved as not material. (The shorter schema notes omit this edge.)
+    S.CHANGE_REVIEW: frozenset({S.VALIDATION, S.AUTHORIZED, S.RETIRED}),
     S.RETIRED: frozenset(),
 }
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -189,6 +190,8 @@ def advance(
             p.expiry = expiry
         if to_state in (S.SUSPENDED, S.RETIRED, S.CHANGE_REVIEW) and not reason:
             raise _bad("reason")
+        if to_state == S.CHANGE_REVIEW:
+            p.approver_refs = []  # a change needs fresh sign-offs; the old ones do not carry over
         before = p.state
         p.state = to_state
         p.save(update_fields=["state", "approver_refs", "expiry", "updated_at"])
@@ -242,13 +245,13 @@ def check_permit(feature_id: str, *, clock: Clock | None = None) -> AiUsePermit:
 
 
 def sign_off(permit_ref: str, *, actor_ref: str) -> dict[str, Any]:
-    """Add one person's signature to a permit that is waiting in RELEASE_REVIEW.
+    """Add one person's signature to a permit waiting in RELEASE_REVIEW or CHANGE_REVIEW.
 
     Never the creator, and each person counts once. Authorizing needs MIN_APPROVERS signatures.
     """
     with transaction.atomic():
         p = _own(permit_ref)
-        if p.state != S.RELEASE_REVIEW:
+        if p.state not in (S.RELEASE_REVIEW, S.CHANGE_REVIEW):
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         if not actor_ref or actor_ref == p.created_by_ref or actor_ref in p.approver_refs:
             raise ZoikoError(ErrorCode.POLICY_DENIED)

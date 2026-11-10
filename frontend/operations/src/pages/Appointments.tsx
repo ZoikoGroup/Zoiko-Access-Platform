@@ -132,7 +132,7 @@ export function Appointments({ staff }: { staff: Staff | null }) {
         </div>
       )}
       <div className="grid">
-        <Card title={`${shown.length} booking${shown.length === 1 ? "" : "s"}`} sub="Patients appear as ids: names are not stored yet (DEV-024).">
+        <Card title={`${shown.length} booking${shown.length === 1 ? "" : "s"}`}>
           {rows === null ? <div className="empty">Loading…</div> : (
             <Table headers={["When (clinic time)", "Service", "Location", "Patient", "Status", "Actions"]}
               empty="No bookings match."
@@ -142,6 +142,15 @@ export function Appointments({ staff }: { staff: Staff | null }) {
                 b.attendance === "attended" ? <Pill key="s" kind="ok">Attended</Pill>
                   : b.attendance === "no_show" ? <Pill key="s" kind="bad">Did not attend</Pill>
                   : b.late ? <Pill key="s" kind="bad">Late: needs confirmation</Pill>
+                  : b.pending_change === "cancel" ? (
+                    <span key="s"><Pill kind="warn">Patient asked to cancel</Pill>
+                      <small style={{ display: "block" }}>It stays booked until you confirm the cancellation.{b.cancel_reason ? ` Reason: ${reasonText(b.cancel_reason)}` : ""}</small></span>)
+                  : b.pending_change === "rebook" ? (
+                    <span key="s"><Pill kind="warn">Patient asked for a new time</Pill>
+                      <small style={{ display: "block" }}>This time stays until you confirm the new request.</small></span>)
+                  : b.status === "requested" && b.rescheduled_from ? (
+                    <span key="s"><Pill kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>
+                      <small style={{ display: "block" }}>A move request: confirming it releases the earlier time.</small></span>)
                   : <span key="s"><Pill kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>{b.status === "cancelled" && b.cancel_reason && <small style={{ display: "block" }}>{reasonText(b.cancel_reason)}</small>}</span>,
                 <span key="a">
                   <button className="btn ghost" onClick={() => setHistoryFor(historyFor === b.id ? "" : b.id)}>{historyFor === b.id ? "Hide history" : "History"}</button>{" "}
@@ -166,7 +175,7 @@ export function Appointments({ staff }: { staff: Staff | null }) {
                         <><button className="btn ghost" onClick={() => void openMove(b)}>Move</button>{" "}</>
                       )}
                       {!b.attendance && (
-                        <button className="btn ghost" onClick={() => setAsking(b.id)}>Cancel</button>
+                        <button className="btn ghost" onClick={() => setAsking(b.id)}>{b.pending_change === "cancel" ? "Confirm the cancellation" : "Cancel"}</button>
                       )}
                     </>
                   )}
@@ -176,7 +185,7 @@ export function Appointments({ staff }: { staff: Staff | null }) {
                         <option value="">Why? (optional)</option>
                         {Object.entries(CLINIC_REASONS).map(([code, text]) => <option key={code} value={code}>{text}</option>)}
                       </select>{" "}
-                      <button className="btn" disabled={busy === b.id} onClick={() => void run(b.id, (id) => cancelBooking(id, why))}>Yes, cancel</button>{" "}
+                      <button className="btn" disabled={busy === b.id} onClick={() => void run(b.id, (id) => cancelBooking(id, why))}>{b.pending_change === "cancel" ? "Yes, confirm the cancellation" : "Yes, cancel"}</button>{" "}
                       <button className="btn ghost" onClick={() => setAsking("")}>Keep</button>
                     </>
                   )}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { dropDevLogin } from "@shared/devLogin";
 import { ApiError, changePassword, clearDisplayName, getDisplayName, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getOverview, loadSession, setSession, signOutEverywhere, type Session } from "./api";
 import { Account } from "./Account";
 import { NAV, type PageId } from "./nav";
@@ -10,6 +11,7 @@ import { CustomersTable } from "./pages/Customers";
 import { clearLink, LinkPage, readLinkAction } from "./pages/LinkActions";
 import { OverviewPage } from "./pages/Overview";
 import { Planned } from "./pages/Planned";
+import { Hazards } from "./pages/Hazards";
 import { Incidents } from "./pages/Incidents";
 import { Releases } from "./pages/Releases";
 import { Settings } from "./pages/Settings";
@@ -22,6 +24,7 @@ function startPage(): PageId {
 
 export default function App() {
   const [session, setSessionState] = useState<Session | null>(loadSession());
+  useEffect(() => { if (session) dropDevLogin(); }, [session]);   // development only
   const [link, setLink] = useState(readLinkAction());
   if (link) {
     return <LinkPage link={link} onDone={() => { clearLink(); setLink(null); }} />;
@@ -70,6 +73,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} onChangePassword={changePassword}
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
+  else if (page === "hazards") body = <Hazards />;
   else if (page === "incidents") body = <Incidents canWrite={session.roles.some((r) => r.role === "R11")} />;
   else if (page === "releases") body = <Releases canAdd={session.roles.some((r) => r.role === "R11")} />;
   else if (denied) body = <div className="notice">Your account is not allowed to use the platform console.</div>;
@@ -100,11 +104,12 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#main">Skip to main content</a>
       <Topbar displayName={shownName} tenantName={session.tenantName} login={session.login}
         roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
         onGo={(p, query) => { setCustomerQuery(query ?? ""); setPage(p); }} />
       <Sidebar page={page} onPage={(p) => { setCustomerQuery(""); setPage(p); }} cell={data?.cell ?? ""} api={health.api} database={health.database} />
-      <main className="content">{error && data && <div className="error">{error}</div>}{body}</main>
+      <main className="content" id="main" tabIndex={-1}>{error && data && <div className="error">{error}</div>}{body}</main>
     </div>
   );
 }

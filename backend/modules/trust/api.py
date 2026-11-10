@@ -31,12 +31,17 @@ from .email_flows import (
 )
 from .family import (
     approve_family_member,
+    approved_family_grants,
+    ask_for_proof,
     get_family_grant,
     list_family,
+    mark_proof_received,
     pending_family_count,
     pending_family_requests,
     reject_family_member,
     request_family_member,
+    resume_family_member,
+    suspend_family_member,
     withdraw_family_member,
 )
 from .incidents import add_incident, get_incident, list_incidents, resolve_incident
@@ -50,10 +55,13 @@ from .people import (
     care_patients,
     care_team_of,
     create_person,
+    end_care_links,
     end_care_relationship,
     ensure_care_relationship,
     link_person_to_actor,
+    link_person_to_site,
     own_person_of,
+    person_at_site,
     person_exists,
     propose_proxy_grant,
     reachable_persons,
@@ -66,6 +74,7 @@ from .people import (
 from .profile import get_person_profiles, profile_summary_for, set_person_profile
 from .releases import add_release, list_releases
 from .services import (
+    MAX_RESPONSE_TARGET_HOURS,
     active_roles,
     assign_role,
     clinicians_at,
@@ -79,7 +88,9 @@ from .services import (
     organization_names,
     overview,
     register_actor,
+    response_target_hours,
     set_actor_status,
+    set_response_target,
     set_self_registration,
     verified_emails_for_role,
 )
@@ -98,8 +109,11 @@ __all__ = [
     "onboard_customer", "organization_names", "set_customer_sign_up",
     "verified_emails_for_role", "clinicians_at",
     "overview", "own_person_of", "patient_registry", "person_exists", "profile_summary_for",
-    "approve_family_member", "get_family_grant", "list_family", "pending_family_count",
-    "pending_family_requests",
+    "link_person_to_site", "person_at_site", "end_care_links",
+    "MAX_RESPONSE_TARGET_HOURS", "response_target_hours", "set_response_target",
+    "approve_family_member", "approved_family_grants", "ask_for_proof", "mark_proof_received",
+    "resume_family_member", "suspend_family_member", "get_family_grant", "list_family",
+    "pending_family_count", "pending_family_requests",
     "reject_family_member", "request_family_member", "withdraw_family_member",
     "get_person_profiles",
     "set_person_profile", "propose_proxy_grant", "reachable_persons", "register_actor",

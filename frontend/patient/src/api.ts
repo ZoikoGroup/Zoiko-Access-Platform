@@ -59,6 +59,8 @@ export interface Booking {
   provider: { id: string; name: string; verified?: boolean } | null;
   rescheduled_from: string | null;     // the appointment this one replaced
   attendance: "attended" | "no_show" | null;   // recorded by the clinic after the visit time
+  // A change the patient asked for that the clinic has not answered yet: the appointment stays.
+  pending_change: "cancel" | "rebook" | null;
 }
 
 export interface Referral {
@@ -111,12 +113,14 @@ export interface AccessEntry {
 
 export interface FamilyRow {
   id: string;
-  status: "proposed" | "active";       // proposed = waiting for the clinic to approve
+  // proposed, proof_required and approval_pending all mean "waiting for the clinic"; suspended is paused
+  status: "proposed" | "proof_required" | "approval_pending" | "active" | "suspended";
   relationship: string;
   person: string;
   name: string;
   birth_date: string;
   valid_until: string | null;
+  scopes?: string[];                    // what the clinic allowed this person to do
 }
 
 export interface MessageThread {
@@ -125,10 +129,11 @@ export interface MessageThread {
   status: "open" | "closed";
   last_message_at: string;
   unread: number;
+  unread_for_me?: number;               // what THIS login has not opened
 }
 
 export interface ThreadView extends MessageThread {
-  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean }[];
+  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; seen_at?: string | null }[];
 }
 
 export interface WaitEntry {

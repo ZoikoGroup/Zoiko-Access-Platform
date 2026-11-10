@@ -8,6 +8,7 @@ from foundation import crypto
 from foundation.cell_context import tenant_transaction
 from modules.coverage.models import Coverage
 from modules.evidence.models import AuditEvent
+from modules.trust import api as trust
 from tests.test_api import Web
 from tests.test_clinician import Practice
 
@@ -24,7 +25,10 @@ def dev_login(settings):
 
 @pytest.fixture
 def p():
-    return Practice()
+    practice = Practice()
+    with tenant_transaction(practice.clinic.ctx):   # staff deal only with their own site's patients
+        trust.link_person_to_site(practice.person, practice.clinic.org, "booking")
+    return practice
 
 
 def add(web, subject="pat", person=None, **over):

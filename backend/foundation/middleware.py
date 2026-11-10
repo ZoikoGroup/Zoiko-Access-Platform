@@ -16,7 +16,14 @@ from django.http import Http404, HttpRequest, HttpResponse
 
 from .errors import ErrorCode, ZoikoError
 from .problem import problem_response
-from .request_context import META_KEY, accept_or_new, reset_request_id, set_request_id
+from .request_context import (
+    META_KEY,
+    accept_or_new,
+    reset_request_id,
+    reset_stated_purpose,
+    set_request_id,
+    set_stated_purpose,
+)
 
 logger = logging.getLogger("foundation.errors")
 
@@ -29,9 +36,11 @@ class RequestIdMiddleware:
         request_id = accept_or_new(request.headers.get("X-Request-ID"))
         request.META[META_KEY] = request_id
         token = set_request_id(request_id)
+        purpose_token = set_stated_purpose(request.headers.get("X-Zoiko-Purpose"))
         try:
             response = self.get_response(request)
         finally:
+            reset_stated_purpose(purpose_token)
             reset_request_id(token)
         response["X-Request-ID"] = request_id
         return response

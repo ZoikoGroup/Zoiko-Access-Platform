@@ -42,7 +42,7 @@ def post(world, path, body, subject="sam"):
 
 
 def add(world, subject="sam", **fields):
-    body = {"title": "Mail delayed", "severity": "medium",
+    body = {"title": "Mail delayed", "severity": "sev2",
             "happened_on": today().isoformat(), **fields}
     return post(world, "platform/incidents", body, subject)
 
@@ -71,10 +71,10 @@ def made(world, **fields):
 
 # ------------------------------------------------------------------ recording
 def test_support_records_an_incident_and_it_starts_open(platform):
-    r = add(platform, details="Two hours of late mail.\nNo data lost.", severity="high")
+    r = add(platform, details="Two hours of late mail.\nNo data lost.", severity="sev1")
     assert r.status_code == 201
     [row] = incidents(platform)
-    assert (row["title"], row["severity"], row["status"]) == ("Mail delayed", "high", "open")
+    assert (row["title"], row["severity"], row["status"]) == ("Mail delayed", "sev1", "open")
     assert row["details"] == "Two hours of late mail.\nNo data lost."
     assert row["happened_on"] == today().isoformat()
     assert row["recorded_by"] and row["resolved_on"] is None and row["resolution"] == ""
@@ -84,8 +84,8 @@ def test_an_empty_log_is_an_empty_list(platform):
     assert incidents(platform) == []
 
 
-@pytest.mark.parametrize("severity", ["low", "medium", "high"])
-def test_the_three_severities_are_accepted(platform, severity):
+@pytest.mark.parametrize("severity", ["sev0", "sev1", "sev2", "sev3"])
+def test_the_four_severities_are_accepted(platform, severity):
     assert add(platform, severity=severity).status_code == 201
 
 
@@ -93,7 +93,8 @@ def test_the_three_severities_are_accepted(platform, severity):
     {"title": ""}, {"title": "   "}, {"title": "t" * 121}, {"title": "bell\x07"},
     {"title": "two\nlines"}, {"title": 5}, {"title": None},
     {"severity": "critical"}, {"severity": ""}, {"severity": None}, {"severity": 2},
-    {"severity": ["low"]}, {"severity": "HIGH"},
+    {"severity": ["sev3"]}, {"severity": "SEV1"}, {"severity": "high"}, {"severity": "low"},
+    {"severity": "medium"}, {"severity": "sev4"},
     {"details": "d" * 2001}, {"details": "bell\x07"}, {"details": 5},
     {"happened_on": "not-a-date"}, {"happened_on": ""}, {"happened_on": "2026-13-40"},
     {"happened_on": (today() + dt.timedelta(days=2)).isoformat()},
@@ -166,10 +167,10 @@ def test_an_unknown_incident_is_not_found(platform):
 
 
 def test_the_title_and_severity_do_not_change_when_closing(platform):
-    incident = made(platform, title="Keep me", severity="high")
-    resolve(platform, incident, title="Changed", severity="low")
+    incident = made(platform, title="Keep me", severity="sev1")
+    resolve(platform, incident, title="Changed", severity="sev3")
     row = incidents(platform)[0]
-    assert (row["title"], row["severity"]) == ("Keep me", "high")
+    assert (row["title"], row["severity"]) == ("Keep me", "sev1")
 
 
 # ------------------------------------------------------------------ who may do what
@@ -201,7 +202,7 @@ def test_a_customers_staff_cannot_use_it_even_with_a_support_role():
                           role_code="R11", by="system")
     client = Client()
     header: dict[str, Any] = {"HTTP_AUTHORIZATION": f"Bearer dev:{customer.tenant_public_id}:idp:x"}
-    body = json.dumps({"title": "t", "severity": "low", "happened_on": today().isoformat()})
+    body = json.dumps({"title": "t", "severity": "sev3", "happened_on": today().isoformat()})
     assert client.get(API + "platform/incidents", **header).status_code == 403
     assert client.post(API + "platform/incidents", body, content_type="application/json",
                        **header).status_code == 403
@@ -253,7 +254,7 @@ def test_the_service_refuses_a_date_with_a_time_of_day_and_an_unknown_incident(p
         decision = authorize(actor_public_id=actor, operation="write:platform",
                              purpose_code="SUPPORT", organization_public_id=platform.org)
     with tenant_transaction(platform.ctx), pytest.raises(ZoikoError) as caught:
-        trust.add_incident(title="t", severity="low", happened_on=utc_now(), actor_public_id=actor,
+        trust.add_incident(title="t", severity="sev3", happened_on=utc_now(), actor_public_id=actor,
                            decision=decision, organization_public_id=platform.org)
     assert caught.value.code == ErrorCode.VALIDATION_FAILED
     with tenant_transaction(platform.ctx), pytest.raises(ZoikoError) as missing:

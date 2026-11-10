@@ -5,7 +5,9 @@ from django.db import connection
 
 from foundation.cell_context import tenant_transaction
 from modules.evidence.models import AuditEvent
+from modules.trust import api as trust
 from modules.trust.models import PersonProfile
+from tests.conftest import publish_service
 from tests.test_api import Web, book
 from tests.test_clinician import Practice
 
@@ -20,7 +22,10 @@ def dev_login(settings):
 
 @pytest.fixture
 def p():
-    return Practice()
+    practice = Practice()
+    with tenant_transaction(practice.clinic.ctx):   # staff deal only with their own site's patients
+        trust.link_person_to_site(practice.person, practice.clinic.org, "booking")
+    return practice
 
 
 def save(web, person, subject="pat", name="Asha Rao", birth="1990-04-12", phone="+91 98765 43210"):
@@ -114,7 +119,8 @@ def test_a_doctor_cannot_write_details_and_a_receptionist_can(p):
 def test_another_customers_staff_cannot_touch_it(p):
     outsider = Web()
     outsider.staff("desk")
-    assert save(outsider, p.person, subject="desk").status_code == 404
+    # Another customer's staff are refused outright: this patient has no link to their site.
+    assert save(outsider, p.person, subject="desk").status_code == 403
     assert [c for c in stored_columns() if c] == []
 
 
@@ -154,6 +160,7 @@ def test_referrals_and_the_waiting_list_show_the_name_to_those_allowed(p):
     made = p.post("services", {"organization": p.clinic.org, "name": "Cardiology",
                                "category": "cardiology", "duration_minutes": 30}, subject="ops")
     cardio = json.loads(made.content)["service"]["id"]
+    publish_service(p.clinic.ctx, cardio)
     sent = p.post("clinician/referrals", {"patient": p.person, "service": cardio,
                                           "reason": "Chest pain", "urgency": "routine"},
                   subject="doc")
@@ -170,6 +177,8 @@ def test_referrals_and_the_waiting_list_show_the_name_to_those_allowed(p):
 def test_a_name_copied_onto_another_patient_is_not_shown(p):
     """The encrypted name is bound to its row: pasting it into someone else's row shows nothing."""
     _, other = p.patient("pat2")
+    with tenant_transaction(p.clinic.ctx):
+        trust.link_person_to_site(other, p.clinic.org, "booking")
     save(p, p.person)
     save(p, other, subject="ops", name="Ravi Kumar")
     with tenant_transaction(p.clinic.ctx):

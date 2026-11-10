@@ -8,13 +8,15 @@ function today(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// GHE-20's proposed internal scale. It does not replace the legal definition of a notifiable incident.
 const SEVERITY = {
-  low: { text: "Low", kind: "info" },
-  medium: { text: "Medium", kind: "warn" },
-  high: { text: "High", kind: "bad" },
+  sev0: { text: "SEV-0", kind: "bad", means: "Patient safety, a large unlawful disclosure, or a systemic compromise" },
+  sev1: { text: "SEV-1", kind: "bad", means: "A major regional loss or a critical workflow failure" },
+  sev2: { text: "SEV-2", kind: "warn", means: "A partial service degradation" },
+  sev3: { text: "SEV-3", kind: "info", means: "A minor operational issue" },
 } as const;
 
-const EMPTY_FORM = () => ({ title: "", severity: "medium", happened_on: today(), details: "" });
+const EMPTY_FORM = () => ({ title: "", severity: "sev2", happened_on: today(), details: "" });
 
 function friendly(e: unknown): string {
   const code = e instanceof ApiError ? e.code : "";
@@ -24,7 +26,7 @@ function friendly(e: unknown): string {
     : e instanceof Error ? e.message : "That did not work";
 }
 
-/** The platform's hand-written incident log. The severity labels are provisional (DEV-014). */
+/** The platform's hand-written incident log, on GHE-20's SEV-0 to SEV-3 scale (DEV-118). */
 export function Incidents({ canWrite }: { canWrite: boolean }) {
   const [rows, setRows] = useState<IncidentRow[] | null>(null);
   const [error, setError] = useState("");
@@ -52,7 +54,7 @@ export function Incidents({ canWrite }: { canWrite: boolean }) {
       <div className="hero">
         <div>
           <h1>Incidents</h1>
-          <p>A log, written by hand, of what went wrong and how it ended. It raises no alarm and fixes nothing. Severity labels (low, medium, high) are provisional until the real scale is decided.</p>
+          <p>A log, written by hand, of what went wrong and how it ended. It raises no alarm and fixes nothing. Severity follows the specification's proposed scale, SEV-0 (worst) to SEV-3; the owners can still choose a different one.</p>
         </div>
       </div>
       <div className="grid">
@@ -68,9 +70,9 @@ export function Incidents({ canWrite }: { canWrite: boolean }) {
               </label>
               <label>Severity
                 <select value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
+                  {(Object.keys(SEVERITY) as (keyof typeof SEVERITY)[]).map((k) => (
+                    <option key={k} value={k}>{SEVERITY[k].text}: {SEVERITY[k].means}</option>
+                  ))}
                 </select>
               </label>
               <label>Happened on

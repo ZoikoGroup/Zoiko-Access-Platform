@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getPatients, getReferrals, getServices, sendReferral } from "../api";
+import { decideReferral, getAnswerInbox, getPatients, getReferrals, getServices, sendReferral } from "../api";
 import { Gate, useLoad } from "../useLoad";
 import { Card, Patient, Pill, Table, shortId, type PillKind } from "../ui";
 
@@ -72,6 +72,69 @@ function NewReferral({ onSent }: { onSent: () => void }) {
   );
 }
 
+type Outcome = "accepted" | "needs_info" | "declined";
+
+function Answer({ id, onDone }: { id: string; onDone: () => void }) {
+  const [choice, setChoice] = useState<Outcome | "">("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function send(outcome: Outcome) {
+    setBusy(true); setError("");
+    try { await decideReferral(id, outcome, reason); onDone(); }
+    catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(false); }
+  }
+  if (!choice) {
+    return (
+      <span>
+        <button className="btn" disabled={busy} onClick={() => void send("accepted")}>Accept</button>{" "}
+        <button className="btn ghost" onClick={() => setChoice("needs_info")}>Ask for more</button>{" "}
+        <button className="btn ghost" onClick={() => setChoice("declined")}>Decline</button>
+        {error && <small style={{ color: "var(--bad)", display: "block" }}>{error}</small>}
+      </span>
+    );
+  }
+  return (
+    <span>
+      <input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} aria-label="Reason"
+        placeholder={choice === "declined" ? "Why you cannot accept" : "What you need to know"} />{" "}
+      <button className="btn" disabled={busy || !reason.trim()} onClick={() => void send(choice)}>
+        {choice === "declined" ? "Decline" : "Send question"}
+      </button>{" "}
+      <button className="btn ghost" onClick={() => setChoice("")}>Back</button>
+      {error && <small style={{ color: "var(--bad)", display: "block" }}>{error}</small>}
+    </span>
+  );
+}
+
+function AnswerList({ onAnswered }: { onAnswered: () => void }) {
+  const inbox = useLoad(getAnswerInbox, 15_000);
+  return (
+    <Gate result={inbox}>
+      {(rows) => (
+        <Card title={`Referrals for you to answer (${rows.length})`}
+          sub="You are named to answer these. Accepting means you take the patient on; declining leaves the patient with the doctor who sent them.">
+          <Table headers={["Patient", "For", "From", "Urgency", "Reason", "Status", "Your answer"]}
+            empty="No referrals are waiting for you."
+            rows={rows.map((r) => [
+              <Patient key="p" name={r.patient_name} id={r.patient} />,
+              `${r.service.name} - ${r.organization.name}`,
+              r.responsible?.name || "",
+              <Pill key="u" kind={r.urgency === "urgent" ? "bad" : "info"}>{r.urgency}</Pill>,
+              r.reason,
+              <span key="s"><Pill kind={STATE[r.state]?.kind ?? "info"}>{STATE[r.state]?.text ?? r.state}</Pill>
+                {r.escalated && <small style={{ display: "block", color: "var(--bad)" }}>Waiting for over 24 hours</small>}</span>,
+              r.state === "accepted" || r.state === "declined"
+                ? <span key="a">{r.decision_reason}</span>
+                : <Answer key="a" id={r.id} onDone={onAnswered} />,
+            ])} />
+        </Card>
+      )}
+    </Gate>
+  );
+}
+
 function SentList() {
   const sent = useLoad(getReferrals, 15_000);
   return (
@@ -100,9 +163,10 @@ export function Referrals() {
     <>
       <div className="hero"><div>
         <h1>Referrals</h1>
-        <p>Send a patient to another service and follow what the clinic decides. The patient is told at each step. Patients show by name once their details are entered.</p>
+        <p>Send a patient to another service and follow what the clinic decides. The patient sees each step in the app. Patients show by name once their details are entered.</p>
       </div></div>
       <div className="grid">
+        <AnswerList key={`a${version}`} onAnswered={() => setVersion((v) => v + 1)} />
         <NewReferral onSent={() => setVersion((v) => v + 1)} />
         <SentList key={version} />
       </div>

@@ -33,12 +33,23 @@ from .models import (
 from .permits import FORBIDDEN_TOOLS, check_permit
 
 Provider = Callable[[str], str]
-_PROVIDERS: dict[str, Provider] = {}
+_PROVIDERS: dict[str, tuple[Provider, str | None, str | None]] = {}
 MAX_INPUT_CHARS = 8000
 
 
-def register_provider(feature_id: str, provider: Provider) -> None:
-    _PROVIDERS[feature_id] = provider
+def register_provider(
+    feature_id: str,
+    provider: Provider,
+    *,
+    model_digest: str | None = None,
+    prompt_digest: str | None = None,
+) -> None:
+    """Plug in what actually answers.
+
+    A real model passes the digests of the model and prompt it runs; the gate refuses to call it if
+    they differ from the permit (GHE-23). The built-in template is not a model and passes none.
+    """
+    _PROVIDERS[feature_id] = (provider, model_digest, prompt_digest)
 
 
 def digest(text: str) -> str:
@@ -64,9 +75,10 @@ def run(
     if not actor_ref or not 1 <= len(input_text or "") <= MAX_INPUT_CHARS or not purpose_code:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["input"])
     permit = check_permit(feature_id, clock=clock)  # default deny
-    provider = _PROVIDERS.get(feature_id)
-    if provider is None:
+    registered = _PROVIDERS.get(feature_id)
+    if registered is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)
+    provider, provider_model, provider_prompt = registered
     wanted = list(tools or [])
     shadow = permit.state == PermitState.SHADOW
     names = [str(t.get("tool", "")) for t in wanted]
@@ -80,6 +92,11 @@ def run(
             flags.append("tool_not_on_list")
     if shadow and wanted:
         flags.append("shadow_acts_on_nothing")
+    if provider_model not in (None, permit.model_digest) or provider_prompt not in (
+        None,
+        permit.prompt_digest,
+    ):
+        flags.append("digest_mismatch")  # what answers is not what the permit approved
     output = provider(input_text) if not flags else ""
     if not flags and not output.strip():
         flags.append("empty_output")

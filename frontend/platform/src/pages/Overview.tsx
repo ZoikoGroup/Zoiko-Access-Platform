@@ -13,7 +13,7 @@ function concerns(d: OverviewData): Concern[] {
     if (t.audit.failed_logins >= 5) out.push({ kind: "warn", text: `${t.name}: ${t.audit.failed_logins} failed sign-ins in 24 hours` });
   }
   const w = d.work;
-  if (w.high_incidents > 0) out.push({ kind: "bad", text: `${w.high_incidents} high-severity incident${w.high_incidents === 1 ? " is" : "s are"} still open`, go: "incidents" });
+  if (w.high_incidents > 0) out.push({ kind: "bad", text: `${w.high_incidents} SEV-0 or SEV-1 incident${w.high_incidents === 1 ? " is" : "s are"} still open`, go: "incidents" });
   if (w.open_incidents > w.high_incidents) out.push({ kind: "warn", text: `${w.open_incidents - w.high_incidents} other incident${w.open_incidents - w.high_incidents === 1 ? " is" : "s are"} still open`, go: "incidents" });
   if (w.suspensions_waiting > 0) out.push({ kind: "warn", text: `${w.suspensions_waiting} suspension or reinstatement request${w.suspensions_waiting === 1 ? " is" : "s are"} waiting for a second person`, go: "settings" });
   if (d.outbox.quarantined > 0) out.push({ kind: "bad", text: `${d.outbox.quarantined} event(s) gave up delivering and need a person` });

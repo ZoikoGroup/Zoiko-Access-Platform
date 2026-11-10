@@ -63,6 +63,7 @@ def test_a_waiting_booking_is_not_counted_as_an_appointment_but_takes_the_time(p
 def test_a_cancelled_booking_gives_the_time_back(p):
     booking = booked(p, confirm=True)
     p.post(f"bookings/{booking}/cancel", subject="pat")
+    p.post(f"bookings/{booking}/cancel", subject="ops")          # the clinic answers
     row = providers(p)["doc"]
     assert row["upcoming"] == 0 and row["open_times"] == 3
 

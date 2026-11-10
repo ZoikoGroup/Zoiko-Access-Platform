@@ -21,6 +21,7 @@ from django.db.models.functions import TruncDate
 
 from foundation.cell_context import require_context, tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
+from foundation.outbox import emit
 from foundation.request_context import get_request_id
 from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome
@@ -30,8 +31,11 @@ from modules.trust import api as trust
 from .models import AccessDecision
 from .rules import (
     HARD_PROHIBITIONS,
+    POLICY_DIGEST,
     POLICY_VERSION,
+    PROXY_SCOPE_OF,
     PURPOSES,
+    READ_ONLY_PURPOSES,
     RESOURCE_CLASSES,
     ROLE_PURPOSES,
     RULES,
@@ -64,24 +68,34 @@ _CLOSEST_FIRST = (
 
 class RelationshipChecker(Protocol):
     """Answers "is this relationship to the patient verified?". The real one reads the
-    care-relationship and delegation tables, which do not exist yet."""
+    care-relationship and delegation tables (modules/trust/people.py and family.py)."""
 
-    def verified(self, *, actor_public_id: str, condition: str, subject_ref: str) -> bool: ...
+    def verified(
+        self, *, actor_public_id: str, condition: str, subject_ref: str, site: str = "",
+        scope: str = "",
+    ) -> bool: ...
 
 
 class TrustRelationships:
     """The real checker: asks the trust module whether the link exists right now."""
 
-    def verified(self, *, actor_public_id: str, condition: str, subject_ref: str) -> bool:
+    def verified(
+        self, *, actor_public_id: str, condition: str, subject_ref: str, site: str = "",
+        scope: str = "",
+    ) -> bool:
         return trust.relationship_verified(
-            actor_public_id=actor_public_id, condition=condition, subject_ref=subject_ref
+            actor_public_id=actor_public_id, condition=condition, subject_ref=subject_ref,
+            site=site, scope=scope,
         )
 
 
 class NoRelationships:
     """Verifies nothing, so every patient-linked door stays shut. Useful in tests."""
 
-    def verified(self, *, actor_public_id: str, condition: str, subject_ref: str) -> bool:
+    def verified(
+        self, *, actor_public_id: str, condition: str, subject_ref: str, site: str = "",
+        scope: str = "",
+    ) -> bool:
         return False
 
 
@@ -112,14 +126,23 @@ def _judge_role(
         return Reason.ROLE_NOT_PERMITTED
     if purpose not in ROLE_PURPOSES.get(role, frozenset()):
         return Reason.PURPOSE_NOT_ALLOWED
+    if purpose in READ_ONLY_PURPOSES and verb != "read":
+        return Reason.PURPOSE_NOT_ALLOWED
     if condition == "ORG":
         if org_asked is None:
             return Reason.ORG_REQUIRED
         if org_asked != org_held:
             return Reason.ORG_MISMATCH
+        # Staff may deal only with patients connected to their own site (DEV-107).
+        if subject is not None and not checker.verified(
+            actor_public_id=actor, condition="SITE", subject_ref=subject, site=org_held
+        ):
+            return Reason.RELATIONSHIP_UNVERIFIED
     elif condition in ("OWN", "REL", "PROXY") and not (
         subject is not None
-        and checker.verified(actor_public_id=actor, condition=condition, subject_ref=subject)
+        and checker.verified(
+            actor_public_id=actor, condition=condition, subject_ref=subject,
+            scope=PROXY_SCOPE_OF.get(cls, "") if condition == "PROXY" else "")
     ):
         return Reason.RELATIONSHIP_UNVERIFIED
     return Reason.ALLOWED
@@ -197,6 +220,8 @@ def decide(
             object_ref=row.public_id,
             outcome=AuditOutcome.ALLOWED if allowed else AuditOutcome.DENIED,
             reason_code=reason.value,
+            purpose_code=purpose_code[:32] if purpose_code in PURPOSES else "",
+            policy_digest=POLICY_DIGEST,
         )
     return Decision(allowed, reason, row.public_id, role)
 
@@ -283,8 +308,13 @@ def authorize(
     organization_public_id: str | None = None,
     subject_ref: str | None = None,
     relationships: RelationshipChecker | None = None,
+    announce: bool = True,
 ) -> Decision:
     """Decide in its OWN committed transaction, then raise if denied.
+
+    A refusal the person actually hit is announced as `access.denied.v1` (GHE-06): the operation,
+    the purpose and the reason, never who or about whom. `announce=False` is for the quiet checks
+    that filter a list, where a "no" just means "leave that one out".
 
     Why separate: raising inside the caller's transaction would roll back the stored denial
     and its audit event. A denial must always leave a trace, so this must run outside a
@@ -299,6 +329,11 @@ def authorize(
             organization_public_id=organization_public_id, subject_ref=subject_ref,
             relationships=relationships,
         )
+        if announce and not decision.allowed:
+            emit(event_type="access.denied.v1", aggregate_type="access_decision",
+                 aggregate_ref=decision.decision_public_id,
+                 payload={"operation": operation[:64], "purpose": purpose_code[:32],
+                          "reason": decision.reason.value})
     decision.require()
     return decision
 

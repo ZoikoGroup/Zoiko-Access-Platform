@@ -6,3 +6,9 @@ class ReferralConfig(AppConfig):
 
     name = "modules.referral"
     label = "referral"
+
+    def ready(self) -> None:
+        # The worker tells the referral inbox when a doctor leaves a site.
+        from .subscribers import register_subscribers
+
+        register_subscribers()

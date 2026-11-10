@@ -178,3 +178,13 @@ td.mono, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-siz
   .brand { min-width: 0; }
   .search, .user div { display: none; }
 }
+
+/* Keyboard and assistive-technology basics (GHE-15 section 04: skip link, visible focus). */
+.skip-link { position: absolute; left: 8px; top: -56px; z-index: 100; padding: 10px 14px; border-radius: 8px;
+  background: var(--brand); color: var(--brand-ink); font-weight: 600; }
+.skip-link:focus { top: 8px; }
+:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+@media (forced-colors: active) { .pill, .btn, .slot { border: 1px solid CanvasText; } }

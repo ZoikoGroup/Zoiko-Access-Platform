@@ -1,53 +1,84 @@
 import { useCallback, useEffect, useState } from "react";
-import { decideReferral, listIncomingReferrals } from "../api";
-import type { IncomingReferral } from "../types";
+import { acknowledgeReferral, getReferralInbox, listIncomingReferrals, setReferralInbox } from "../api";
+import type { IncomingReferral, ReferralInbox } from "../types";
 import { Card, Patient, Pill, Table, type PillKind } from "../ui";
 
 const STATE: Record<IncomingReferral["state"], { text: string; kind: PillKind }> = {
-  issued: { text: "Needs a decision", kind: "warn" },
-  accepted: { text: "Accepted", kind: "ok" },
+  issued: { text: "Waiting for the doctor", kind: "warn" },
+  accepted: { text: "Accepted by a doctor", kind: "ok" },
   needs_info: { text: "Waiting for information", kind: "info" },
   declined: { text: "Declined", kind: "bad" },
 };
 
-type Outcome = "accepted" | "needs_info" | "declined";
-
-function Decide({ r, onDone }: { r: IncomingReferral; onDone: () => Promise<void> }) {
-  const [choice, setChoice] = useState<Outcome | "">("");
-  const [reason, setReason] = useState("");
+function Receipt({ r, onDone }: { r: IncomingReferral; onDone: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  async function send(outcome: Outcome) {
+  const open = r.state === "issued" || r.state === "needs_info";
+  async function mark() {
     setBusy(true); setError("");
-    try { await decideReferral(r.id, outcome, reason); await onDone(); setChoice(""); setReason(""); }
+    try { await acknowledgeReferral(r.id); await onDone(); }
     catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
     finally { setBusy(false); }
   }
-
-  if (r.state === "accepted" || r.state === "declined") return <span>{r.decision_reason}</span>;
-  if (!choice) {
-    return (
-      <span className="row">
-        <button className="btn" disabled={busy} onClick={() => void send("accepted")}>Accept</button>{" "}
-        <button className="btn ghost" onClick={() => setChoice("needs_info")}>Ask for more</button>{" "}
-        <button className="btn ghost" onClick={() => setChoice("declined")}>Decline</button>
-        {r.decision_reason && <small style={{ display: "block" }}>You asked: {r.decision_reason}</small>}
-        {error && <small style={{ color: "var(--bad)", display: "block" }}>{error}</small>}
-      </span>
-    );
-  }
+  if (!open) return <span>{r.decision_reason}</span>;
   return (
     <span>
-      <input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} autoFocus
-        aria-label="Reason" placeholder={choice === "declined" ? "Why you cannot accept" : "What you need to know"}
-        style={{ padding: "7px 10px", border: "1px solid var(--line)", borderRadius: 8, background: "var(--bg)" }} />{" "}
-      <button className="btn" disabled={busy || !reason.trim()} onClick={() => void send(choice)}>
-        {choice === "declined" ? "Decline" : "Send question"}
-      </button>{" "}
-      <button className="btn ghost" onClick={() => setChoice("")}>Back</button>
+      {r.acknowledged_at
+        ? <small>Marked received {r.acknowledged_at.slice(0, 10)}. Only the doctor can accept.</small>
+        : <button className="btn ghost" disabled={busy} onClick={() => void mark()}>Mark received</button>}
+      {r.decision_reason && <small style={{ display: "block" }}>The doctor asked: {r.decision_reason}</small>}
       {error && <small style={{ color: "var(--bad)", display: "block" }}>{error}</small>}
     </span>
+  );
+}
+
+function WhoAnswers({ onChanged }: { onChanged: () => void }) {
+  const [box, setBox] = useState<ReferralInbox | null>(null);
+  const [owner, setOwner] = useState("");
+  const [fallback, setFallback] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void getReferralInbox().then((b) => { setBox(b); setOwner(b.owner?.id ?? ""); setFallback(b.fallback?.id ?? ""); })
+      .catch((e) => setError(e instanceof Error ? e.message : "Could not load"));
+  }, []);
+
+  async function save() {
+    setBusy(true); setError(""); setNote("");
+    try {
+      const b = await setReferralInbox(owner, fallback);
+      setBox(b); setNote("Saved. Referrals already waiting now go to this doctor."); onChanged();
+    } catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(false); }
+  }
+
+  if (!box) return error ? <div className="error" role="alert">{error}</div> : null;
+  return (
+    <Card title="Who answers referrals" sub="Accepting a patient is a doctor's decision. Name one doctor to answer, and a different doctor as the fallback.">
+      {!box.owner && <div className="notice" role="status">Nobody is named yet, so no referral can be accepted. {box.can_manage ? "Choose a doctor below." : "Ask your clinic administrator to name one."}</div>}
+      {box.owner && <p>Answers: <b>{box.owner.name || box.owner.id}</b>{box.fallback ? <> · Fallback: <b>{box.fallback.name || box.fallback.id}</b></> : <> · No fallback named</>}</p>}
+      {box.can_manage ? (
+        <div className="form-row">
+          <label>Doctor who answers
+            <select value={owner} onChange={(e) => setOwner(e.target.value)} aria-label="Doctor who answers referrals">
+              <option value="">Choose a doctor</option>
+              {box.doctors.map((d) => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
+            </select>
+          </label>{" "}
+          <label>Fallback
+            <select value={fallback} onChange={(e) => setFallback(e.target.value)} aria-label="Fallback doctor">
+              <option value="">No fallback</option>
+              {box.doctors.filter((d) => d.id !== owner).map((d) => <option key={d.id} value={d.id}>{d.name || d.id}</option>)}
+            </select>
+          </label>{" "}
+          <button className="btn" disabled={busy || !owner} onClick={() => void save()}>Save</button>
+        </div>
+      ) : <small>Only your clinic administrator can change this.</small>}
+      {error && <div className="error" role="alert">{error}</div>}
+      {note && <div className="success" role="status">{note}</div>}
+    </Card>
   );
 }
 
@@ -71,13 +102,14 @@ export function Referrals() {
     <>
       <div className="hero"><div>
         <h1>Referrals</h1>
-        <p>Patients that doctors have sent to your services. Accept, ask for more information, or decline: the patient and the doctor see your answer. {waiting > 0 ? `${waiting} waiting for a decision.` : ""}</p>
+        <p>Patients that doctors have sent to your services. You can mark one as received, which only says it was seen: the named doctor accepts, asks for more or declines, and the patient and the sending doctor see the answer. A referral nobody answers within 24 hours is flagged and goes to the fallback; it is never closed on its own. {waiting > 0 ? `${waiting} waiting for the doctor.` : ""}</p>
       </div></div>
       {error && <div className="error">{error}</div>}
       <div className="grid">
+        <WhoAnswers onChanged={() => void load()} />
         {rows === null ? <div className="notice">Loading…</div> : (
           <Card title={`Incoming referrals (${rows.length})`}>
-            <Table headers={["Patient", "For service", "From", "Urgency", "Reason", "Status", "Your decision"]}
+            <Table headers={["Patient", "For service", "From", "Urgency", "Reason", "Status", "Doctor", "Receipt"]}
               empty="No referrals have been sent to your services yet."
               rows={rows.map((r) => [
                 <Patient key="p" name={r.patient_name} id={r.patient} />,
@@ -85,8 +117,11 @@ export function Referrals() {
                 `${r.referrer.name} (${r.from_organization.name})`,
                 <Pill key="u" kind={r.urgency === "urgent" ? "bad" : "info"}>{r.urgency}</Pill>,
                 r.reason,
-                <Pill key="s" kind={STATE[r.state].kind}>{STATE[r.state].text}</Pill>,
-                <Decide key="d" r={r} onDone={load} />,
+                <span key="s"><Pill kind={STATE[r.state].kind}>{STATE[r.state].text}</Pill>
+                  {r.escalated && <small style={{ display: "block", color: "var(--bad)" }}>Not answered for over 24 hours: with the fallback doctor.</small>}
+                  {r.state === "declined" && <small style={{ display: "block" }}>Stays with {r.responsible.name || "the sending doctor"}.</small>}</span>,
+                r.owner ? (r.owner.name || r.owner.id) : <Pill key="o" kind="warn">Nobody named</Pill>,
+                <Receipt key="d" r={r} onDone={load} />,
               ])} />
           </Card>
         )}

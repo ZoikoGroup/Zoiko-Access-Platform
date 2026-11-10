@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import datetime as dt
 
-from django.conf import settings
-
 from foundation.cell_context import tenant_transaction
 from modules.messaging import api as messaging
 from modules.referral import api as referral
@@ -25,9 +23,9 @@ SYNC_EVERY_SECONDS = 600.0
 def sync_tenant() -> int:
     """Open the missing items of the bound customer. Returns how many things it looked at that
     are waiting (not how many it opened: opening twice changes nothing)."""
-    target = dt.timedelta(hours=settings.RESPONSE_TARGET_HOURS)
     seen = 0
     for org in trust.organization_names():
+        target = dt.timedelta(hours=trust.response_target_hours(org))
         for ref, since in scheduling.waiting_requests(org):
             open_item(organization_ref=org, kind=Kind.CONFIRM_BOOKING, subject_ref=ref,
                       due_at=since + target)

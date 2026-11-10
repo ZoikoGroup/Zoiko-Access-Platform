@@ -28,3 +28,6 @@ vault_local/
 # Frontend
 node_modules/
 dist/
+
+# local launcher page with demo passwords (scripts/dev_links.py)
+dev-links.html

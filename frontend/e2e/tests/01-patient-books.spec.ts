@@ -20,7 +20,7 @@ test("a patient books an appointment and sees it waiting for the clinic", async 
 
   await page.locator("button.slot").first().click();
   await page.getByRole("button", { name: "Confirm booking" }).click();
-  await expect(page.getByText("The clinic will confirm it.")).toBeVisible();
+  await expect(page.getByText("It is not confirmed until the clinic confirms it.")).toBeVisible();
 
   await page.getByRole("button", { name: "View appointments" }).click();
   const card = page.locator(".appt", { hasText: SERVICE }).filter({ hasText: "Waiting for the clinic" });

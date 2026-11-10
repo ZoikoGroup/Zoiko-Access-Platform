@@ -93,6 +93,7 @@ def test_waiting_cancelled_and_past_bookings_are_not_reminded(web):
     booked(web, 0, confirm=False)                           # not confirmed
     cancelled = booked(web, 1)
     web.post(f"bookings/{cancelled}/cancel", subject="pat")
+    web.post(f"bookings/{cancelled}/cancel", subject="desk")     # the clinic answers
     booked(web, 2, starts_in_hours=-2)                      # already started
     assert run(web) == 0
     assert reminders_in_inbox(web) == []
@@ -102,6 +103,7 @@ def test_a_booking_cancelled_after_the_reminder_was_queued_is_not_announced(web)
     booking = booked(web)
     run(web)                                                # reminder event queued, not delivered
     web.post(f"bookings/{booking}/cancel", subject="pat")
+    web.post(f"bookings/{booking}/cancel", subject="desk")       # the clinic answers
     notices = reminders_in_inbox(web)
     assert notices == []
 

@@ -6,6 +6,7 @@ import pytest
 from foundation.cell_context import tenant_transaction
 from foundation.timeutil import utc_now
 from modules.scheduling.models import Slot
+from tests.conftest import publish_service
 from tests.test_api import Web, book
 from tests.test_clinician import Practice
 
@@ -20,7 +21,9 @@ def dev_login(settings):
 
 @pytest.fixture
 def p():
-    return Practice()
+    practice = Practice()
+    practice.name_referral_owner()
+    return practice
 
 
 def report(p, subject="ops", days=None):
@@ -106,10 +109,11 @@ def test_referrals_waiting_list_and_messages_are_counted(p):
     made = p.post("services", {"organization": p.clinic.org, "name": "Cardiology",
                                "category": "cardiology", "duration_minutes": 30}, subject="ops")
     cardio = json.loads(made.content)["service"]["id"]
+    publish_service(p.clinic.ctx, cardio)
     sent = json.loads(p.post("clinician/referrals", {
         "patient": p.person, "service": cardio, "reason": "Chest pain", "urgency": "routine"},
         subject="doc").content)["referral"]["id"]
-    p.post(f"referrals/{sent}/decide", {"decision": "accepted"}, subject="ops")
+    p.post(f"referrals/{sent}/decide", {"decision": "accepted"}, subject="doc2")
     p.post("waitlist", {"service": cardio}, subject="pat")
     thread = json.loads(p.post("messages/threads", {"subject": "Hello", "body": "A question"},
                                subject="pat").content)["thread"]["id"]

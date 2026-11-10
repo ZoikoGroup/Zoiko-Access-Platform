@@ -41,7 +41,7 @@ for (const a of APPS) {
         const ctx = await browser.newContext();
         const p = await ctx.newPage();
         await p.goto({ staff: "http://localhost:5173", patient: "http://localhost:5174", doctor: "http://localhost:5176", platform: "http://localhost:5175" }[app] + "/");
-        await p.getByRole("button", { name: "Sign in", exact: true }).waitFor();
+        await p.getByRole("button", { name: "Log In", exact: true }).waitFor();
         await scan(p, `${app} sign-in`, found);
         await ctx.close();
       }

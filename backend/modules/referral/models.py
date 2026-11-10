@@ -40,6 +40,14 @@ class Referral(CellScopedModel):
     decided_by_ref = models.CharField(max_length=22, blank=True, default="")
     decision_reason = models.CharField(max_length=500, blank=True, default="")
     decided_at = models.DateTimeField(null=True, blank=True)
+    # Receiving side (GHE-14 WF-16, WF-17). Receipt by staff is not acceptance of care: it only
+    # says the referral was seen. The clinician who owns the inbox (or the fallback) decides.
+    owner_ref = models.CharField(max_length=22, blank=True, default="")
+    acknowledged_by_ref = models.CharField(max_length=22, blank=True, default="")
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    # Who holds clinical responsibility: the sender until a receiving clinician accepts (a decline
+    # leaves it with the sender). "" on older rows, which means the sender.
+    responsible_ref = models.CharField(max_length=22, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [
@@ -55,4 +63,21 @@ class Referral(CellScopedModel):
                 condition=Q(state__in=["issued", "needs_info"]),
                 name="referral_one_open_per_person_service",
             ),
+        ]
+
+
+class ReferralInbox(CellScopedModel):
+    """Who answers referrals sent to one clinic site: a named owner and a fallback (both doctors
+    there). Without an owner nobody can accept (DEV-109)."""
+
+    organization_ref = models.CharField(max_length=22)
+    owner_ref = models.CharField(max_length=22)
+    fallback_ref = models.CharField(max_length=22, blank=True, default="")
+    set_by_ref = models.CharField(max_length=22)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="refinbox_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "organization_ref"], name="referral_inbox_one_per_site"),
         ]

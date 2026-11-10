@@ -41,7 +41,7 @@ export function PatientCoverage({ person }: { person: string }) {
   }
 
   return (
-    <Card title="Insurance" sub="Member numbers are stored encrypted. Claims and checks with the insurer are not built yet.">
+    <Card title="Insurance" sub={'Member numbers are stored encrypted. "Dates current" only means the typed end date has not passed: nothing is checked with the insurer, and claims are not built yet.'}>
       {error && <div className="error" role="alert">{error}</div>}
       {rows !== null && !shared && (
         <div className="notice" role="status">
@@ -54,7 +54,7 @@ export function PatientCoverage({ person }: { person: string }) {
           empty="No insurance on file."
           rows={rows.map((c) => [
             c.insurer, c.plan || "-", `…${c.member_last4}`, c.valid_until ?? "no end date",
-            <Pill key="s" kind={c.in_force ? "ok" : "warn"}>{c.in_force ? "In force" : "Expired"}</Pill>,
+            <Pill key="s" kind={c.in_force ? "info" : "warn"}>{c.in_force ? "Dates current" : "Expired"}</Pill>,
             <button key="r" className="btn ghost" disabled={busy} onClick={() => void end(c.id)}>Remove</button>,
           ])} />
       )}

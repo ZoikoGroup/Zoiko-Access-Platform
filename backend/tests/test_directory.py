@@ -3,6 +3,7 @@ from urllib.parse import urlencode
 
 import pytest
 
+from tests.conftest import publish_service
 from tests.test_api import Web
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
@@ -34,6 +35,7 @@ def add(self, name, category, mode, description, slots_on):
         "duration_minutes": 20, "mode": mode, "description": description}, subject="desk")
     assert made.status_code == 201, made.content
     service = json.loads(made.content)["service"]["id"]
+    publish_service(self.clinic.ctx, service)
     if slots_on:
         r = self.post(f"services/{service}/slots", {
             "location": self.clinic.location, "first_local": f"{slots_on}T09:00:00", "count": 1},

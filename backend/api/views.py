@@ -28,6 +28,7 @@ from modules.evidence import api as evidence
 from modules.messaging import api as messaging
 from modules.policy import api as policy
 from modules.referral import api as referral
+from modules.safety import api as safety
 from modules.scheduling import api as scheduling
 from modules.trust import api as trust
 from modules.waitlist import api as waitlist
@@ -116,6 +117,7 @@ def _booking_json(
         "rescheduled_from": booking.get("rescheduled_from_ref") or None,
         "attendance": booking.get("attendance") or None,
         "cancel_reason": booking.get("cancel_reason") or None,
+        "pending_change": booking.get("pending_change") or None,
         "late": _waiting_too_long(booking),
     }
 
@@ -125,7 +127,8 @@ def _waiting_too_long(booking: dict[str, Any]) -> bool:
     if booking["status"] != "requested":
         return False
     waited = utc_now() - dt.datetime.fromisoformat(booking["created_at"])
-    return waited > dt.timedelta(hours=settings.RESPONSE_TARGET_HOURS)
+    target = trust.response_target_hours(booking["slot"]["organization_ref"])
+    return waited > dt.timedelta(hours=target)
 
 
 @endpoint("GET")
@@ -136,7 +139,8 @@ def me(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
         persons = trust.reachable_persons(auth.actor_public_id)
         email = trust.email_status(auth.actor_public_id)
         display_name = trust.display_name_of(auth.actor_public_id)
-        check = trust.name_check_states().get(auth.actor_public_id, {"state": "none"})
+        check = trust.name_check_states(only=auth.actor_public_id).get(
+            auth.actor_public_id, {"state": "none"})
     return JsonResponse({
         "actor": auth.actor_public_id, "type": auth.actor_type, "tenant": auth.tenant_name,
         "cell": auth.context.cell_id, "purpose": purpose_for(auth), "persons": persons,
@@ -155,7 +159,7 @@ def _service_json(s: dict[str, Any], orgs: dict[str, str]) -> dict[str, Any]:
     return {
         "id": s["public_id"], "name": s["name"], "category": s["category"],
         "description": s["description"], "duration_minutes": s["duration_minutes"],
-        "mode": s["mode"], "status": s["status"],
+        "mode": s["mode"], "status": s["status"], "listing_state": s["listing_state"],
         "organization": {"id": s["organization_ref"], "name": orgs.get(s["organization_ref"], "")},
         "next_slot": upcoming[0]["starts_at"] if upcoming else None,
         "next_slot_local": upcoming[0]["local_start"] if upcoming else None,
@@ -176,8 +180,15 @@ def services(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
             rows = [s for s in catalog.list_services(active_only=False)
                     if s["organization_ref"] == org]
             waiting = waitlist.waiting_counts(org or "")
+            labels = trust.actor_labels()
             return JsonResponse({"services": [
-                {**_service_json(s, orgs), "waiting": waiting.get(s["public_id"], 0)}
+                {**_service_json(s, orgs), "waiting": waiting.get(s["public_id"], 0),
+                 "listing": {
+                     "evidence_note": s["evidence_note"],
+                     "requested_by": labels.get(s["requested_by_ref"], ""),
+                     "reviewed_by": labels.get(s["reviewed_by_ref"], ""),
+                     "you_requested": s["requested_by_ref"] == auth.actor_public_id,
+                     "can_approve": "R13" in auth.roles}}
                 for s in rows]})
     _authorize(auth, "read:catalog", organization_public_id=_catalog_org(auth))
     with tenant_transaction():
@@ -261,6 +272,25 @@ def _location_json(row: dict[str, Any]) -> dict[str, Any]:
     return {"id": row["public_id"], "name": row["name"], "address": row["address"],
             "phone": row["phone"], "time_zone": row["time_zone"],
             "organization": row["organization_ref"]}
+
+
+@endpoint("POST")
+def service_listing(
+    request: HttpRequest, auth: trust.Authenticated, service_id: str
+) -> HttpResponse:
+    """Ask for a listing, review it, publish it or withdraw it (GHE-14 WF-04). A service can be
+    booked only once it is published. Reviewing, publishing and withdrawing are for a clinic
+    administrator, and never for the person who asked for the listing."""
+    body = json_body(request)
+    with tenant_transaction():
+        org = catalog.get_service(service_id)["organization_ref"]
+    decision = _authorize(auth, "write:catalog", organization_public_id=org)
+    with tenant_transaction():
+        row = catalog.change_listing(
+            service_id, text(body, "action"), note=text(body, "note", False),
+            actor_public_id=auth.actor_public_id, decision=decision)
+        out = _service_json(row, trust.organization_names())
+    return JsonResponse({"service": out})
 
 
 @endpoint("POST")
@@ -479,6 +509,9 @@ _EVENT_WORDS = {   # what the step is called, the same for everyone
     "requested": "Requested", "confirmed": "Confirmed", "cancelled": "Cancelled",
     "moved_away": "Moved to another time", "moved_here": "Booked as the new time",
     "attended": "Attended", "no_show": "Did not attend", "reminder_sent": "Reminder sent",
+    "cancel_requested": "Cancellation asked for: waiting for the clinic",
+    "change_requested": "New time asked for: waiting for the clinic",
+    "change_withdrawn": "Change not made: this appointment stays",
 }
 
 
@@ -704,7 +737,7 @@ def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
         }
         today = (scheduling.today_counts(org) if org else
                  {"confirmed": 0, "waiting": 0, "still_to_come": 0})
-        target = settings.RESPONSE_TARGET_HOURS
+        target = trust.response_target_hours(org) if org else settings.RESPONSE_TARGET_HOURS
         late = {
             "hours": target,
             "bookings": scheduling.overdue_requests(target),
@@ -860,7 +893,7 @@ def staff_provider_unverify(
     return JsonResponse({"name_check": done})
 
 
-@endpoint("GET")
+@endpoint("GET", "POST")
 def staff_settings(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """The rules this deployment runs by (read only), and how many people would get the daily
     late-work email, so staff can see when nobody would. Numbers only: no addresses."""
@@ -868,10 +901,22 @@ def staff_settings(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
     if org is None:
         raise ZoikoError(ErrorCode.POLICY_DENIED)
     _authorize(auth, "read:analytics", organization_public_id=org)
+    if request.method == "POST":
+        # Only the clinic's administrator sets its own response target (1 to 168 hours, or null
+        # to go back to the service default).
+        if "R13" not in auth.roles:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        _authorize(auth, "write:staff", organization_public_id=org)
+        hours = json_body(request).get("hours")
+        with tenant_transaction():
+            trust.set_response_target(org, hours, by=auth.actor_public_id)
     with tenant_transaction():
         recipients = len(trust.verified_emails_for_role(org, "R04"))
+        target = trust.response_target_hours(org)
     return JsonResponse({
-        "response_target_hours": settings.RESPONSE_TARGET_HOURS,
+        "response_target_hours": target,
+        "response_target_default": settings.RESPONSE_TARGET_HOURS,
+        "can_set_target": "R13" in auth.roles,
         "reminder_lead_hours": settings.REMINDER_LEAD_HOURS,
         "waitlist_offer_hours": settings.WAITLIST_OFFER_HOURS,
         "late_email_recipients": recipients,
@@ -983,7 +1028,8 @@ def platform_overview(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
         latest = trust.list_releases(limit=1)
     platform_work = {
         "open_incidents": len(incidents),
-        "high_incidents": sum(1 for i in incidents if i["severity"] == "high"),
+        # Open incidents that are SEV-0 or SEV-1 (the key keeps its older name "high").
+        "high_incidents": sum(1 for i in incidents if i["severity"] in ("sev0", "sev1")),
         "suspensions_waiting": len(waiting),
         "latest_release": (
             {"version": latest[0]["version"], "released_on": latest[0]["released_on"]}
@@ -1071,6 +1117,95 @@ def platform_incidents(request: HttpRequest, auth: trust.Authenticated) -> HttpR
         rows = trust.list_incidents()
         labels = trust.actor_labels()
     return JsonResponse({"incidents": [_incident_json(r, labels) for r in rows]})
+
+
+def _safety_officer(auth: trust.Authenticated) -> str | None:
+    """TEMPORARY RULE (DEV-103): hazards are decided only by a safety officer (R12); support (R11)
+    may read. The module makes sure whoever assesses a hazard never reviews or accepts it."""
+    org = _platform_only(auth)
+    if "R12" not in auth.roles:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    return org
+
+
+@endpoint("GET")
+def platform_hazards(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The hazard register (support and safety staff read it). Seeded hazards appear on use."""
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        safety.ensure_seed(auth.actor_public_id)
+        rows = safety.list_hazards()
+        labels = trust.actor_labels()
+    for row in rows:
+        for key in ("assessed_by", "reviewer", "owner"):
+            row[key] = labels.get(row[key], "") if row[key] else ""
+    return JsonResponse({"me": auth.actor_public_id, "can_decide": "R12" in auth.roles,
+                         "hazards": rows})
+
+
+@endpoint("GET")
+def platform_hazard_history(
+    request: HttpRequest, auth: trust.Authenticated, hazard_id: str
+) -> HttpResponse:
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        steps = safety.history(hazard_id)
+        labels = trust.actor_labels()
+    return JsonResponse({"steps": [{**s, "by": labels.get(s["by"], "")} for s in steps]})
+
+
+@endpoint("POST")
+def platform_hazard_assess(
+    request: HttpRequest, auth: trust.Authenticated, hazard_id: str
+) -> HttpResponse:
+    _safety_officer(auth)
+    body = json_body(request)
+    with tenant_transaction():
+        made = safety.assess(
+            hazard_id, actor_ref=auth.actor_public_id, severity=body.get("severity"),
+            probability=body.get("probability"), basis_method=body.get("basis_method"),
+            residual_risk=body.get("residual_risk"), owner_ref=auth.actor_public_id,
+            hazardous_situation=body.get("hazardous_situation", ""),
+            exposure_path=body.get("exposure_path", ""),
+            affected_groups=body.get("affected_groups", ""),
+            linked_build=body.get("linked_build", ""))
+    return JsonResponse({"hazard": made})
+
+
+@endpoint("POST")
+def platform_hazard_review(
+    request: HttpRequest, auth: trust.Authenticated, hazard_id: str
+) -> HttpResponse:
+    _safety_officer(auth)
+    body = json_body(request)
+    with tenant_transaction():
+        made = safety.review(hazard_id, actor_ref=auth.actor_public_id,
+                             verdict=body.get("verdict"), note=body.get("note", ""))
+    return JsonResponse({"hazard": made})
+
+
+@endpoint("POST")
+def platform_hazard_accept(
+    request: HttpRequest, auth: trust.Authenticated, hazard_id: str
+) -> HttpResponse:
+    _safety_officer(auth)
+    body = json_body(request)
+    with tenant_transaction():
+        made = safety.accept(hazard_id, actor_ref=auth.actor_public_id, note=body.get("note", ""))
+    return JsonResponse({"hazard": made})
+
+
+@endpoint("POST")
+def platform_hazard_retire(
+    request: HttpRequest, auth: trust.Authenticated, hazard_id: str
+) -> HttpResponse:
+    _safety_officer(auth)
+    body = json_body(request)
+    with tenant_transaction():
+        made = safety.retire(hazard_id, actor_ref=auth.actor_public_id, reason=body.get("reason"))
+    return JsonResponse({"hazard": made})
 
 
 @endpoint("POST")
@@ -1550,6 +1685,9 @@ def _thread_json(t: dict[str, Any], staff: bool) -> dict[str, Any]:
         "id": t["public_id"], "subject": t["subject"], "status": t["status"],
         "patient": t["person_ref"], "last_message_at": t["last_message_at"],
         "unread": t["staff_unread"] if staff else t["patient_unread"],
+        # What THIS login has not opened (others' replies or openings never clear it for them).
+        "unread_for_me": t.get("unread_for_me",
+                               t["staff_unread"] if staff else t["patient_unread"]),
     }
 
 
@@ -1585,13 +1723,16 @@ def message_threads(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
         if org is None or not is_allowed(auth, "read:comms", organization_public_id=org):
             return JsonResponse({"threads": []})
         with tenant_transaction():
-            rows = messaging.list_threads(organization_ref=org)
+            rows = messaging.list_threads(
+                organization_ref=org, viewer_ref=auth.actor_public_id, viewer_side="staff")
     else:
         with tenant_transaction():
             reachable = trust.reachable_persons(auth.actor_public_id)
         persons = [p for p in reachable if is_allowed(auth, "read:comms", subject_ref=p)]
         with tenant_transaction():
-            rows = messaging.list_threads(person_refs=persons) if persons else []
+            rows = messaging.list_threads(
+                person_refs=persons, viewer_ref=auth.actor_public_id,
+                viewer_side="patient") if persons else []
     out = [_thread_json(t, staff) for t in rows]
     if staff:
         _add_names(auth, out, "patient")          # staff see the name where allowed
@@ -1619,7 +1760,8 @@ def message_thread(
     staff = _is_staff(auth)
     _thread_access(auth, thread_id, "read:comms")
     with tenant_transaction():
-        opened = messaging.open_thread(thread_id, side="staff" if staff else "patient")
+        opened = messaging.open_thread(
+            thread_id, side="staff" if staff else "patient", viewer_ref=auth.actor_public_id)
         labels = trust.actor_labels()
     out = _thread_json(opened["thread"], staff)
     if staff:
@@ -1627,6 +1769,9 @@ def message_thread(
     out["messages"] = [
         {"id": m["public_id"], "side": m["side"], "body": m["body"], "at": m["at"],
          "mine": m["author_ref"] == auth.actor_public_id,
+         # When the OTHER side first opened a message written by this reader's own side. It says
+         # a person opened it: not that it was understood, and never a clinical review.
+         "seen_at": m["seen_at"] if m["side"] == ("staff" if staff else "patient") else None,
          "from": labels.get(m["author_ref"], "") if m["side"] == "staff" else ""}
         for m in opened["messages"]]
     return JsonResponse({"thread": out})
@@ -1663,6 +1808,7 @@ def _family_json(g: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": g["public_id"], "status": g["status"], "relationship": g["relationship"],
         "person": g["person_ref"], "name": g["name"], "birth_date": g["birth_date"],
+        "scopes": g.get("scopes", []),
         "valid_until": g["valid_until"], "requested_at": g["created_at"],
     }
 
@@ -1710,11 +1856,17 @@ def staff_family_requests(request: HttpRequest, auth: trust.Authenticated) -> Ht
         rows = trust.pending_family_requests()
         labels = trust.actor_labels()
         owns = {g["delegate_ref"]: trust.own_person_of(g["delegate_ref"]) for g in rows}
+        approved = trust.approved_family_grants()
+        for g in approved:
+            owns.setdefault(g["delegate_ref"], trust.own_person_of(g["delegate_ref"]))
     names = _names(auth, {p for p in owns.values() if p})
-    return JsonResponse({"requests": [
-        {**_family_json(g), "requested_by": labels.get(g["delegate_ref"], ""),
-         "requested_by_name": names.get(owns.get(g["delegate_ref"], "")) or None}
-        for g in rows]})
+
+    def shown(g: dict[str, Any]) -> dict[str, Any]:
+        return {**_family_json(g), "requested_by": labels.get(g["delegate_ref"], ""),
+                "requested_by_name": names.get(owns.get(g["delegate_ref"], "")) or None}
+
+    return JsonResponse({"requests": [shown(g) for g in rows],
+                         "approved": [shown(g) for g in approved]})
 
 
 def _decide_family(
@@ -1733,6 +1885,8 @@ def _decide_family(
             done = trust.approve_family_member(
                 grant_ref=grant_id, approver_public_id=auth.actor_public_id, decision=decision,
                 organization_public_id=org, verified=body.get("verified") is True,
+                scopes=[s for s in body.get("scopes", []) if isinstance(s, str)]
+                if isinstance(body.get("scopes"), list) else None,
                 valid_until=text(body, "valid_until", False))
         else:
             done = trust.reject_family_member(
@@ -1746,6 +1900,67 @@ def staff_family_approve(
     request: HttpRequest, auth: trust.Authenticated, grant_id: str
 ) -> HttpResponse:
     return _decide_family(request, auth, grant_id, approve=True)
+
+
+def _family_step(
+    request: HttpRequest, auth: trust.Authenticated, grant_id: str, step: str
+) -> HttpResponse:
+    """A staff step on a guardian request or link: ask for proof, mark it in, pause, resume."""
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    body = json_body(request)
+    with tenant_transaction():
+        grant = trust.get_family_grant(grant_id)
+    decision = _authorize(auth, "write:person", organization_public_id=org,
+                          subject_ref=grant["person_ref"])
+    me = auth.actor_public_id
+    with tenant_transaction():
+        if step == "proof-needed":
+            done = trust.ask_for_proof(
+                grant_ref=grant_id, approver_public_id=me, decision=decision,
+                organization_public_id=org)
+        elif step == "proof-received":
+            done = trust.mark_proof_received(
+                grant_ref=grant_id, approver_public_id=me, decision=decision,
+                organization_public_id=org)
+        elif step == "suspend":
+            done = trust.suspend_family_member(
+                grant_ref=grant_id, approver_public_id=me, decision=decision,
+                organization_public_id=org, reason=text(body, "reason", False))
+        else:
+            done = trust.resume_family_member(
+                grant_ref=grant_id, approver_public_id=me, decision=decision,
+                organization_public_id=org)
+    return JsonResponse({"request": _family_json(done)})
+
+
+@endpoint("POST")
+def staff_family_proof_needed(
+    request: HttpRequest, auth: trust.Authenticated, grant_id: str
+) -> HttpResponse:
+    return _family_step(request, auth, grant_id, "proof-needed")
+
+
+@endpoint("POST")
+def staff_family_proof_received(
+    request: HttpRequest, auth: trust.Authenticated, grant_id: str
+) -> HttpResponse:
+    return _family_step(request, auth, grant_id, "proof-received")
+
+
+@endpoint("POST")
+def staff_family_suspend(
+    request: HttpRequest, auth: trust.Authenticated, grant_id: str
+) -> HttpResponse:
+    return _family_step(request, auth, grant_id, "suspend")
+
+
+@endpoint("POST")
+def staff_family_resume(
+    request: HttpRequest, auth: trust.Authenticated, grant_id: str
+) -> HttpResponse:
+    return _family_step(request, auth, grant_id, "resume")
 
 
 @endpoint("POST")
@@ -1911,6 +2126,11 @@ def coverage_end(
         done = coverage.end_coverage(
             coverage_ref=coverage_id, actor_public_id=auth.actor_public_id, decision=decision,
             organization_public_id=org)
+        person = current["person_ref"]
+        own = person in trust.reachable_persons(auth.actor_public_id)
+        shared = own or coverage.shared_with_staff([person])[person]
+    if not shared:        # staff may remove it, but may not read it: no details in the answer
+        return JsonResponse({"coverage": {"id": done["public_id"], "status": done["status"]}})
     return JsonResponse({"coverage": _coverage_json(done)})
 
 
@@ -2009,6 +2229,11 @@ def _referral_json(
         "urgency": r["urgency"], "reason": r["reason"],
         "decision_reason": r["decision_reason"], "decided_at": r["decided_at"],
         "created_at": r["created_at"],
+        "acknowledged_at": r["acknowledged_at"], "escalated": r["escalated"],
+        "owner": ({"id": r["owner_ref"], "name": labels.get(r["owner_ref"], "")}
+                  if r["owner_ref"] else None),
+        "responsible": {"id": r["responsible_ref"],
+                        "name": labels.get(r["responsible_ref"], "")},
         "referrer": {"id": r["referrer_ref"], "name": labels.get(r["referrer_ref"], "")},
         "from_organization": {"id": r["from_organization_ref"],
                               "name": orgs.get(r["from_organization_ref"], "")},
@@ -2069,7 +2294,9 @@ def referrals_incoming(request: HttpRequest, auth: trust.Authenticated) -> HttpR
 def referral_decide(
     request: HttpRequest, auth: trust.Authenticated, referral_id: str
 ) -> HttpResponse:
-    _staff_only(auth)
+    """Accept, ask for more, or decline. Only the named owner of the receiving inbox, or the
+    fallback, who is a doctor (the domain re-checks all of this)."""
+    _clinician_only(auth)
     body = json_body(request)
     with tenant_transaction():
         current = referral.get_referral(referral_id)
@@ -2082,6 +2309,69 @@ def referral_decide(
             reason=text(body, "reason", required=False),
             actor_public_id=auth.actor_public_id, decision=decision)
     return JsonResponse({"referral": _referrals_out([done], auth)[0]})
+
+
+@endpoint("POST")
+def referral_acknowledge(
+    request: HttpRequest, auth: trust.Authenticated, referral_id: str
+) -> HttpResponse:
+    """Receiving staff mark a referral as received. This does not accept care."""
+    _staff_only(auth)
+    with tenant_transaction():
+        current = referral.get_referral(referral_id)
+    decision = _authorize(
+        auth, "write:referral", organization_public_id=current["destination_organization_ref"],
+        subject_ref=current["person_ref"])
+    with tenant_transaction():
+        done = referral.acknowledge(
+            referral_ref=referral_id, actor_public_id=auth.actor_public_id, decision=decision)
+    return JsonResponse({"referral": _referrals_out([done], auth)[0]})
+
+
+@endpoint("GET")
+def clinician_referral_inbox(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Referrals this doctor is named to answer, as owner or as the fallback."""
+    _clinician_only(auth)
+    with tenant_transaction():
+        rows = referral.list_for_answerer(auth.actor_public_id)
+    allowed = {p for p in sorted({r["person_ref"] for r in rows})
+               if is_allowed(auth, "read:referral", subject_ref=p)}
+    return JsonResponse({"referrals": _referrals_out(
+        [r for r in rows if r["person_ref"] in allowed], auth)})
+
+
+@endpoint("GET", "POST")
+def staff_referral_inbox(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Who answers referrals sent to this clinic site. GET: the current owner and fallback and
+    the doctors who could be named. POST (clinic administrator only): name them."""
+    _staff_only(auth)
+    org = _catalog_org(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    if request.method == "POST":
+        body = json_body(request)
+        decision = _authorize(auth, "write:referral", organization_public_id=org)
+        with tenant_transaction():
+            referral.set_inbox(
+                organization_ref=org, owner_ref=text(body, "owner"),
+                fallback_ref=text(body, "fallback", required=False),
+                actor_public_id=auth.actor_public_id, decision=decision)
+    else:
+        _authorize(auth, "read:referral", organization_public_id=org)
+    with tenant_transaction():
+        box = referral.inbox_dict(org)
+        labels = trust.actor_labels()
+        doctors = trust.clinicians_at(org)
+
+    def who(ref: str) -> dict[str, str] | None:
+        return {"id": ref, "name": labels.get(ref, "")} if ref else None
+
+    return JsonResponse({
+        "owner": who(box["owner_ref"]) if box else None,
+        "fallback": who(box["fallback_ref"]) if box else None,
+        "doctors": [{"id": d, "name": labels.get(d, "")} for d in doctors],
+        "can_manage": "R13" in auth.roles,
+    })
 
 
 @endpoint("GET")

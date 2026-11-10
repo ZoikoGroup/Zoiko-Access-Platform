@@ -56,6 +56,10 @@ class Tenant(models.Model):
 class Organization(CellScopedModel):
     name = models.CharField(max_length=200)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
+    # How long this clinic aims to take to answer a booking, message or referral (DEV-120). Empty
+    # means the service-wide default (RESPONSE_TARGET_HOURS). The specification says there is no
+    # universal timeout: each clinic's own target is what "late" means for it.
+    response_target_hours = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="org_scope_idx")]
@@ -200,6 +204,9 @@ class CareRelationship(CellScopedModel):
     valid_until = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
     contested = models.BooleanField(default=False)  # a contested link counts as no link
+    # The site (organization) where the care happens. A link with a site counts only while the
+    # clinician still holds a care role at that site. "" = an older link tied to no site.
+    organization_ref = models.CharField(max_length=22, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [
@@ -208,10 +215,40 @@ class CareRelationship(CellScopedModel):
         ]
 
 
+class PersonSite(CellScopedModel):
+    """This patient is connected to this clinic site: they booked, were referred, joined a waiting
+    list, wrote to it, or a doctor there treats them. Clinic staff may deal only with patients
+    connected to their own site (audit item 1, DEV-107)."""
+
+    person = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="sites")
+    organization_ref = models.CharField(max_length=22)
+    reason = models.CharField(max_length=16)  # booking, referral, waitlist, message, care
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="personsite_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "person", "organization_ref"], name="personsite_unique"),
+        ]
+
+
 class ProxyStatus(models.TextChoices):
+    """The specification's relationship-grant statuses (GHE-06): proposed, proof required, approval
+    pending, active, rejected, suspended, revoked, expired. EXPIRED is worked out when a grant is
+    read (an active grant past its end date), never stored."""
+
     PROPOSED = "proposed", "Proposed"
+    PROOF_REQUIRED = "proof_required", "Proof required"
+    APPROVAL_PENDING = "approval_pending", "Approval pending"
     ACTIVE = "active", "Active"
+    REJECTED = "rejected", "Rejected"
+    SUSPENDED = "suspended", "Suspended"
     REVOKED = "revoked", "Revoked"
+    EXPIRED = "expired", "Expired"
+
+
+# A grant is "waiting for the clinic" in any of these. It gives access to nothing.
+PENDING_STATES = (ProxyStatus.PROPOSED, ProxyStatus.PROOF_REQUIRED, ProxyStatus.APPROVAL_PENDING)
 
 
 class ProxyGrant(CellScopedModel):
@@ -220,6 +257,9 @@ class ProxyGrant(CellScopedModel):
     delegate = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="+")
     person = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="proxy_grants")
     relationship_type = models.CharField(max_length=32)  # parent, guardian, caregiver...
+    # What this delegate may do for the person (GHE-06 W05, AT-18): a list of scopes such as
+    # "appointments", "messages", "referrals", "insurance". Empty = nothing beyond the name.
+    rights = models.JSONField(default=list)
     status = models.CharField(
         max_length=16, choices=ProxyStatus.choices, default=ProxyStatus.PROPOSED
     )
@@ -308,10 +348,14 @@ class ReleaseNote(CellScopedModel):
 
 
 class IncidentSeverity(models.TextChoices):
-    # Provisional labels: the real severity scale is undecided (DEV-014).
-    LOW = "low", "Low"
-    MEDIUM = "medium", "Medium"
-    HIGH = "high", "High"
+    """GHE-20's proposed internal scale (DEV-014, DEV-118). The documents disagree on one scale
+    (GHE-09, GHE-18 and GHE-20 each differ); GHE-20 is the only one that says what each level
+    means, so it is used until the owners choose. Not a legal "notifiable incident" definition."""
+
+    SEV0 = "sev0", "SEV-0: patient safety, a large unlawful disclosure, or a systemic compromise"
+    SEV1 = "sev1", "SEV-1: a major regional loss or a critical workflow failure"
+    SEV2 = "sev2", "SEV-2: a partial service degradation"
+    SEV3 = "sev3", "SEV-3: a minor operational issue"
 
 
 class IncidentStatus(models.TextChoices):

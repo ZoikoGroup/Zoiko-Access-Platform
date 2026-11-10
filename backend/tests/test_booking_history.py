@@ -71,12 +71,16 @@ def test_confirming_cancelling_and_the_order_of_a_full_story(p):
     booking, _ = booked(p)
     p.post(f"bookings/{booking}/confirm", subject="ops")
     p.post(f"bookings/{booking}/cancel", {"reason": "schedule_conflict"}, subject="pat")
+    asked = history(p, booking)["events"][-1]            # the patient only ASKS (T-26)
+    assert asked["event"] == "cancel_requested" and asked["who"] == "You or your family"
+    assert asked["reason"] == "schedule_conflict"
+    p.post(f"bookings/{booking}/cancel", subject="ops")  # the clinic answers
     assert steps(p, booking) == [
         ("requested", "", "requested"), ("confirmed", "requested", "confirmed"),
-        ("cancelled", "confirmed", "cancelled")]
+        ("cancel_requested", "confirmed", "confirmed"), ("cancelled", "confirmed", "cancelled")]
     last = history(p, booking)["events"][-1]
-    assert last["reason"] == "schedule_conflict" and last["who"] == "You or your family"
-    assert [e["seq"] for e in history(p, booking)["events"]] == [1, 2, 3]
+    assert last["reason"] == "schedule_conflict" and last["who"] == "The clinic"
+    assert [e["seq"] for e in history(p, booking)["events"]] == [1, 2, 3, 4]
 
 
 def test_a_cancellation_by_the_clinic_is_marked_as_the_clinic(p):
@@ -100,7 +104,7 @@ def test_repeating_a_step_that_changes_nothing_adds_nothing(p):
     p.post(f"bookings/{booking}/confirm", subject="ops")
     p.post(f"bookings/{booking}/cancel", subject="pat")
     p.post(f"bookings/{booking}/cancel", {"reason": "other"}, subject="pat")
-    assert [s[0] for s in steps(p, booking)] == ["requested", "confirmed", "cancelled"]
+    assert [s[0] for s in steps(p, booking)] == ["requested", "confirmed", "cancel_requested"]
 
 
 def test_a_refused_step_writes_nothing(p):
@@ -118,12 +122,15 @@ def test_moving_an_appointment_writes_a_step_on_both_bookings(p):
     r = p.post(f"bookings/{old}/reschedule", {"slot": target}, subject="pat")
     assert r.status_code in (200, 201), r.content
     new = json.loads(r.content)["booking"]["id"]
-    assert steps(p, old) == [
+    assert steps(p, old) == [                    # the original stays until the clinic answers
         ("requested", "", "requested"), ("confirmed", "requested", "confirmed"),
-        ("moved_away", "confirmed", "cancelled")]
-    assert steps(p, new) == [("moved_here", "", "requested")]
-    assert history(p, new)["events"][0]["text"] == "Booked as the new time"
-    assert rows(p, old)[-1].related_ref == new and rows(p, new)[0].related_ref == old
+        ("change_requested", "confirmed", "confirmed")]
+    assert steps(p, new) == [("requested", "", "requested")]
+    p.post(f"bookings/{new}/confirm", subject="ops")
+    assert steps(p, old)[-1] == ("moved_away", "confirmed", "cancelled")
+    assert steps(p, new)[-1] == ("moved_here", "confirmed", "confirmed")
+    assert history(p, new)["events"][-1]["text"] == "Booked as the new time"
+    assert rows(p, old)[-1].related_ref == new and rows(p, new)[-1].related_ref == old
 
 
 def test_attendance_and_its_correction_are_both_kept(p):

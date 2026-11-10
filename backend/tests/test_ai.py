@@ -485,3 +485,85 @@ def test_the_app_role_sees_only_its_own_tenants_ai_rows(ctx_a, ctx_b):
 
 def test_the_forbidden_list_is_exactly_what_the_docs_say():
     assert ai.FORBIDDEN_TOOLS == {"order_medication", "release_critical_result"}
+
+
+def test_a_change_review_goes_to_validation_if_material_or_back_to_authorized_if_not(ctx_a):
+    """GHE-23: CHANGE_REVIEW -> VALIDATION (if material) or AUTHORIZED (approved, not material)."""
+    p = live(ctx_a)
+    with tenant_transaction(ctx_a):
+        under = ai.advance(
+            p["id"], "CHANGE_REVIEW", actor_ref="lead", reason="new wording", clock=CLOCK
+        )
+        assert under["approvers"] == 0  # the old sign-offs do not carry over
+        with pytest.raises(ZoikoError) as stopped:  # nothing runs while a change is under review
+            ai.run(
+                ai.REPLY_DRAFT,
+                actor_ref="staff",
+                purpose_code="reply",
+                input_text="hi",
+                clock=CLOCK,
+            )
+        assert code(stopped) == ErrorCode.POLICY_DENIED
+        with pytest.raises(ZoikoError) as skipped:  # the old shortcut is not in the specification
+            ai.advance(p["id"], "RELEASE_REVIEW", actor_ref="lead", clock=CLOCK)
+        assert code(skipped) == ErrorCode.CONFLICT_VERSION
+        with pytest.raises(
+            ZoikoError
+        ) as unsigned:  # approving it as not material needs fresh signers
+            ai.advance(p["id"], "AUTHORIZED", actor_ref="lead", expiry=LATER, clock=CLOCK)
+        assert code(unsigned) == ErrorCode.POLICY_DENIED
+        ai.sign_off(p["id"], actor_ref="legal")
+        ai.sign_off(p["id"], actor_ref="clinical")
+        back = ai.advance(p["id"], "AUTHORIZED", actor_ref="lead", expiry=LATER, clock=CLOCK)
+        assert back["state"] == "AUTHORIZED"
+        ran = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+        assert ran["decision"] == "HUMAN_REVIEW"
+
+
+def test_a_material_change_goes_back_to_validation_and_must_climb_the_whole_path_again(ctx_a):
+    p = live(ctx_a)
+    with tenant_transaction(ctx_a):
+        ai.advance(p["id"], "CHANGE_REVIEW", actor_ref="lead", reason="new model", clock=CLOCK)
+        assert (
+            ai.advance(p["id"], "VALIDATION", actor_ref="lead", clock=CLOCK)["state"]
+            == "VALIDATION"
+        )
+        with pytest.raises(ZoikoError) as shortcut:  # no jump straight back to authorized
+            authorize(p)
+        assert code(shortcut) == ErrorCode.CONFLICT_VERSION
+        for state in ("SANDBOX", "SHADOW", "RELEASE_REVIEW"):
+            ai.advance(p["id"], state, actor_ref="creator", clock=CLOCK)
+        assert authorize(p)["state"] == "AUTHORIZED"
+
+
+def test_a_provider_that_is_not_the_approved_model_is_refused_before_it_is_called(ctx_a):
+    live(ctx_a)  # the permit pins model "a"*64, prompt "b"*64
+    called = []
+
+    def answer(_text):
+        called.append(1)
+        return "reply"
+
+    with tenant_transaction(ctx_a):
+        ai.register_provider(ai.REPLY_DRAFT, answer, model_digest="c" * 64, prompt_digest="b" * 64)
+        wrong_model = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+        ai.register_provider(ai.REPLY_DRAFT, answer, model_digest="a" * 64, prompt_digest="c" * 64)
+        wrong_prompt = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+        for r in (wrong_model, wrong_prompt):
+            assert (
+                r["decision"] == "REJECTED"
+                and r["output"] == ""
+                and "digest_mismatch" in r["flags"]
+            )
+        assert called == []  # never called
+        ai.register_provider(ai.REPLY_DRAFT, answer, model_digest="a" * 64, prompt_digest="b" * 64)
+        ok = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+        assert ok["decision"] == "HUMAN_REVIEW" and ok["output"] == "reply" and called == [1]
