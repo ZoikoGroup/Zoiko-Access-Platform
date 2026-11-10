@@ -31,3 +31,6 @@ dist/
 
 # local launcher page with demo passwords (scripts/dev_links.py)
 dev-links.html
+dev_docs/
+scripts/start-all.ps1
+scripts/stop-all.ps1
