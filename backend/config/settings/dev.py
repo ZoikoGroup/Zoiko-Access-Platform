@@ -2,3 +2,6 @@ from .base import *  # noqa: F403
 
 DEBUG = True
 DEV_AUTH_STUB = True
+CONNECTOR_SIMULATOR = True
+WEBHOOK_ALLOW_INSECURE = True
+WEBHOOK_ALLOW_PRIVATE = True

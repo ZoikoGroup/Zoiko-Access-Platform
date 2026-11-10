@@ -1,0 +1,35 @@
+{
+  "key": "J1.booking",
+  "version": 1,
+  "initial": "requested",
+  "states": {
+    "requested": {"owner": "clinic"},
+    "confirmed": {"owner": "clinic"},
+    "attended": {"owner": "clinic"},
+    "missed": {"owner": "clinic"},
+    "cancelled": {"owner": "clinic"}
+  },
+  "terminal": {"attended": "completed", "missed": "completed", "cancelled": "cancelled"},
+  "transitions": {
+    "confirm": {
+      "from": ["requested"], "to": "confirmed",
+      "guards": ["human_actor"], "requires_evidence": ["source_confirmed_outcome"]
+    },
+    "cancel": {
+      "from": ["requested", "confirmed"], "to": "cancelled",
+      "guards": ["human_actor"]
+    },
+    "attend": {
+      "from": ["confirmed"], "to": "attended",
+      "guards": ["actor_is_owner"], "requires_evidence": ["professional_acknowledgment"]
+    },
+    "miss": {
+      "from": ["confirmed"], "to": "missed",
+      "guards": ["actor_is_owner"], "requires_evidence": ["professional_acknowledgment"]
+    }
+  },
+  "timers": {
+    "confirm_by": {"state": "requested", "after_minutes": 1440},
+    "attendance_by": {"state": "confirmed", "after_minutes": 10080}
+  }
+}

@@ -63,6 +63,9 @@ INSTALLED_APPS = [
     "modules.messaging",
     "modules.comms",
     "modules.evidence",
+    "modules.packs",
+    "modules.connector",
+    "modules.developer",
 ]
 
 MIDDLEWARE = [
@@ -139,6 +142,16 @@ REMINDER_LEAD_HOURS = int(env("REMINDER_LEAD_HOURS", "24"))
 WAITLIST_OFFER_HOURS = int(env("WAITLIST_OFFER_HOURS", "24"))
 # The clinic's response target: a booking or message waiting longer than this is flagged late.
 RESPONSE_TARGET_HOURS = int(env("RESPONSE_TARGET_HOURS", "24"))
+# --- Partner connectors, webhooks, country packs -------------------------------------------------
+# Trusted public keys for signed country packs: "id:base64(32 bytes),id:base64(...)". Empty means no
+# pack is trusted, so every capability stays off (fail closed). The private halves never enter a cell.
+PACK_PUBLIC_KEYS = env("ZOIKO_PACK_PUBLIC_KEYS", "")
+# The pretend partner for building and testing connectors. Development only (release_check).
+CONNECTOR_SIMULATOR = False
+# Webhook addresses must be public https. Development may allow plain http and private addresses.
+WEBHOOK_ALLOW_INSECURE = False
+WEBHOOK_ALLOW_PRIVATE = False
+
 PATIENT_APP_URL = env("PATIENT_APP_URL", "http://localhost:5174").rstrip("/")
 STAFF_APP_URL = env("STAFF_APP_URL", "http://localhost:5173").rstrip("/")
 CLINICIAN_APP_URL = env("CLINICIAN_APP_URL", "http://localhost:5176").rstrip("/")

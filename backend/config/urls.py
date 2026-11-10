@@ -3,6 +3,7 @@ from django.urls import include, path
 urlpatterns = [
     path("", include("foundation.urls")),
     path("api/v1/", include("api.urls")),
+    path("api/public/v1/", include("api.public_urls")),
 ]
 
 # The hand-operated dev console. Every view refuses (404) unless DEBUG and DEV_AUTH_STUB are on.

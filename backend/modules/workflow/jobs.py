@@ -14,10 +14,12 @@ from modules.referral import api as referral
 from modules.scheduling import api as scheduling
 from modules.trust import api as trust
 
+from .engine import engine
 from .models import Kind
 from .services import open_item
 
 SYNC_EVERY_SECONDS = 600.0
+TIMERS_EVERY_SECONDS = 30.0
 
 
 def sync_tenant() -> int:
@@ -50,4 +52,15 @@ def sync_all_tenants() -> int:
             continue
         with tenant_transaction(trust.context_for(tenant["public_id"])):
             total += sync_tenant()
+    return total
+
+
+def fire_timers_all_tenants() -> int:
+    """Raise an exception for every journey deadline that has run out, for every active customer."""
+    total = 0
+    for tenant in trust.list_tenants():
+        if tenant["status"] != "active":
+            continue
+        with tenant_transaction(trust.context_for(tenant["public_id"])):
+            total += engine.fire_due_timers()
     return total

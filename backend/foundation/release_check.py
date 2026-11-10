@@ -63,6 +63,13 @@ def release_problems(conf: Any = settings) -> list[str]:
         problems.append("email still goes to a development inbox (EMAIL_HOST, EMAIL_PORT)")
     if getattr(conf, "ZOIKO_BUILD", "").strip().lower() in ("", "dev"):
         problems.append("ZOIKO_BUILD is still 'dev' (every audit row records which build wrote it)")
+    for name, label in (
+        ("CONNECTOR_SIMULATOR", "the pretend partner connector (CONNECTOR_SIMULATOR) is on"),
+        ("WEBHOOK_ALLOW_INSECURE", "webhooks may use plain http (WEBHOOK_ALLOW_INSECURE)"),
+        ("WEBHOOK_ALLOW_PRIVATE", "webhooks may reach private addresses (WEBHOOK_ALLOW_PRIVATE)"),
+    ):
+        if getattr(conf, name, False):
+            problems.append(label)
     return problems
 
 
