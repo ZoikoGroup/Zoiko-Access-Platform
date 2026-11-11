@@ -219,7 +219,9 @@ def test_journeys_show_the_released_definitions_and_only_this_clinics_journeys(c
     journey = late_journey(c)
     other = late_journey(c, org=c.other_org)
     body = c.json(c.get("staff/journeys", "desk"))
-    (definition,) = body["definitions"]
+    definitions = {d["key"]: d for d in body["definitions"]}
+    assert sorted(definitions) == ["J1.booking", "J1.partner_booking"]
+    definition = definitions["J1.booking"]
     assert (definition["key"], definition["version"], definition["state"]) == (
         "J1.booking", 1, "released")
     assert definition["initial"] == "requested" and "confirm" in definition["transitions"]
@@ -382,7 +384,8 @@ def test_customers_and_patients_cannot_open_the_packs_page(platform, c):
 def test_an_empty_cell_says_so_honestly(platform, settings):
     settings.PACK_PUBLIC_KEYS = ""
     body = json.loads(pack_page(platform, "sam").content)
-    assert body == {"packs": [], "revocation_floor": 0, "trusted_key_ids": []}
+    assert body == {"packs": [], "revocation_floor": 0, "trusted_key_ids": [], "enforced": False,
+                    "country": "", "country_capabilities": []}
 
 
 def test_operations_of_another_clinic_stay_untouched_by_all_of_this(c):

@@ -28,6 +28,7 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.db.models import F
 
 from foundation import crypto
 from foundation.cell_context import CellContext, bind_context, require_context, tenant_transaction
@@ -43,6 +44,7 @@ from .models import (
     ClientStatus,
     DeliveryState,
     Environment,
+    RateWindow,
     SubscriptionStatus,
     WebhookDelivery,
     WebhookSubscription,
@@ -55,6 +57,10 @@ PUBLIC_EVENT_PREFIXES = ("booking.", "referral.", "connector.", "workflow.")
 MAX_DELIVERY_ATTEMPTS = 8
 DISABLE_AFTER_DEAD = 5
 MAX_WEBHOOKS_PER_CLIENT = 10
+DEFAULT_RATE_LIMIT = 60               # requests a minute for a new client
+MAX_RATE_LIMIT = 600
+RATE_WINDOW = dt.timedelta(minutes=1)
+KEEP_WINDOWS = dt.timedelta(hours=1)
 SECRET_CONTEXT = "webhook.secret"  # noqa: S105 - a label for encryption, not a secret
 _PREFIX = re.compile(r"^[a-z][a-z0-9_.]{0,63}$")
 _NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
@@ -68,6 +74,15 @@ class AuthenticatedClient:
     context: CellContext
     environment: str
     scopes: tuple[str, ...]
+    rate_limit: int = DEFAULT_RATE_LIMIT
+
+
+@dataclass(frozen=True)
+class RateStatus:
+    allowed: bool
+    limit: int
+    remaining: int
+    reset_seconds: int                  # until the current minute ends
 
 
 def _scope() -> dict[str, Any]:
@@ -79,6 +94,7 @@ def client_dict(c: ApiClient) -> dict[str, Any]:
     return {
         "public_id": c.public_id, "name": c.name, "environment": c.environment,
         "organization_ref": c.organization_ref, "scopes": list(c.scopes), "status": c.status,
+        "rate_limit_per_minute": c.rate_limit_per_minute,
         "created_at": c.created_at.isoformat(),
         "expires_at": c.expires_at.isoformat() if c.expires_at else None,
         "last_used_at": c.last_used_at.isoformat() if c.last_used_at else None,
@@ -111,6 +127,7 @@ def _hash_secret(secret: str) -> str:
 def create_client(
     *, tenant_public_id: str, name: str, environment: str, scopes: list[str],
     created_by_ref: str, organization_ref: str = "", expires_at: dt.datetime | None = None,
+    rate_limit_per_minute: int = DEFAULT_RATE_LIMIT,
 ) -> tuple[dict[str, Any], str]:
     """Make a client and return it with its API key. The key is shown ONCE: only a hash is kept."""
     if not name.strip() or len(name) > 100:
@@ -121,12 +138,16 @@ def create_client(
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["scopes"])
     if not _NAME.match(created_by_ref):
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["created_by"])
+    if (isinstance(rate_limit_per_minute, bool) or not isinstance(rate_limit_per_minute, int)
+            or not 1 <= rate_limit_per_minute <= MAX_RATE_LIMIT):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["rate_limit"])
     secret = secrets.token_urlsafe(32)
     with tenant_transaction(trust.context_for(tenant_public_id)):
         client = ApiClient.objects.create(
             name=name.strip(), environment=environment, key_hash=_hash_secret(secret),
             organization_ref=organization_ref, scopes=list(scopes), expires_at=expires_at,
-            created_by_ref=created_by_ref, **_scope())
+            rate_limit_per_minute=rate_limit_per_minute, created_by_ref=created_by_ref,
+            **_scope())
         record(actor_ref=created_by_ref, action="developer.client_created",
                object_type="api_client", object_ref=client.public_id,
                outcome=AuditOutcome.ALLOWED)
@@ -194,7 +215,27 @@ def authenticate_key(header: str | None, *, clock: Clock | None = None) -> Authe
         client.save(update_fields=["last_used_at", "updated_at"])
         return AuthenticatedClient(
             client_ref=client.public_id, tenant_ref=tenant_ref, context=ctx,
-            environment=client.environment, scopes=tuple(client.scopes))
+            environment=client.environment, scopes=tuple(client.scopes),
+            rate_limit=client.rate_limit_per_minute)
+
+
+def check_rate(client: AuthenticatedClient, *, clock: Clock | None = None) -> RateStatus:
+    """Count this request against the client's quota for the current minute. Over the limit means
+    "not allowed" (the caller answers 429 and the request does nothing). Each request is counted,
+    allowed or not, so hammering a limit does not reset it."""
+    now = utc_now(clock)
+    window = now.replace(second=0, microsecond=0)
+    with tenant_transaction(client.context):
+        row, created = RateWindow.objects.get_or_create(
+            client_ref=client.client_ref, window_start=window, defaults={"count": 0}, **_scope())
+        RateWindow.objects.filter(pk=row.pk).update(count=F("count") + 1)
+        used = RateWindow.objects.filter(pk=row.pk).values_list("count", flat=True).get()
+        if created:                          # a new minute: old minutes are no longer needed
+            RateWindow.objects.filter(window_start__lt=window - KEEP_WINDOWS, **_scope()).delete()
+    limit = client.rate_limit
+    reset = max(1, int((window + RATE_WINDOW - now).total_seconds()))
+    return RateStatus(allowed=used <= limit, limit=limit, remaining=max(0, limit - used),
+                      reset_seconds=reset)
 
 
 def require_scope(client: AuthenticatedClient, scope: str) -> None:

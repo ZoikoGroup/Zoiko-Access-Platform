@@ -66,6 +66,8 @@ Seven gaps were found. The developer did not leave them open: each is **already 
 
 **Added after the connector and journey screens (DEV-125), two more to confirm:** (a) the clinic's administrator (R13) may now manage the clinic's partner connections (API clients and webhooks): the specification names the partner engineer (R10) for this, so is the administrator also right? (b) the Exceptions and Journeys screens reuse the existing workflow rights (clinic operations, administrator and support may act; the safety officer may only look): the specification names support (R11) for exceptions. Both are temporary rules in the decision register until you answer.
 
+**Also added (DEV-126, DEV-127), two more defaults to confirm:** (c) a clinic can now choose to have a partner's booking system confirm its bookings instead of its staff; the default is still staff confirming by hand, and only the administrator may change it: is that the right default? (d) country packs can now decide whether booking, messaging and referrals run at all; it is **off by default** because with it on and no pack installed those features stop: when should it be switched on, and who signs the packs?
+
 Two things the developer could not decide alone and did not guess: **proof of the legal relationship for a guardian**, and **who may authorize AI permits** (question 1 above).
 
 ## What happens next

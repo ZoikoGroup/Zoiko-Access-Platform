@@ -53,6 +53,7 @@ modules = [
   "modules.packs",
   "modules.connector",
   "modules.developer",
+  "modules.bookingflow",
 ]
 ignore_imports = ["modules.** -> modules.*.api"]
 # No module imports another yet, so this allowance matches nothing until B4+. That is fine.
@@ -79,4 +80,5 @@ forbidden_modules = [
   "modules.packs",
   "modules.connector",
   "modules.developer",
+  "modules.bookingflow",
 ]

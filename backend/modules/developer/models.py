@@ -28,6 +28,8 @@ class ApiClient(CellScopedModel):
     environment = models.CharField(max_length=10, choices=Environment.choices)
     key_hash = models.CharField(max_length=64)               # sha256 of the secret, never the key
     scopes = models.JSONField(default=list)                  # e.g. ["catalog:read"]
+    # How many requests a minute this client may make (GHE-13: per-client quotas).
+    rate_limit_per_minute = models.PositiveSmallIntegerField(default=60)
     status = models.CharField(
         max_length=8, choices=ClientStatus.choices, default=ClientStatus.ACTIVE)
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -86,4 +88,24 @@ class WebhookDelivery(CellScopedModel):
             # One delivery of an event to a subscription, however many times the event arrives.
             models.UniqueConstraint(
                 fields=["subscription", "event_id"], name="delivery_once_per_event"),
+        ]
+
+
+class RateWindow(CellScopedModel):
+    """How many requests a client has made in one clock minute. A fixed window: simple, cheap and
+    exact enough for a quota. Old windows are removed as new ones start."""
+
+    client_ref = models.CharField(max_length=22)
+    window_start = models.DateTimeField()                    # the start of the minute, UTC
+    count = models.PositiveIntegerField(default=0)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="ratewindow_scope_idx"),
+            models.Index(fields=["window_start"], name="ratewindow_age_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "client_ref", "window_start"],
+                name="ratewindow_one_per_minute"),
         ]

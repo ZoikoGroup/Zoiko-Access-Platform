@@ -60,6 +60,9 @@ class Organization(CellScopedModel):
     # means the service-wide default (RESPONSE_TARGET_HOURS). The specification says there is no
     # universal timeout: each clinic's own target is what "late" means for it.
     response_target_hours = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Which partner connector confirms this clinic's bookings ("" = the clinic confirms by hand, as
+    # it always has). Only a connector this deployment has registered may be chosen (DEV-126).
+    booking_system = models.CharField(max_length=32, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="org_scope_idx")]

@@ -118,6 +118,8 @@ export interface DeveloperClient {
   name: string;
   environment: "sandbox" | "production";
   scopes: string[];
+  /** How many requests a minute this client may make. */
+  rate_limit_per_minute: number;
   status: "active" | "revoked";
   expires_at: string | null;
   last_used_at: string | null;
@@ -130,4 +132,13 @@ export interface DeveloperData {
   clients: DeveloperClient[];
   scopes: string[];
   event_families: string[];
+  default_rate_limit: number;
+  max_rate_limit: number;
+}
+
+export interface BookingSystem {
+  /** The partner connector that confirms this clinic's bookings; "" means the clinic confirms by hand. */
+  system: string;
+  options: { key: string; label: string }[];
+  can_set: boolean;
 }

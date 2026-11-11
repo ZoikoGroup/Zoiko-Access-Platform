@@ -21,6 +21,7 @@ from foundation.mail import mail_stats
 from foundation.outbox import backlog_stats
 from foundation.timeutil import utc_now
 from modules.ai import api as ai
+from modules.bookingflow import api as bookingflow
 from modules.catalog import api as catalog
 from modules.comms import api as comms
 from modules.coverage import api as coverage
@@ -41,6 +42,7 @@ from .support import (
     is_allowed,
     json_body,
     purpose_for,
+    require_feature,
     text,
 )
 
@@ -119,6 +121,7 @@ def _booking_json(
         "cancel_reason": booking.get("cancel_reason") or None,
         "pending_change": booking.get("pending_change") or None,
         "late": _waiting_too_long(booking),
+        "provider_stage": booking.get("provider_stage"),
     }
 
 
@@ -430,11 +433,20 @@ def _list_bookings(auth: trust.Authenticated) -> HttpResponse:
         names = trust.actor_labels()
         checked = trust.verified_providers()
         rows = [_booking_json(b, svc, loc, orgs, names, checked) for b in seen.values()]
+        stages = bookingflow.stages([r["id"] for r in rows])
+    mine = {o for o in held_organizations(auth)
+            if is_allowed(auth, "read:booking", organization_public_id=o)}   # staff, not patients
+    for row in rows:
+        stage = stages.get(row["id"])
+        if stage:                       # the clinic sees the detail; a patient only the stage
+            row["provider_stage"] = stage if row["organization"]["id"] in mine else {
+                "stage": stage["stage"], "operation": ""}
     rows.sort(key=lambda r: r["starts_at"])
     return JsonResponse({"bookings": _add_names(auth, rows)})
 
 
 def _create_booking(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    require_feature("booking.request")
     body = json_body(request)
     slot_ref = text(body, "slot")
     key = request.headers.get("Idempotency-Key", "")
@@ -473,7 +485,13 @@ def _act_on_booking(
     decision = _authorize(auth, "write:booking", organization_public_id=org,
                           subject_ref=booking["person_ref"])
     with tenant_transaction():
-        if verb == "confirm":
+        if verb == "confirm" and bookingflow.system_of(org):
+            # This clinic's bookings are confirmed by its booking system: ask it. The booking
+            # stays "requested" until the system itself answers (modules/bookingflow).
+            stage = bookingflow.ask_provider(
+                booking_ref=booking_id, actor_public_id=auth.actor_public_id, decision=decision)
+            done = scheduling.get_booking(booking_id) | {"provider_stage": stage}
+        elif verb == "confirm":
             done = scheduling.confirm(
                 booking_ref=booking_id, actor_public_id=auth.actor_public_id, decision=decision)
         else:
@@ -1698,6 +1716,7 @@ def message_threads(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
     org = _catalog_org(auth)
     staff = _is_staff(auth)
     if request.method == "POST":
+        require_feature("messaging.secure")
         body = json_body(request)
         if staff or org is None or not set(auth.roles) & {"R01", "R02"}:
             raise ZoikoError(ErrorCode.POLICY_DENIED)   # only patients and guardians start threads
@@ -1781,6 +1800,7 @@ def message_thread(
 def message_reply(
     request: HttpRequest, auth: trust.Authenticated, thread_id: str
 ) -> HttpResponse:
+    require_feature("messaging.secure")
     body = json_body(request)
     _, org, decision = _thread_access(auth, thread_id, "write:comms")
     with tenant_transaction():
@@ -2263,6 +2283,7 @@ def clinician_referrals(request: HttpRequest, auth: trust.Authenticated) -> Http
                    if is_allowed(auth, "read:referral", subject_ref=p)}
         return JsonResponse({"referrals": _referrals_out(
             [r for r in rows if r["person_ref"] in allowed], auth)})
+    require_feature("referral.exchange")
     body = json_body(request)
     person, service = text(body, "patient"), text(body, "service")
     org = _catalog_org(auth)
@@ -2297,6 +2318,7 @@ def referral_decide(
     """Accept, ask for more, or decline. Only the named owner of the receiving inbox, or the
     fallback, who is a doctor (the domain re-checks all of this)."""
     _clinician_only(auth)
+    require_feature("referral.exchange")
     body = json_body(request)
     with tenant_transaction():
         current = referral.get_referral(referral_id)

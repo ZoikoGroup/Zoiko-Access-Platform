@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     "modules.packs",
     "modules.connector",
     "modules.developer",
+    "modules.bookingflow",
 ]
 
 MIDDLEWARE = [
@@ -142,6 +143,14 @@ REMINDER_LEAD_HOURS = int(env("REMINDER_LEAD_HOURS", "24"))
 WAITLIST_OFFER_HOURS = int(env("WAITLIST_OFFER_HOURS", "24"))
 # The clinic's response target: a booking or message waiting longer than this is flagged late.
 RESPONSE_TARGET_HOURS = int(env("RESPONSE_TARGET_HOURS", "24"))
+# --- Country packs in use (GHE-04) ----------------------------------------------------------------
+# Which country this cell serves (ISO 3166-1 alpha-2, e.g. "GB"), and whether features must be
+# switched on by that country's signed pack. OFF by default: with enforcement on and no pack
+# installed, every gated feature refuses (fail closed), which is what the specification says but
+# would switch off a development setup. The lead decides when to turn it on (DEV-127).
+ZOIKO_COUNTRY = env("ZOIKO_COUNTRY", "").strip().upper()
+PACKS_ENFORCED = env("ZOIKO_PACKS_ENFORCED", "") == "1"
+
 # --- Partner connectors, webhooks, country packs -------------------------------------------------
 # Trusted public keys for signed country packs: "id:base64(32 bytes),id:base64(...)". Empty means no
 # pack is trusted, so every capability stays off (fail closed). Private halves never enter a cell.

@@ -4,7 +4,7 @@ import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
 import type {
-  DeveloperClient, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
+  BookingSystem, DeveloperClient, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
 } from "./consoleTypes";
 import type {
   ClinicSettings, CoverageRow, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
@@ -363,8 +363,11 @@ export const getJourneys = () => v1<JourneysData>("staff/journeys");
 export const getJourneyHistory = async (id: string) =>
   (await v1<{ history: JourneyHistory }>(`staff/journeys/${enc(id)}/history`)).history;
 
+export const getBookingSystem = () => v1<BookingSystem>("staff/booking-system");
+export const setBookingSystem = (system: string) => post<BookingSystem>("staff/booking-system", { system });
+
 export const getDeveloper = () => v1<DeveloperData>("staff/developer");
-export const createApiClient = (body: { name: string; environment: string; scopes: string[] }) =>
+export const createApiClient = (body: { name: string; environment: string; scopes: string[]; rate_limit?: number }) =>
   post<{ client: DeveloperClient; key: string }>("staff/developer/clients", body);
 export const revokeApiClient = (id: string) => post(`staff/developer/clients/${enc(id)}/revoke`);
 export const testWebhook = (client: string, hook: string) =>

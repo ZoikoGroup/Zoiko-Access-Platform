@@ -35,7 +35,7 @@ function View({ data, onChanged }: { data: DeveloperData; onChanged: () => void 
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [fresh, setFresh] = useState<{ name: string; key: string } | null>(null);
-  const [form, setForm] = useState({ name: "", environment: "sandbox", scopes: ["catalog:read"] as string[] });
+  const [form, setForm] = useState({ name: "", environment: "sandbox", scopes: ["catalog:read"] as string[], rate: String(data.default_rate_limit) });
 
   async function run(key: string, work: () => Promise<unknown>, success: string) {
     setBusy(key); setError(""); setNote("");
@@ -47,9 +47,9 @@ function View({ data, onChanged }: { data: DeveloperData; onChanged: () => void 
   async function create() {
     setBusy("new"); setError(""); setNote(""); setFresh(null);
     try {
-      const made = await createApiClient(form);
+      const made = await createApiClient({ name: form.name, environment: form.environment, scopes: form.scopes, rate_limit: Number(form.rate) });
       setFresh({ name: made.client.name, key: made.key });
-      setForm({ name: "", environment: "sandbox", scopes: ["catalog:read"] });
+      setForm({ name: "", environment: "sandbox", scopes: ["catalog:read"], rate: String(data.default_rate_limit) });
       onChanged();
     } catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
     finally { setBusy(""); }
@@ -99,7 +99,13 @@ function View({ data, onChanged }: { data: DeveloperData; onChanged: () => void 
               ))}
             </fieldset>
             <div className="form-row">
-              <button className="btn" disabled={busy === "new" || !form.name.trim() || form.scopes.length === 0} onClick={() => void create()}>Create client</button>
+              <label>Requests a minute (1 to {data.max_rate_limit})
+                <input type="number" min={1} max={data.max_rate_limit} value={form.rate} aria-label="Requests a minute" style={{ maxWidth: 110 }}
+                  onChange={(e) => setForm({ ...form, rate: e.target.value })} />
+              </label>
+            </div>
+            <div className="form-row">
+              <button className="btn" disabled={busy === "new" || !form.name.trim() || form.scopes.length === 0 || !Number.isInteger(Number(form.rate)) || Number(form.rate) < 1 || Number(form.rate) > data.max_rate_limit} onClick={() => void create()}>Create client</button>
             </div>
           </Card>
         )}
@@ -126,6 +132,7 @@ function Client({ c, canManage, busy, run }: {
           <Pill kind={c.status === "active" ? "ok" : "bad"}>{c.status === "active" ? "Active" : "Revoked"}</Pill>
         </b>
         <small>May: {c.scopes.map((s) => SCOPE[s] ?? s).join("; ")}.</small>
+        <small>Limit: {c.rate_limit_per_minute} requests a minute; over that it is told to wait (HTTP 429).</small>
         <small>Created {when(c.created_at)}. {c.last_used_at ? `Last used ${when(c.last_used_at)}.` : "Never used."}</small>
       </div>
       {canManage && c.status === "active" && (

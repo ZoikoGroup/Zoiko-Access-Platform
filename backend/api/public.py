@@ -16,6 +16,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from foundation import idempotency
 from foundation.cell_context import bind_context, tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
+from foundation.problem import problem_response
 from modules.catalog import api as catalog
 from modules.developer import api as developer
 
@@ -60,6 +61,11 @@ OPENAPI: dict[str, Any] = {
         "/webhooks/{id}/deliveries": {"get": {"summary": "Recent deliveries of a webhook"}},
         "/deliveries/{id}/redrive": {"post": {"summary": "Try a given-up delivery again"}},
     },
+    "x-rate-limit": {
+        "scope": "per client and clock minute (60 a minute unless set when the client is made)",
+        "headers": ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+        "over_limit": "429 RATE_LIMITED with a Retry-After header (seconds); nothing was done",
+    },
     "x-webhook-signing": {
         "headers": ["X-Zoiko-Event-Id", "X-Zoiko-Event-Type", "X-Zoiko-Timestamp",
                     "X-Zoiko-Signature", "Idempotency-Key"],
@@ -69,6 +75,14 @@ OPENAPI: dict[str, Any] = {
         "event_families": list(developer.PUBLIC_EVENT_PREFIXES),
     },
 }
+
+
+def _limit_headers(response: HttpResponse, rate: developer.RateStatus) -> HttpResponse:
+    """Tell the client where it stands: the quota, what is left, and seconds until it resets."""
+    response["X-RateLimit-Limit"] = str(rate.limit)
+    response["X-RateLimit-Remaining"] = str(rate.remaining)
+    response["X-RateLimit-Reset"] = str(rate.reset_seconds)
+    return response
 
 
 def client_endpoint(methods: tuple[str, ...], scope: str | None = None) -> Callable[[View], View]:
@@ -82,10 +96,15 @@ def client_endpoint(methods: tuple[str, ...], scope: str | None = None) -> Calla
                 response["Allow"] = ", ".join(methods)
                 return response
             client = developer.authenticate_key(request.headers.get("Authorization"))
+            rate = developer.check_rate(client)         # every request counts, allowed or not
+            if not rate.allowed:
+                limited = problem_response(ErrorCode.RATE_LIMITED)
+                limited["Retry-After"] = str(rate.reset_seconds)
+                return _limit_headers(limited, rate)
             if scope is not None:
                 developer.require_scope(client, scope)
             with bind_context(client.context):
-                return view(request, client, *args, **kwargs)
+                return _limit_headers(view(request, client, *args, **kwargs), rate)
 
         return run
 

@@ -299,5 +299,9 @@ export interface PackRow {
   /** True only if the pack counts RIGHT NOW: signature, dates and revocation all check out. */
   in_force: boolean;
 }
-export interface PacksData { packs: PackRow[]; revocation_floor: number; trusted_key_ids: string[] }
+export interface PacksData {
+  packs: PackRow[]; revocation_floor: number; trusted_key_ids: string[];
+  /** Whether features must be switched on by the country's pack, and which country this cell serves. */
+  enforced: boolean; country: string; country_capabilities: string[];
+}
 export const getPacks = () => v1<PacksData>("platform/packs");

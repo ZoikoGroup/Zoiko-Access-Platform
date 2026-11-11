@@ -84,6 +84,7 @@ urlpatterns = [
     path("staff/compliance", views.staff_compliance),
     path("staff/directory", views.staff_directory),
     path("staff/patients", views.staff_patients),
+    path("staff/booking-system", console.staff_booking_system),
     path("staff/exceptions", console.staff_exceptions),
     path("staff/connector/<str:operation_id>/history", console.staff_connector_history),
     path("staff/connector/<str:operation_id>/redrive", console.staff_connector_redrive),

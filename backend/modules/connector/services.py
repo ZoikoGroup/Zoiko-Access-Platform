@@ -141,13 +141,18 @@ def request_operation(
     *, connector_key: str, operation_type: str, subject_ref: str, organization_ref: str,
     idempotency_key: str, request: dict[str, Any], requested_by_ref: str,
     decision: policy.Decision, max_attempts: int = 5, clock: Clock | None = None,
+    authorized_as: str = WRITE_PARTNER, receipt_subject_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Queue an operation for a partner. The caller must hold a policy receipt for
-    `write:partner` at this organization. Asking again with the same key and the same request
-    returns the same operation; the same key with a different request is refused."""
+    """Queue an operation for a partner. The caller must hold a fresh policy receipt for this
+    actor at this organization: normally for `write:partner`. A feature that asks a partner on
+    behalf of something the person was already allowed to do (confirming a booking) passes that
+    permission instead, with the patient it was checked for (`authorized_as`,
+    `receipt_subject_ref`): the receipt must match all of it exactly. Asking again with the same
+    key and the same request returns the same operation; the same key with a different request is
+    refused."""
     policy.check_receipt(
-        decision, actor_public_id=requested_by_ref, operation=WRITE_PARTNER,
-        organization_public_id=organization_ref)
+        decision, actor_public_id=requested_by_ref, operation=authorized_as,
+        organization_public_id=organization_ref, subject_ref=receipt_subject_ref)
     if adapters.get(connector_key) is None:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["connector"])
     if not 1 <= max_attempts <= 10:

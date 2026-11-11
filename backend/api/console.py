@@ -10,10 +10,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
 from foundation.cell_context import tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
+from modules.bookingflow import api as bookingflow
 from modules.connector import api as connector
 from modules.developer import api as developer
 from modules.evidence import api as evidence
@@ -154,6 +156,30 @@ def staff_journey_history(
     return JsonResponse({"history": history})
 
 
+# --------------------------------------------------------------------------- booking system
+
+
+@endpoint("GET", "POST")
+def staff_booking_system(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Which partner connector confirms this clinic's bookings ("" = the clinic confirms by hand).
+    Anyone on the clinic's staff may read it; only the administrator changes it."""
+    org = _org(auth)
+    _authorize(auth, "read:booking", organization_public_id=org)
+    if request.method == "POST":
+        if "R13" not in auth.roles:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        _authorize(auth, "write:staff", organization_public_id=org)
+        system = json_body(request).get("system", "")
+        if not isinstance(system, str):
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["system"])
+        with tenant_transaction():
+            bookingflow.choose_system(org, system, by=auth.actor_public_id)
+    with tenant_transaction():
+        chosen = bookingflow.system_of(org)
+    return JsonResponse({
+        "system": chosen, "options": bookingflow.options(), "can_set": "R13" in auth.roles})
+
+
 # --------------------------------------------------------------------------- integrations
 
 
@@ -174,6 +200,8 @@ def staff_developer(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
     return JsonResponse({
         "can_manage": can_manage, "clients": clients, "scopes": list(developer.SCOPES),
         "event_families": list(developer.PUBLIC_EVENT_PREFIXES),
+        "default_rate_limit": developer.DEFAULT_RATE_LIMIT,
+        "max_rate_limit": developer.MAX_RATE_LIMIT,
     })
 
 
@@ -190,7 +218,8 @@ def staff_developer_client_create(request: HttpRequest, auth: trust.Authenticate
         tenant = trust.tenant_public_id(auth.context.tenant_id)
     client, key = developer.create_client(
         tenant_public_id=tenant, name=text(body, "name"), environment=text(body, "environment"),
-        scopes=scopes, created_by_ref=auth.actor_public_id, organization_ref=org)
+        scopes=scopes, created_by_ref=auth.actor_public_id, organization_ref=org,
+        rate_limit_per_minute=body.get("rate_limit", developer.DEFAULT_RATE_LIMIT))
     response = JsonResponse({"client": client, "key": key}, status=201)
     response["Cache-Control"] = "no-store"
     return response
@@ -246,4 +275,9 @@ def platform_packs(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
             actor_ref=auth.actor_public_id, action="platform.packs", object_type="platform",
             object_ref="packs", outcome=evidence.AuditOutcome.ALLOWED)
     status: dict[str, Any] = packs.cell_status()
-    return JsonResponse({"packs": packs.list_packs(), **status})
+    country = settings.ZOIKO_COUNTRY
+    return JsonResponse({
+        "packs": packs.list_packs(), **status,
+        "enforced": settings.PACKS_ENFORCED, "country": country,
+        "country_capabilities": packs.enabled_capabilities(country) if country else [],
+    })

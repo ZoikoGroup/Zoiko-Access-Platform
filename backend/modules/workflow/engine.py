@@ -428,6 +428,27 @@ def list_exceptions(
         for r in rows.order_by("raised_at")[:limit]]
 
 
+def running_instance_for(subject_ref: str, definition_key: str) -> dict[str, Any] | None:
+    """The journey of this kind that is running for this subject, if there is one."""
+    row = (WorkflowInstance.objects.select_related("definition")
+           .filter(subject_ref=subject_ref, definition__key=definition_key,
+                   status=InstanceStatus.RUNNING, **_scope()).first())
+    return instance_dict(row) if row else None
+
+
+def instances_for(subject_refs: list[str], definition_key: str) -> dict[str, dict[str, Any]]:
+    """Each subject's newest journey of this kind (any state), by subject."""
+    rows = (WorkflowInstance.objects.select_related("definition")
+            .filter(subject_ref__in=subject_refs, definition__key=definition_key, **_scope())
+            .order_by("created_at"))
+    return {r.subject_ref: instance_dict(r) for r in rows}      # a later one replaces an earlier
+
+
+def ensure_bundled_definitions() -> None:
+    """Publish the bundled definitions if this cell has none yet (cheap and safe to repeat)."""
+    load_bundled_definitions()
+
+
 def list_instances(
     *, organization_ref: str = "", status: str = "", limit: int = 100
 ) -> list[dict[str, Any]]:

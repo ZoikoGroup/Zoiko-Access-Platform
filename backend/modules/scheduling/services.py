@@ -368,6 +368,62 @@ def confirm(
         return booking_dict(booking)
 
 
+def confirm_from_provider(
+    *, booking_ref: str, operation_ref: str, clock: Clock | None = None
+) -> dict[str, Any]:
+    """The clinic's booking system (a partner) has itself confirmed a requested booking.
+
+    This is the provider's word, not a person's: it carries no login, the history says "system",
+    and it only ever runs from a confirmation the connector has marked as the partner's own (the
+    caller checks that; see modules/bookingflow). Repeating it changes nothing."""
+    with transaction.atomic():
+        booking = _own_booking(booking_ref)
+        if booking.status == BookingStatus.CONFIRMED:
+            return booking_dict(booking)
+        if booking.status != BookingStatus.REQUESTED:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        booking.status = BookingStatus.CONFIRMED
+        booking.confirmed_at = utc_now(clock)
+        booking.entity_version += 1
+        booking.save(update_fields=["status", "confirmed_at", "entity_version", "updated_at"])
+        _audit("system", "booking.confirm_from_provider", "booking", booking.public_id)
+        _link_doctor(booking, "system")
+        _event("booking.confirmed.v1", booking, actor_ref="system", side="system")
+        log_event(booking, "confirmed", state_from=BookingStatus.REQUESTED,
+                  state_to=booking.status, source="system", actor_ref="system",
+                  related_ref=operation_ref[:22], clock=clock)
+        _finish_move(booking, "system", "system")
+        return booking_dict(booking)
+
+
+def decline_from_provider(
+    *, booking_ref: str, operation_ref: str, clock: Clock | None = None
+) -> dict[str, Any]:
+    """The clinic's booking system refused a requested booking: it is cancelled and the time is
+    free again. Only a REQUESTED booking can be refused; repeating changes nothing."""
+    with transaction.atomic():
+        booking = _own_booking(booking_ref)
+        if booking.status == BookingStatus.CANCELLED:
+            return booking_dict(booking)
+        if booking.status != BookingStatus.REQUESTED:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        booking.status = BookingStatus.CANCELLED
+        booking.pending_change = ""
+        booking.cancelled_by_ref = "system"
+        booking.entity_version += 1
+        booking.save(update_fields=["status", "cancelled_by_ref", "pending_change",
+                                    "entity_version", "updated_at"])
+        _audit("system", "booking.decline_from_provider", "booking", booking.public_id)
+        _event("booking.cancelled.v1", booking, actor_ref="system", side="system")
+        log_event(booking, "cancelled", state_from=BookingStatus.REQUESTED,
+                  state_to=booking.status, source="system", actor_ref="system",
+                  reason_code="provider_refused", related_ref=operation_ref[:22], clock=clock)
+        _restore_origin(booking, "system", "system")
+        if booking.slot.starts_at > utc_now(clock):
+            _times_opened(booking.slot.service_ref)
+        return booking_dict(booking)
+
+
 CARE_LINK_AFTER_VISIT = dt.timedelta(days=30)
 
 

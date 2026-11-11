@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { changePassword, clearDisplayName, getDisplayName, getEmailStatus, getSettings, resendVerification, saveDisplayName, setEmail, setResponseTarget, type Staff } from "../api";
+import { changePassword, clearDisplayName, getBookingSystem, getDisplayName, getEmailStatus, getSettings, resendVerification, saveDisplayName, setBookingSystem, setEmail, setResponseTarget, type Staff } from "../api";
 import { ChangePassword } from "../ChangePassword";
 import { EmailCard } from "../EmailCard";
 import { NameCard } from "../NameCard";
@@ -38,6 +38,47 @@ function Target({ hours, standard, canSet, onSaved }: { hours: number; standard:
   );
 }
 
+/** Who confirms this clinic's bookings: its own staff by hand, or a partner's booking system. */
+function BookingSystemCard() {
+  const [version, setVersion] = useState(0);
+  const result = useLoad(getBookingSystem, 60_000, version);
+  const [choice, setChoice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  async function save(value: string) {
+    setBusy(true); setError(""); setNote("");
+    try { await setBookingSystem(value); setNote("Saved. It applies to bookings asked about from now on."); setChoice(null); setVersion((v) => v + 1); }
+    catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Gate result={result}>
+      {(b) => {
+        const shown = choice ?? b.system;
+        const current = b.options.find((o) => o.key === b.system)?.label ?? b.system;
+        return (
+          <Card title="Who confirms bookings" sub="By default your staff confirm each booking. A clinic can instead ask its own booking system: the booking is then confirmed only when that system says so itself.">
+            <p>Today: <b>{current}</b>.</p>
+            {b.can_set ? (
+              <div className="form-row">
+                <label>Confirmed by
+                  <select value={shown} onChange={(e) => setChoice(e.target.value)} aria-label="Who confirms bookings">
+                    {b.options.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+                  </select>
+                </label>{" "}
+                <button className="btn" disabled={busy || shown === b.system} onClick={() => void save(shown)}>Save</button>
+              </div>
+            ) : <small>Only your clinic administrator can change this.</small>}
+            {error && <div className="error" role="alert">{error}</div>}
+            {note && <div className="success" role="status">{note}</div>}
+          </Card>
+        );
+      }}
+    </Gate>
+  );
+}
+
 export function Settings({ staff }: { staff: Staff | null }) {
   const [version, setVersion] = useState(0);
   const result = useLoad(getSettings, 60_000, version);
@@ -53,6 +94,7 @@ export function Settings({ staff }: { staff: Staff | null }) {
           <div className="grid">
             <Target hours={s.response_target_hours} standard={s.response_target_default ?? s.response_target_hours}
               canSet={s.can_set_target ?? false} onSaved={() => setVersion((v) => v + 1)} />
+            <BookingSystemCard />
             <Card title="Timing rules">
               <Table headers={["Rule", "Value", "What it does"]} empty=""
                 rows={[

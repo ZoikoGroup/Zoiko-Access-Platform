@@ -7,6 +7,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
 from foundation.cell_context import bind_context
@@ -16,6 +17,7 @@ from foundation.request_context import (
     reset_audit_extra,
     set_audit_extra,
 )
+from modules.packs import api as packs
 from modules.policy import api as policy
 from modules.trust import api as trust
 
@@ -62,6 +64,15 @@ def home_for(actor_type: str, role_codes: list[str], tenant_type: str = "") -> s
 
 
 View = Callable[..., HttpResponse]
+
+
+def require_feature(capability: str) -> None:
+    """Refuse a feature the country's pack does not switch on (GHE-04). Does nothing unless packs
+    are enforced (ZOIKO_PACKS_ENFORCED). With enforcement on, no country, no pack, an expired or
+    revoked pack, or a pack that does not list the capability all mean REFUSED. Reading what
+    already exists is never gated: only starting something new."""
+    if settings.PACKS_ENFORCED:
+        packs.require_capability(settings.ZOIKO_COUNTRY, capability)
 
 
 def endpoint(*methods: str) -> Callable[[View], Callable[..., HttpResponse]]:

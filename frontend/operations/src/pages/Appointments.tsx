@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BookingHistory } from "@shared/BookingHistory";
 import { CLINIC_REASONS, reasonText } from "@shared/cancelReasons";
-import { cancelBooking, confirmBooking, getBookingHistory, listBookings, listFreeTimes, markAttendance, rescheduleBooking, type Staff } from "../api";
+import { cancelBooking, confirmBooking, getBookingHistory, getBookingSystem, listBookings, listFreeTimes, markAttendance, rescheduleBooking, type Staff } from "../api";
 import type { BookingRow, FreeTime } from "../types";
 import { Card, Patient, Pill, Table, shortId, type PillKind } from "../ui";
 
@@ -10,6 +10,21 @@ const STATUS: Record<BookingRow["status"], { text: string; kind: PillKind }> = {
   confirmed: { text: "Confirmed", kind: "ok" },
   cancelled: { text: "Cancelled", kind: "bad" },
 };
+
+/** What a booking waiting on the clinic's booking system should say: a receipt is not a confirmation. */
+function providerWords(stage: { stage: string; operation: string }): { text: string; kind: PillKind; note: string } | null {
+  if (stage.stage !== "awaiting_provider") return null;
+  switch (stage.operation) {
+    case "accepted":
+      return { text: "Received, not confirmed", kind: "warn", note: "The booking system has the request but has not confirmed it yet. It is not confirmed until the system says so." };
+    case "unknown":
+      return { text: "No answer from the booking system", kind: "bad", note: "We do not know whether it was confirmed. See Exceptions: a person must decide." };
+    case "dead":
+      return { text: "Booking system did not take it", kind: "bad", note: "It kept failing. See Exceptions to try again." };
+    default:
+      return { text: "Asked the booking system", kind: "info", note: "Waiting for the booking system's own answer." };
+  }
+}
 
 function when(local: string, zone: string): string {
   const [d, t = ""] = local.split("T");
@@ -28,6 +43,8 @@ export function Appointments({ staff }: { staff: Staff | null }) {
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [moving, setMoving] = useState<{ booking: BookingRow; times: FreeTime[] } | null>(null);
+  const [system, setSystem] = useState("");               // the booking system that confirms for this clinic ("" = by hand)
+  useEffect(() => { getBookingSystem().then((s) => setSystem(s.system)).catch(() => setSystem("")); }, []);
 
   const load = useCallback(async () => {
     if (!staff) return;
@@ -67,7 +84,8 @@ export function Appointments({ staff }: { staff: Staff | null }) {
 
   if (!staff) return <NoStaff />;
   // Waiting bookings whose time has not passed: the only ones "Confirm all" touches.
-  const confirmable = (rows ?? []).filter((b) => b.status === "requested" && b.starts_at > new Date().toISOString());
+  // (With a booking system the bookings are asked about one at a time, so "Confirm all" is not offered.)
+  const confirmable = system ? [] : (rows ?? []).filter((b) => b.status === "requested" && b.starts_at > new Date().toISOString());
 
   async function confirmAll() {
     setBulk("working"); setError(""); setNote("");
@@ -89,7 +107,7 @@ export function Appointments({ staff }: { staff: Staff | null }) {
       <div className="hero">
         <div>
           <h1>Appointments</h1>
-          <p>Bookings for {staff.organizationName}. Patients request; staff confirm. {waiting > 0 && <b>{waiting} waiting for confirmation.</b>}</p>
+          <p>Bookings for {staff.organizationName}. {system ? "Patients request; the booking system confirms." : "Patients request; staff confirm."} {waiting > 0 && <b>{waiting} waiting for confirmation.</b>}</p>
         </div>
         <span className="spacer" />
         {confirmable.length > 1 && bulk === "" && (
@@ -148,6 +166,9 @@ export function Appointments({ staff }: { staff: Staff | null }) {
                   : b.pending_change === "rebook" ? (
                     <span key="s"><Pill kind="warn">Patient asked for a new time</Pill>
                       <small style={{ display: "block" }}>This time stays until you confirm the new request.</small></span>)
+                  : b.status === "requested" && b.provider_stage && providerWords(b.provider_stage) ? (
+                    <span key="s"><Pill kind={providerWords(b.provider_stage)!.kind}>{providerWords(b.provider_stage)!.text}</Pill>
+                      <small style={{ display: "block" }}>{providerWords(b.provider_stage)!.note}</small></span>)
                   : b.status === "requested" && b.rescheduled_from ? (
                     <span key="s"><Pill kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>
                       <small style={{ display: "block" }}>A move request: confirming it releases the earlier time.</small></span>)
@@ -167,7 +188,8 @@ export function Appointments({ staff }: { staff: Staff | null }) {
                     </>
                   )}
                   {b.status === "requested" && (
-                    <button className="btn" disabled={busy === b.id} onClick={() => void run(b.id, confirmBooking)}>Confirm</button>
+                    <button className="btn" disabled={busy === b.id || (b.provider_stage?.stage === "awaiting_provider" && ["", "pending", "sent", "accepted"].includes(b.provider_stage.operation))}
+                      onClick={() => void run(b.id, confirmBooking)}>{system ? "Ask booking system" : "Confirm"}</button>
                   )}{" "}
                   {b.status !== "cancelled" && asking !== b.id && (
                     <>

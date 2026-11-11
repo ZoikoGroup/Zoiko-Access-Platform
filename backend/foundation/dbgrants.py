@@ -45,6 +45,7 @@ FULL_ACCESS = frozenset({
     "foundation_inboxmessage",
     "foundation_idempotencykey",
     "foundation_queuedemail",
+    "developer_ratewindow",             # old minutes are removed as new ones start
     "probe_probe",
 })
 

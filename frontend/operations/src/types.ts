@@ -105,6 +105,8 @@ export interface BookingRow {
   pending_change?: "cancel" | "rebook" | null;   // a change the patient asked for, not yet answered
   late?: boolean;
   patient_name?: string | null;
+  /** Where the booking stands with the clinic's booking system (null: the clinic confirms by hand). */
+  provider_stage?: { stage: string; operation: string } | null;
 }
 
 export interface CoverageRow {

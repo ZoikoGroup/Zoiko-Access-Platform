@@ -1,0 +1,48 @@
+{
+  "key": "J1.partner_booking",
+  "version": 1,
+  "initial": "requested",
+  "states": {
+    "requested": {"owner": "clinic"},
+    "awaiting_provider": {"owner": "clinic"},
+    "confirmed": {"owner": "provider"},
+    "attended": {"owner": "clinic"},
+    "missed": {"owner": "clinic"},
+    "cancelled": {"owner": "clinic"},
+    "refused": {"owner": "provider"}
+  },
+  "terminal": {
+    "attended": "completed", "missed": "completed", "cancelled": "cancelled", "refused": "cancelled"
+  },
+  "transitions": {
+    "ask_provider": {
+      "from": ["requested"], "to": "awaiting_provider",
+      "guards": ["human_actor"]
+    },
+    "provider_confirm": {
+      "from": ["awaiting_provider"], "to": "confirmed",
+      "requires_evidence": ["source_confirmed_outcome"]
+    },
+    "provider_refuse": {
+      "from": ["awaiting_provider"], "to": "refused",
+      "requires_evidence": ["source_confirmed_outcome"]
+    },
+    "cancel": {
+      "from": ["requested", "awaiting_provider", "confirmed"], "to": "cancelled",
+      "guards": ["human_actor"]
+    },
+    "attend": {
+      "from": ["confirmed"], "to": "attended",
+      "guards": ["human_actor"]
+    },
+    "miss": {
+      "from": ["confirmed"], "to": "missed",
+      "guards": ["human_actor"]
+    }
+  },
+  "timers": {
+    "ask_by": {"state": "requested", "after_minutes": 1440},
+    "provider_answer_by": {"state": "awaiting_provider", "after_minutes": 60},
+    "attendance_by": {"state": "confirmed", "after_minutes": 10080}
+  }
+}

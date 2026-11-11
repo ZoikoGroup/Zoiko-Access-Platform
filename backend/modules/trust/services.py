@@ -6,6 +6,7 @@ Every function that changes something writes an audit event in the same transact
 from __future__ import annotations
 
 import datetime as dt
+import re
 import uuid
 from typing import Any, TypeVar
 
@@ -376,6 +377,31 @@ def set_response_target(organization_public_id: str, hours: int | None, *, by: s
         _audit(by, "organization.set_response_target", "organization", org.public_id,
                hours=hours if hours is not None else 0)
     return response_target_hours(organization_public_id)
+
+
+def booking_system_of(organization_public_id: str) -> str:
+    """The partner connector that confirms this clinic's bookings, or "" (the clinic confirms)."""
+    ctx = require_context()
+    return str(Organization.objects.filter(
+        public_id=organization_public_id, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id
+    ).values_list("booking_system", flat=True).first() or "")
+
+
+_SYSTEM_NAME = re.compile(r"^[a-z][a-z0-9_.-]{0,31}$")
+
+
+def set_booking_system(organization_public_id: str, system: str, *, by: str) -> str:
+    """Choose which partner connector confirms this clinic's bookings ("" goes back to the clinic
+    confirming by hand). The caller checks the name is a connector that exists."""
+    if system and not _SYSTEM_NAME.match(system):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["system"])
+    with transaction.atomic():
+        org = _own(Organization, organization_public_id)
+        org.booking_system = system
+        org.entity_version += 1
+        org.save(update_fields=["booking_system", "entity_version", "updated_at"])
+        _audit(by, "organization.set_booking_system", "organization", org.public_id)
+    return system
 
 
 def get_organization(public_id: str) -> dict[str, str] | None:

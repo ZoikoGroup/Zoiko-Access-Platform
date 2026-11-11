@@ -51,6 +51,17 @@ export function Packs() {
       {error && <div className="error" role="alert">{error}</div>}
       {data === null ? (!error && <div className="notice">Loading…</div>) : (
         <div className="grid">
+          <Card title="Are packs in use?" sub="Whether features must be switched on by a pack before they run.">
+            {data.enforced ? (
+              <p><Pill kind="ok">Enforced</Pill> This cell serves <b>{data.country || "no country (nothing is switched on)"}</b>.
+                {" "}{data.country_capabilities.length === 0 ? "Its pack switches nothing on, so booking, messaging and referrals are refused."
+                  : `Its pack switches on: ${data.country_capabilities.join(", ")}. Anything not listed is refused.`}</p>
+            ) : (
+              <p><Pill kind="warn">Not enforced</Pill> Features run whether or not a pack allows them. Set
+                ZOIKO_PACKS_ENFORCED=1 and ZOIKO_COUNTRY on the server to make packs decide. With no pack installed that
+                switches booking, messaging and referrals off.</p>
+            )}
+          </Card>
           <Card title="What this cell trusts" sub="Key names only: the keys themselves are never shown.">
             <p>Revocation floor: <b>{data.revocation_floor}</b>. A pack issued below this number never counts.</p>
             <p>Signing keys accepted: {data.trusted_key_ids.length === 0
