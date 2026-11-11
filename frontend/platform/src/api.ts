@@ -290,3 +290,14 @@ export const reviewHazard = (id: string, verdict: "verified" | "rejected", note:
   hazardPost(id, "review", { verdict, note });
 export const acceptHazard = (id: string, note: string) => hazardPost(id, "accept", { note });
 export const retireHazard = (id: string, reason: string) => hazardPost(id, "retire", { reason });
+
+// Country packs (read only: packs are installed by a command, never from a screen).
+export interface PackRow {
+  public_id: string; country: string; version: number; status: "active" | "superseded" | "revoked";
+  valid_from: string; expires_at: string; revocation_epoch: number; key_id: string;
+  capabilities: string[];
+  /** True only if the pack counts RIGHT NOW: signature, dates and revocation all check out. */
+  in_force: boolean;
+}
+export interface PacksData { packs: PackRow[]; revocation_floor: number; trusted_key_ids: string[] }
+export const getPacks = () => v1<PacksData>("platform/packs");

@@ -6,6 +6,7 @@ Every function that changes something writes an audit event in the same transact
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from typing import Any, TypeVar
 
 from django.conf import settings
@@ -326,6 +327,15 @@ def overview() -> dict[str, Any]:
             .order_by("created_at")
         ],
     }
+
+
+def tenant_public_id(tenant_id: uuid.UUID) -> str:
+    """The public id of a tenant from its internal id (for building keys and links that must name
+    the tenant without exposing the internal id)."""
+    found = Tenant.objects.filter(id=tenant_id, cell_id=settings.ZOIKO_CELL_ID).first()
+    if found is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    return found.public_id
 
 
 def context_for(tenant_public_id: str) -> CellContext:

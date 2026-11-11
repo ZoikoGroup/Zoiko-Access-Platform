@@ -57,3 +57,19 @@ Sign in to the platform console (http://localhost:5175/) as support (`vikram@zoi
 organization `Zoiko Platform`), open **Customers** and use **Add a customer**. The new
 administrator's invitation appears in the dev inbox (http://127.0.0.1:8025/); its link opens the
 staff console (http://localhost:5173/), where they choose a password.
+
+### Partner connections, journeys and integrations (demo data)
+
+`seed_console_demo.py` fills the staff console's **Exceptions**, **Journeys** and **Integrations** screens. It
+uses the pretend partner (the simulator), so no real partner is contacted, and it refuses to run unless the
+backend is in development mode. It runs inside the backend container:
+
+```
+docker compose exec -T backend python manage.py shell < scripts/seed_console_demo.py
+docker compose exec -T -e DEMO_TENANT="E2E Clinic" backend python manage.py shell < scripts/seed_console_demo.py
+```
+
+It makes five partner operations (confirmed, lost reply, partner down, never answers, refused), three journeys
+(one overdue, one confirmed, one cancelled) and a sandbox API client with one webhook. Sign in to the staff console
+as `clinicadmin@gmail.com` (Demo Clinic) and open the three pages. Run it again for more rows.
+

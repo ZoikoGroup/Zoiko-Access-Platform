@@ -56,7 +56,7 @@ class ExternalOperation(CellScopedModel):
     finished_at = models.DateTimeField(null=True, blank=True)
     partner_ref = models.CharField(max_length=128, blank=True, default="")
     last_error = models.CharField(max_length=64, blank=True, default="")   # exception CLASS only
-    last_code = models.CharField(max_length=64, blank=True, default="")    # the partner's reason code
+    last_code = models.CharField(max_length=64, blank=True, default="")    # partner reason code
 
     class Meta(CellScopedModel.Meta):
         indexes = [

@@ -144,7 +144,7 @@ WAITLIST_OFFER_HOURS = int(env("WAITLIST_OFFER_HOURS", "24"))
 RESPONSE_TARGET_HOURS = int(env("RESPONSE_TARGET_HOURS", "24"))
 # --- Partner connectors, webhooks, country packs -------------------------------------------------
 # Trusted public keys for signed country packs: "id:base64(32 bytes),id:base64(...)". Empty means no
-# pack is trusted, so every capability stays off (fail closed). The private halves never enter a cell.
+# pack is trusted, so every capability stays off (fail closed). Private halves never enter a cell.
 PACK_PUBLIC_KEYS = env("ZOIKO_PACK_PUBLIC_KEYS", "")
 # The pretend partner for building and testing connectors. Development only (release_check).
 CONNECTOR_SIMULATOR = False

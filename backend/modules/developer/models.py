@@ -23,8 +23,10 @@ class ClientStatus(models.TextChoices):
 
 class ApiClient(CellScopedModel):
     name = models.CharField(max_length=100)
+    # The clinic that owns this client ("" = the whole customer, e.g. made from the command line).
+    organization_ref = models.CharField(max_length=22, blank=True, default="")
     environment = models.CharField(max_length=10, choices=Environment.choices)
-    key_hash = models.CharField(max_length=64)               # sha256 of the secret part; never the key
+    key_hash = models.CharField(max_length=64)               # sha256 of the secret, never the key
     scopes = models.JSONField(default=list)                  # e.g. ["catalog:read"]
     status = models.CharField(
         max_length=8, choices=ClientStatus.choices, default=ClientStatus.ACTIVE)

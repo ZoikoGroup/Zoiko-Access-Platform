@@ -9,9 +9,11 @@ from .services import (
     AuthenticatedClient,
     authenticate_key,
     check_destination,
+    client_in_organization,
     create_client,
     create_webhook,
     deliver_due,
+    list_clients,
     list_deliveries,
     list_webhooks,
     redrive_delivery,
@@ -25,7 +27,8 @@ from .subscribers import register_subscribers
 
 __all__ = [
     "AuthenticatedClient", "PUBLIC_EVENT_PREFIXES", "SCOPES", "authenticate_key",
-    "check_destination", "create_client", "create_webhook", "deliver_due", "list_deliveries",
-    "list_webhooks", "redrive_delivery", "register_subscribers", "require_scope",
-    "revoke_client", "send_test_event", "set_webhook_status", "verify_signature",
+    "check_destination", "client_in_organization", "create_client", "create_webhook",
+    "deliver_due", "list_clients", "list_deliveries", "list_webhooks", "redrive_delivery",
+    "register_subscribers", "require_scope", "revoke_client", "send_test_event",
+    "set_webhook_status", "verify_signature",
 ]

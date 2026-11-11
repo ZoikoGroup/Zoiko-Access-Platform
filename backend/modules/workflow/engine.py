@@ -21,6 +21,7 @@ Rules that hold on every call
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -88,9 +89,14 @@ class WorkflowEngine(Protocol):
 
 
 def definition_dict(row: WorkflowDefinition) -> dict[str, Any]:
+    body = row.body
     return {"public_id": row.public_id, "key": row.key, "version": row.version,
             "state": row.state, "body_digest": row.body_digest,
-            "released_at": row.released_at.isoformat()}
+            "released_at": row.released_at.isoformat(), "initial": body.get("initial", ""),
+            "states": list(body.get("states", {})),
+            "terminal": dict(body.get("terminal", {})),
+            "transitions": list(body.get("transitions", {})),
+            "timers": {n: s.get("after_minutes") for n, s in body.get("timers", {}).items()}}
 
 
 def publish_definition(body: Any, *, clock: Clock | None = None) -> dict[str, Any]:
@@ -128,8 +134,6 @@ def retire_definition(key: str, version: int) -> dict[str, Any]:
 
 def load_bundled_definitions(*, clock: Clock | None = None) -> list[dict[str, Any]]:
     """Publish every definition shipped in `bundled/`. Safe to repeat."""
-    import json
-
     return [
         publish_definition(json.loads(path.read_text(encoding="utf8")), clock=clock)
         for path in sorted(BUNDLED.glob("*.json"))
@@ -169,9 +173,15 @@ def instance_dict(i: WorkflowInstance) -> dict[str, Any]:
     }
 
 
+def _evidence_text(evidence: list[dict[str, str]]) -> str:
+    """The evidence in one fixed layout. PostgreSQL's jsonb reorders object keys, so the digest
+    must never depend on the order they come back in."""
+    return json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+
+
 def _parts(row: WorkflowTransition) -> list[Any]:
     return [row.instance.public_id, row.transition, row.from_state, row.to_state, row.actor_ref,
-            row.actor_kind, row.evidence, row.occurred_at.isoformat()]
+            row.actor_kind, _evidence_text(row.evidence), row.occurred_at.isoformat()]
 
 
 def _append(
@@ -183,7 +193,7 @@ def _append(
     seq = last.seq + 1 if last else 1
     prev = last.record_digest if last else GENESIS
     digest = chain_digest(prev, seq, instance.public_id, transition, from_state, instance.state,
-                          actor_ref, actor_kind, evidence, now.isoformat())
+                          actor_ref, actor_kind, _evidence_text(evidence), now.isoformat())
     try:
         with transaction.atomic():
             WorkflowTransition.objects.create(
@@ -377,10 +387,13 @@ engine: WorkflowEngine = DbWorkflowEngine()
 # --------------------------------------------------------------------------- reading
 
 
-def instance_history(instance_ref: str) -> dict[str, Any]:
+def instance_history(instance_ref: str, organization_ref: str = "") -> dict[str, Any]:
     """The steps of one journey, oldest first, and whether the chain still checks out."""
     scope = _scope()
-    instance = WorkflowInstance.objects.filter(public_id=instance_ref, **scope).first()
+    found = WorkflowInstance.objects.filter(public_id=instance_ref, **scope)
+    if organization_ref:
+        found = found.filter(organization_ref=organization_ref)
+    instance = found.first()
     if instance is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     rows = list(WorkflowTransition.objects.select_related("instance")
@@ -396,22 +409,49 @@ def instance_history(instance_ref: str) -> dict[str, Any]:
     }
 
 
-def list_exceptions(*, open_only: bool = True, limit: int = 200) -> list[dict[str, Any]]:
-    rows = WorkflowException.objects.select_related("instance").filter(**_scope())
+def list_exceptions(
+    *, open_only: bool = True, organization_ref: str = "", limit: int = 200
+) -> list[dict[str, Any]]:
+    rows = WorkflowException.objects.select_related(
+        "instance", "instance__definition").filter(**_scope())
     if open_only:
         rows = rows.filter(status=ExceptionStatus.OPEN)
+    if organization_ref:
+        rows = rows.filter(instance__organization_ref=organization_ref)
     return [
         {"public_id": r.public_id, "instance_ref": r.instance.public_id, "kind": r.kind,
          "detail": r.detail, "status": r.status, "raised_at": r.raised_at.isoformat(),
-         "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None}
+         "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
+         "resolved_by_ref": r.resolved_by_ref, "subject_ref": r.instance.subject_ref,
+         "journey": f"{r.instance.definition.key} v{r.instance.definition.version}",
+         "journey_state": r.instance.state}
         for r in rows.order_by("raised_at")[:limit]]
 
 
-def resolve_exception(exception_ref: str, *, actor_ref: str, clock: Clock | None = None) -> None:
+def list_instances(
+    *, organization_ref: str = "", status: str = "", limit: int = 100
+) -> list[dict[str, Any]]:
+    """Journeys of this customer, newest first (one clinic only, when `organization_ref` is
+    given)."""
+    rows = WorkflowInstance.objects.select_related("definition").filter(**_scope())
+    if organization_ref:
+        rows = rows.filter(organization_ref=organization_ref)
+    if status:
+        rows = rows.filter(status=status)
+    return [instance_dict(i) | {"created_at": i.created_at.isoformat()}
+            for i in rows.order_by("-created_at")[:limit]]
+
+
+def resolve_exception(
+    exception_ref: str, *, actor_ref: str, organization_ref: str = "", clock: Clock | None = None
+) -> None:
     """A person has looked at the exception and dealt with it. Resolving twice changes nothing."""
     with transaction.atomic():
-        row = WorkflowException.objects.select_for_update().filter(
-            public_id=exception_ref, **_scope()).first()
+        found = WorkflowException.objects.select_for_update(of=("self",)).filter(
+            public_id=exception_ref, **_scope())
+        if organization_ref:
+            found = found.filter(instance__organization_ref=organization_ref)
+        row = found.first()
         if row is None:
             raise ZoikoError(ErrorCode.NOT_FOUND)
         if row.status == ExceptionStatus.RESOLVED:

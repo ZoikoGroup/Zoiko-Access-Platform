@@ -92,6 +92,7 @@ from .services import (
     set_actor_status,
     set_response_target,
     set_self_registration,
+    tenant_public_id,
     verified_emails_for_role,
 )
 from .staff_admin import INVITABLE_ROLES, invite_staff, resend_invitation, set_member_status
@@ -107,7 +108,7 @@ __all__ = [
     "add_incident", "get_incident", "list_incidents", "resolve_incident",
     "cancel_change", "decide_change", "list_changes", "request_change",
     "onboard_customer", "organization_names", "set_customer_sign_up",
-    "verified_emails_for_role", "clinicians_at",
+    "verified_emails_for_role", "clinicians_at", "tenant_public_id",
     "overview", "own_person_of", "patient_registry", "person_exists", "profile_summary_for",
     "link_person_to_site", "person_at_site", "end_care_links",
     "MAX_RESPONSE_TARGET_HOURS", "response_target_hours", "set_response_target",

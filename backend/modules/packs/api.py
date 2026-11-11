@@ -8,6 +8,7 @@ from .services import (
     active_pack,
     apply_revocation_notice,
     capability_enabled,
+    cell_status,
     enabled_capabilities,
     install_pack,
     list_packs,
@@ -16,5 +17,5 @@ from .services import (
 
 __all__ = [
     "PackRejected", "active_pack", "apply_revocation_notice", "capability_enabled",
-    "enabled_capabilities", "install_pack", "list_packs", "require_capability",
+    "cell_status", "enabled_capabilities", "install_pack", "list_packs", "require_capability",
 ]

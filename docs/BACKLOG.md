@@ -52,8 +52,8 @@ The source documents say the first deliverable is a working slice of ONE journey
 | 01 | A signed release scope: market, buyer, operator, pathway, partner, cell | **Not built.** Needs the first market and buyer (G0, DEV-011). |
 | 02 | Verified person and organization authenticate; matching, relationship and purpose are checked | Built. |
 | 03 | An accurate service listing; a request is accepted; the provider (not us) confirms | Built. |
-| 04 | A versioned, durable workflow with accountable parties, transitions and exceptions | Partly built (work items and their history). Versioned definitions and timers wait on ADR-08. |
-| 05 | At least one real contracted partner connector with provenance, timeout and reconciliation | **Not built.** Needs a partner. |
+| 04 | A versioned, durable workflow with accountable parties, transitions and exceptions | Built as an engine on the database (DEV-122): versioned definitions, version-pinned journeys, evidence rules, timers, exceptions, and a Journeys screen. Not yet wired into bookings (the clinic still confirms by hand). Whether to adopt a Temporal-class engine later is still ADR-08. |
+| 05 | At least one real contracted partner connector with provenance, timeout and reconciliation | Framework, pretend partner and an Exceptions screen are built (DEV-121, DEV-125): provenance, timeouts, reconciliation, retries, redrive. **A real contracted partner adapter is still not built:** it needs a partner. |
 | 06 | Protected UIs with correct statuses and accessibility testing | Built; automated accessibility scan added (DEV-098). A hand test with a screen reader and keyboard is still needed. |
 | 07 | Denial of unauthorized employer access and unauthorized cross-cell disclosure, shown by tests | Built: `backend/tests/test_prohibitions.py` has one named test for each of the five product prohibitions (DEV-099). Prohibition 3 (critical results) is only a tripwire because results are not built. |
 | 08 | Release evidence: test runs, clinical sign-off, a regional recovery test, country approval | Test runs: yes. Backup-and-restore rehearsal: **done at development size** (`python scripts/recovery_drill.py`, evidence in `docs/evidence/`, DEV-100); a regional failover, scheduled backups and production-size timing still need the hosting decisions. Sign-offs and approval: need people. |
@@ -64,7 +64,7 @@ Nothing further in this list can be built without decisions or people: parts 01 
 
 | # | Item | Size | Notes |
 |---|---|---|---|
-| C1 | Staff **Integrations** (connectors, webhooks, partner simulator) | L | Needs the message broker choice (DEV-016) and a partner to test against. |
+| C1 | Staff **Integrations** (connectors, webhooks, partner simulator) | L | Built against the pretend partner (DEV-121, DEV-124, DEV-125): connector framework, signed webhooks, partner API, and the Exceptions, Journeys and Integrations screens. **Still needs a real partner** to test against, and the message broker choice (DEV-016) only if volume ever needs one. |
 | C2 | Patients by region and other multi-site views | L | Needs more than one cell; not planned yet. |
 | C3 | Forecasts and health overview on the patient dashboard | L | Needs the clinical record service (B1). |
 

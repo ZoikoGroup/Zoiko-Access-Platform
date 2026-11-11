@@ -15,8 +15,8 @@ from typing import Any
 from foundation.errors import ErrorCode, ZoikoError
 
 # The four kinds of evidence never collapse into one another (docs/schema README rule 8): a
-# technical receipt is not a view, a view is not a professional's acknowledgment, and none of them is
-# the source's own confirmation of the outcome.
+# technical receipt is not a view, a view is not a professional's acknowledgment, and none of
+# them is the source's own confirmation of the outcome.
 EVIDENCE_KINDS = (
     "transport_receipt", "authenticated_view", "professional_acknowledgment",
     "source_confirmed_outcome",
@@ -71,7 +71,7 @@ def validate_definition(body: Any) -> dict[str, Any]:
     if not isinstance(states, dict) or not states or not all(_NAME.match(s) for s in states):
         raise _bad("states")
     initial = body.get("initial")
-    if initial not in states:
+    if not isinstance(initial, str) or initial not in states:
         raise _bad("initial")
 
     terminal = body.get("terminal", {})
@@ -90,7 +90,8 @@ def validate_definition(body: Any) -> dict[str, Any]:
             raise _bad("transitions")
         sources = _names(spec.get("from"), "transitions")
         target = spec.get("to")
-        if not sources or any(s not in states for s in sources) or target not in states:
+        if (not sources or any(s not in states for s in sources)
+                or not isinstance(target, str) or target not in states):
             raise _bad("transitions")
         if any(s in terminal for s in sources):
             raise _bad("transitions")   # nothing leaves a finished journey

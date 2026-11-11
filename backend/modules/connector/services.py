@@ -46,6 +46,9 @@ from .models import (
 WRITE_PARTNER = "write:partner"
 STUCK_AFTER = dt.timedelta(minutes=5)       # `sent` for longer than this means a worker died
 POLL_BASE_SECONDS = 30.0
+# What an operation's `last_code` says when a PERSON settled it. A partner can never produce it (see
+# _settle), so it cannot be mistaken for the partner's own word.
+MANUAL_RESOLUTION = "manual_resolution"
 
 
 def _scope() -> dict[str, Any]:
@@ -68,9 +71,9 @@ def operation_dict(op: ExternalOperation) -> dict[str, Any]:
 
 def is_source_confirmed(op: ExternalOperation) -> bool:
     """True only when the PARTNER has confirmed the outcome. A receipt, a timeout that "probably
-    worked" or an operator's guess never counts: the other modules must ask this, not look at the
-    state themselves."""
-    return op.state == OperationState.CONFIRMED
+    worked" or a person's manual settlement never counts: the other modules must ask this, not
+    look at the state themselves."""
+    return op.state == OperationState.CONFIRMED and op.last_code != MANUAL_RESOLUTION
 
 
 def _view(op: ExternalOperation) -> OperationView:
@@ -114,7 +117,7 @@ def _settle(op: ExternalOperation, result: PartnerResult, now: dt.datetime) -> N
     """Move an operation to where the partner's answer puts it. Call inside a transaction."""
     if result.partner_ref:
         op.partner_ref = result.partner_ref[:128]
-    op.last_code = result.code[:64]
+    op.last_code = "" if result.code == MANUAL_RESOLUTION else result.code[:64]
     if result.outcome is Outcome.CONFIRMED:
         op.state, op.finished_at = OperationState.CONFIRMED, now
         _log(op, OperationEventType.CONFIRMED, now=now)
@@ -321,11 +324,13 @@ def _apply_answer(
 # --------------------------------------------------------------------------- people step in
 
 
-def redrive(*, operation_ref: str, actor_ref: str, clock: Clock | None = None) -> dict[str, Any]:
+def redrive(
+    *, operation_ref: str, actor_ref: str, organization_ref: str = "", clock: Clock | None = None
+) -> dict[str, Any]:
     """A person puts a dead operation back in the queue. The attempt counters start again."""
     now = utc_now(clock)
     with transaction.atomic():
-        op = _locked(operation_ref)
+        op = _locked(operation_ref, organization_ref)
         if op.state != OperationState.DEAD:
             raise ZoikoError(ErrorCode.UNSAFE_REPLAY)
         op.state, op.attempts, op.polls = OperationState.PENDING, 0, 0
@@ -338,20 +343,23 @@ def redrive(*, operation_ref: str, actor_ref: str, clock: Clock | None = None) -
 
 
 def resolve_by_hand(
-    *, operation_ref: str, outcome: str, actor_ref: str, clock: Clock | None = None
+    *, operation_ref: str, outcome: str, actor_ref: str, organization_ref: str = "",
+    clock: Clock | None = None,
 ) -> dict[str, Any]:
     """A person who has checked with the partner records the real outcome of an operation that
-    is `unknown` or `dead`. The history keeps WHO settled it; it is not the partner's word, but
-    it is the only way out when the partner cannot be asked."""
+    is `unknown` or `dead`. The history keeps WHO settled it. It is NOT the partner's word, so
+    `is_source_confirmed()` stays false for it: it is the way out when the partner cannot be
+    asked, never a way to claim the partner confirmed."""
     if outcome not in ("confirmed", "rejected"):
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["outcome"])
     now = utc_now(clock)
     with transaction.atomic():
-        op = _locked(operation_ref)
+        op = _locked(operation_ref, organization_ref)
         if op.state not in (OperationState.UNKNOWN, OperationState.DEAD):
             raise ZoikoError(ErrorCode.UNSAFE_REPLAY)
         op.state = OperationState(outcome)
         op.finished_at = now
+        op.last_code = MANUAL_RESOLUTION
         op.save()
         _log(op, OperationEventType.RESOLVED, actor_ref=actor_ref, code=outcome, now=now)
         _announce(op, outcome)
@@ -360,9 +368,12 @@ def resolve_by_hand(
         return operation_dict(op)
 
 
-def _locked(operation_ref: str) -> ExternalOperation:
-    op = ExternalOperation.objects.select_for_update().filter(
-        public_id=operation_ref, **_scope()).first()
+def _locked(operation_ref: str, organization_ref: str = "") -> ExternalOperation:
+    rows = ExternalOperation.objects.select_for_update().filter(
+        public_id=operation_ref, **_scope())
+    if organization_ref:
+        rows = rows.filter(organization_ref=organization_ref)
+    op = rows.first()
     if op is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     return op
@@ -371,17 +382,22 @@ def _locked(operation_ref: str) -> ExternalOperation:
 # --------------------------------------------------------------------------- reading
 
 
-def get_operation(operation_ref: str) -> dict[str, Any]:
-    op = ExternalOperation.objects.filter(public_id=operation_ref, **_scope()).first()
+def get_operation(operation_ref: str, organization_ref: str = "") -> dict[str, Any]:
+    rows = ExternalOperation.objects.filter(public_id=operation_ref, **_scope())
+    if organization_ref:
+        rows = rows.filter(organization_ref=organization_ref)
+    op = rows.first()
     if op is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     return operation_dict(op)
 
 
 def list_operations(
-    *, state: str = "", subject_ref: str = "", limit: int = 200
+    *, state: str = "", subject_ref: str = "", organization_ref: str = "", limit: int = 200
 ) -> list[dict[str, Any]]:
     rows = ExternalOperation.objects.filter(**_scope())
+    if organization_ref:
+        rows = rows.filter(organization_ref=organization_ref)
     if state:
         rows = rows.filter(state=state)
     if subject_ref:
@@ -389,10 +405,13 @@ def list_operations(
     return [operation_dict(o) for o in rows.order_by("-created_at")[:limit]]
 
 
-def operation_history(operation_ref: str) -> dict[str, Any]:
+def operation_history(operation_ref: str, organization_ref: str = "") -> dict[str, Any]:
     """The steps of one operation, oldest first, and whether the chain still checks out."""
     scope = _scope()
-    op = ExternalOperation.objects.filter(public_id=operation_ref, **scope).first()
+    candidates = ExternalOperation.objects.filter(public_id=operation_ref, **scope)
+    if organization_ref:
+        candidates = candidates.filter(organization_ref=organization_ref)
+    op = candidates.first()
     if op is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     rows = list(OperationEvent.objects.select_related("operation")

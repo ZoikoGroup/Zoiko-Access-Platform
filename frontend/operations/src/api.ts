@@ -4,6 +4,9 @@ import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
 import type {
+  DeveloperClient, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
+} from "./consoleTypes";
+import type {
   ClinicSettings, CoverageRow, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
   BookingRow, Compliance, Dashboard, Directory, Health, LocationRow, Me, PatientRow, ServiceRow,
 } from "./types";
@@ -341,3 +344,30 @@ export async function saveDisplayName(name: string): Promise<string> {
 export async function clearDisplayName(): Promise<void> {
   await v1("auth/display-name", { method: "DELETE" });
 }
+
+// ---------------------------------------------------------------------------------------
+// Partner connections, journeys and integrations (backend/api/console.py).
+// ---------------------------------------------------------------------------------------
+const enc = encodeURIComponent;
+
+export const getExceptions = () => v1<ExceptionsData>("staff/exceptions");
+export const getConnectorHistory = async (id: string) =>
+  (await v1<{ history: OperationHistory }>(`staff/connector/${enc(id)}/history`)).history;
+export const redriveOperation = (id: string) => post(`staff/connector/${enc(id)}/redrive`);
+export const resolveOperation = (id: string, outcome: "confirmed" | "rejected") =>
+  post(`staff/connector/${enc(id)}/resolve`, { outcome });
+export const resolveJourneyException = (id: string) =>
+  post(`staff/workflow-exceptions/${enc(id)}/resolve`);
+
+export const getJourneys = () => v1<JourneysData>("staff/journeys");
+export const getJourneyHistory = async (id: string) =>
+  (await v1<{ history: JourneyHistory }>(`staff/journeys/${enc(id)}/history`)).history;
+
+export const getDeveloper = () => v1<DeveloperData>("staff/developer");
+export const createApiClient = (body: { name: string; environment: string; scopes: string[] }) =>
+  post<{ client: DeveloperClient; key: string }>("staff/developer/clients", body);
+export const revokeApiClient = (id: string) => post(`staff/developer/clients/${enc(id)}/revoke`);
+export const testWebhook = (client: string, hook: string) =>
+  post(`staff/developer/clients/${enc(client)}/webhooks/${enc(hook)}/test`);
+export const redriveDelivery = (client: string, delivery: string) =>
+  post(`staff/developer/clients/${enc(client)}/deliveries/${enc(delivery)}/redrive`);

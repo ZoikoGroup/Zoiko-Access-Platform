@@ -3,7 +3,7 @@
 export type PageId =
   | "dashboard" | "patients" | "providers" | "organizations" | "team" | "services" | "appointments"
   | "waitlist" | "family" | "referrals" | "workflows" | "messages" | "billing" | "compliance" | "reports"
-  | "integrations" | "ai" | "settings";
+  | "integrations" | "exceptions" | "journeys" | "ai" | "settings";
 
 export interface NavItem {
   id: PageId;
@@ -30,8 +30,9 @@ export const NAV: NavItem[] = [
     waitsFor: "Entitlements, invoices and claims: a later phase." },
   { id: "compliance", label: "Compliance", icon: "compliance", live: true },
   { id: "reports", label: "Reports", icon: "reports", live: true },
-  { id: "integrations", label: "Integrations", icon: "integrations", live: false,
-    waitsFor: "Partner connectors and webhooks: planned (B8, partner simulator)." },
+  { id: "exceptions", label: "Exceptions", icon: "shield", live: true },
+  { id: "journeys", label: "Journeys", icon: "workflows", live: true },
+  { id: "integrations", label: "Integrations", icon: "integrations", live: true },
   { id: "ai", label: "AI permits", icon: "settings", live: true },
   { id: "settings", label: "Settings", icon: "settings", live: true },
 ];

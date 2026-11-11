@@ -13,7 +13,7 @@
   "transitions": {
     "confirm": {
       "from": ["requested"], "to": "confirmed",
-      "guards": ["human_actor"], "requires_evidence": ["source_confirmed_outcome"]
+      "requires_evidence": ["source_confirmed_outcome"]
     },
     "cancel": {
       "from": ["requested", "confirmed"], "to": "cancelled",

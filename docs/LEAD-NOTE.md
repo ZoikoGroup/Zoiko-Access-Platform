@@ -64,6 +64,8 @@ Seven gaps were found. The developer did not leave them open: each is **already 
 | 6 | Must a user state a reason when they open a patient's record? | A doctor chooses "treat my patients" or "follow up earlier care (read only)"; it is checked against the role, recorded and shown to the patient. | DEV-111 | Confirm; say whether a reason per patient is wanted, and what extra the follow-up purpose may do. |
 | 7 | Which role may exist in which kind of customer? | Partly: the employer and payer roles can only go to employer and payer logins, which can hold nothing else. | DEV-105 | Give the full table of roles per customer type. |
 
+**Added after the connector and journey screens (DEV-125), two more to confirm:** (a) the clinic's administrator (R13) may now manage the clinic's partner connections (API clients and webhooks): the specification names the partner engineer (R10) for this, so is the administrator also right? (b) the Exceptions and Journeys screens reuse the existing workflow rights (clinic operations, administrator and support may act; the safety officer may only look): the specification names support (R11) for exceptions. Both are temporary rules in the decision register until you answer.
+
 Two things the developer could not decide alone and did not guess: **proof of the legal relationship for a guardian**, and **who may authorize AI permits** (question 1 above).
 
 ## What happens next

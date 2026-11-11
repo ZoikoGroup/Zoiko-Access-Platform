@@ -12,6 +12,7 @@ from .engine import (
     instance_history,
     list_definitions,
     list_exceptions,
+    list_instances,
     load_bundled_definitions,
     publish_definition,
     resolve_exception,
@@ -24,7 +25,7 @@ from .subscribers import register_subscribers
 __all__ = [
     "DbWorkflowEngine", "EVIDENCE_KINDS", "Evidence", "MAX_CLOSED_DAYS", "WorkflowEngine",
     "claim", "engine", "instance_history", "item_history", "list_closed", "list_definitions",
-    "list_exceptions", "list_items", "load_bundled_definitions", "publish_definition",
-    "register_subscribers", "release", "resolve_exception", "retire_definition",
-    "validate_definition",
+    "list_exceptions", "list_instances", "list_items", "load_bundled_definitions",
+    "publish_definition", "register_subscribers", "release", "resolve_exception",
+    "retire_definition", "validate_definition",
 ]

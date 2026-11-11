@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import console, views
 
 urlpatterns = [
     path("auth/login", views.login),
@@ -84,6 +84,22 @@ urlpatterns = [
     path("staff/compliance", views.staff_compliance),
     path("staff/directory", views.staff_directory),
     path("staff/patients", views.staff_patients),
+    path("staff/exceptions", console.staff_exceptions),
+    path("staff/connector/<str:operation_id>/history", console.staff_connector_history),
+    path("staff/connector/<str:operation_id>/redrive", console.staff_connector_redrive),
+    path("staff/connector/<str:operation_id>/resolve", console.staff_connector_resolve),
+    path("staff/workflow-exceptions/<str:exception_id>/resolve",
+         console.staff_journey_exception_resolve),
+    path("staff/journeys", console.staff_journeys),
+    path("staff/journeys/<str:instance_id>/history", console.staff_journey_history),
+    path("staff/developer", console.staff_developer),
+    path("staff/developer/clients", console.staff_developer_client_create),
+    path("staff/developer/clients/<str:client_id>/revoke", console.staff_developer_client_revoke),
+    path("staff/developer/clients/<str:client_id>/webhooks/<str:webhook_id>/test",
+         console.staff_developer_webhook_test),
+    path("staff/developer/clients/<str:client_id>/deliveries/<str:delivery_id>/redrive",
+         console.staff_developer_delivery_redrive),
+    path("platform/packs", console.platform_packs),
     path("services", views.services),
     path("locations", views.locations),
     path("locations/<str:location_id>/contact", views.location_contact),

@@ -112,6 +112,9 @@ class WorkflowDefinition(models.Model):
                 fields=["cell_id", "key", "version"], name="wfdef_key_version_unique"),
         ]
 
+    def __str__(self) -> str:
+        return f"{self.key} v{self.version}"
+
 
 class InstanceStatus(models.TextChoices):
     RUNNING = "running", "Running"

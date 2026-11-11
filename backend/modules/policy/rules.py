@@ -253,7 +253,13 @@ def _rules_digest() -> str:
 # The organization administrator (R13, DEV-037) does everything clinic operations does, and may
 # also manage the organization's own team. Hard prohibitions are NOT inherited from nowhere: R13
 # has none, and R04's absence of patient-care rights carries over because the rules are copied.
-RULES["R13"] = {**RULES["R04"], "staff": (_v("rw"), "ORG")}
+RULES["R13"] = {
+    **RULES["R04"], "staff": (_v("rw"), "ORG"),
+    # TEMPORARY (DEV-122): the organization's administrator may manage its partner connections (API
+    # clients, webhooks). The specification names the partner engineer (R10) for this; who else, if
+    # anyone, is the lead's decision (docs/LEAD-NOTE.md).
+    "partner": (_v("rw"), "ORG"),
+}
 
 
 # Computed once, after every rule above is final (R13 included).

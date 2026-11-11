@@ -44,6 +44,9 @@ class CountryPack(models.Model):
         ]
         indexes = [models.Index(fields=["cell_id", "country", "status"], name="packs_lookup_idx")]
 
+    def __str__(self) -> str:
+        return f"{self.country} v{self.version}"
+
 
 class RevocationState(models.Model):
     """The lowest revocation epoch this cell still accepts. It only ever goes up."""
@@ -51,3 +54,6 @@ class RevocationState(models.Model):
     cell_id = models.CharField(max_length=32, primary_key=True)
     min_epoch = models.PositiveIntegerField(default=0)
     updated_at = models.DateTimeField(default=utc_now)
+
+    def __str__(self) -> str:
+        return f"{self.cell_id} epoch {self.min_epoch}"

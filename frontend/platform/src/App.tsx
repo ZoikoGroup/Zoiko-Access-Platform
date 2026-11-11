@@ -12,6 +12,7 @@ import { clearLink, LinkPage, readLinkAction } from "./pages/LinkActions";
 import { OverviewPage } from "./pages/Overview";
 import { Planned } from "./pages/Planned";
 import { Hazards } from "./pages/Hazards";
+import { Packs } from "./pages/Packs";
 import { Incidents } from "./pages/Incidents";
 import { Releases } from "./pages/Releases";
 import { Settings } from "./pages/Settings";
@@ -74,6 +75,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
   else if (page === "hazards") body = <Hazards />;
+  else if (page === "packs") body = <Packs />;
   else if (page === "incidents") body = <Incidents canWrite={session.roles.some((r) => r.role === "R11")} />;
   else if (page === "releases") body = <Releases canAdd={session.roles.some((r) => r.role === "R11")} />;
   else if (denied) body = <div className="notice">Your account is not allowed to use the platform console.</div>;

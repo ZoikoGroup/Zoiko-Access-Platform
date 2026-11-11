@@ -247,8 +247,20 @@ def require_capability(country: str, capability: str, *, clock: Clock | None = N
         raise ZoikoError(ErrorCode.JURISDICTION_INACTIVE)
 
 
-def list_packs(country: str = "") -> list[dict[str, Any]]:
+def list_packs(country: str = "", *, clock: Clock | None = None) -> list[dict[str, Any]]:
+    """Every installed pack, newest first, each with whether it is in force RIGHT NOW (its
+    signature, dates and revocation epoch all check out), not just what the table says."""
     rows = CountryPack.objects.filter(cell_id=settings.ZOIKO_CELL_ID)
     if country:
         rows = rows.filter(country=country)
-    return [pack_dict(r) for r in rows.order_by("country", "-version")]
+    in_force = {
+        c: (active_pack(c, clock=clock) or {}).get("public_id")
+        for c in {r.country for r in rows}}
+    return [pack_dict(r) | {"in_force": in_force.get(r.country) == r.public_id}
+            for r in rows.order_by("country", "-version")]
+
+
+def cell_status() -> dict[str, Any]:
+    """What this cell trusts: the revocation floor and the ids (never the keys) of the signing
+    keys it accepts."""
+    return {"revocation_floor": _epoch_floor(), "trusted_key_ids": sorted(_public_keys())}

@@ -78,7 +78,8 @@ def _scope() -> dict[str, Any]:
 def client_dict(c: ApiClient) -> dict[str, Any]:
     return {
         "public_id": c.public_id, "name": c.name, "environment": c.environment,
-        "scopes": list(c.scopes), "status": c.status,
+        "organization_ref": c.organization_ref, "scopes": list(c.scopes), "status": c.status,
+        "created_at": c.created_at.isoformat(),
         "expires_at": c.expires_at.isoformat() if c.expires_at else None,
         "last_used_at": c.last_used_at.isoformat() if c.last_used_at else None,
     }
@@ -109,7 +110,7 @@ def _hash_secret(secret: str) -> str:
 
 def create_client(
     *, tenant_public_id: str, name: str, environment: str, scopes: list[str],
-    created_by_ref: str, expires_at: dt.datetime | None = None,
+    created_by_ref: str, organization_ref: str = "", expires_at: dt.datetime | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Make a client and return it with its API key. The key is shown ONCE: only a hash is kept."""
     if not name.strip() or len(name) > 100:
@@ -124,7 +125,8 @@ def create_client(
     with tenant_transaction(trust.context_for(tenant_public_id)):
         client = ApiClient.objects.create(
             name=name.strip(), environment=environment, key_hash=_hash_secret(secret),
-            scopes=list(scopes), expires_at=expires_at, created_by_ref=created_by_ref, **_scope())
+            organization_ref=organization_ref, scopes=list(scopes), expires_at=expires_at,
+            created_by_ref=created_by_ref, **_scope())
         record(actor_ref=created_by_ref, action="developer.client_created",
                object_type="api_client", object_ref=client.public_id,
                outcome=AuditOutcome.ALLOWED)
@@ -132,11 +134,30 @@ def create_client(
         return client_dict(client), key
 
 
-def revoke_client(client_ref: str, *, actor_ref: str) -> dict[str, Any]:
+def list_clients(organization_ref: str = "") -> list[dict[str, Any]]:
+    """The clients of this customer, newest first (one clinic's only, when asked)."""
+    rows = ApiClient.objects.filter(**_scope())
+    if organization_ref:
+        rows = rows.filter(organization_ref=organization_ref)
+    return [client_dict(c) for c in rows.order_by("-created_at")]
+
+
+def client_in_organization(client_ref: str, organization_ref: str) -> None:
+    """Refuse (as not found) a client that belongs to another clinic."""
+    if not ApiClient.objects.filter(
+            public_id=client_ref, organization_ref=organization_ref, **_scope()).exists():
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+
+
+def revoke_client(
+    client_ref: str, *, actor_ref: str, organization_ref: str = ""
+) -> dict[str, Any]:
     """Stop a client at once. Its webhooks stop too (a revoked client's deliveries are not sent)."""
     with transaction.atomic():
-        client = ApiClient.objects.select_for_update().filter(
-            public_id=client_ref, **_scope()).first()
+        found = ApiClient.objects.select_for_update().filter(public_id=client_ref, **_scope())
+        if organization_ref:
+            found = found.filter(organization_ref=organization_ref)
+        client = found.first()
         if client is None:
             raise ZoikoError(ErrorCode.NOT_FOUND)
         if client.status != ClientStatus.REVOKED:
