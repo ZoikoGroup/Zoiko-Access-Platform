@@ -148,8 +148,8 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery =
         ) : (
           <div className="service-grid">
             {services.map((s) => (
-              <button key={s.id} className={`service ${service?.id === s.id ? "selected" : ""}`} onClick={() => void choose(s)}>
-                <h3>{s.name}</h3>
+              <div key={s.id} className={`service ${service?.id === s.id ? "selected" : ""}`}>
+                <h3><button className="service-pick" aria-pressed={service?.id === s.id} onClick={() => void choose(s)}>{s.name}</button></h3>
                 <span className="meta">{s.organization.name} - {s.duration_minutes} min - {s.mode === "video" ? "Video" : "In person"}</span>
                 <span className="meta">{s.description}</span>
                 {s.usual_confirmation_hours != null && (
@@ -160,13 +160,9 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery =
                     ? <>Next: <b>{whenLabel(s.next_slot_local, s.next_slot_zone)}</b></>
                     : isWaiting(waiting, s) ? <Pill kind="info">On the waiting list</Pill>
                     : <span><Pill kind="warn">No free times</Pill>{" "}
-                        <span role="button" tabIndex={0} className="link"
-                          onClick={(e) => { e.stopPropagation(); void wait(s); }}
-                          onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); void wait(s); } }}>
-                          Tell me when one opens
-                        </span></span>}
+                        <button className="linklike" style={{ marginTop: 0 }} onClick={() => void wait(s)}>Tell me when one opens</button></span>}
                 </span>
-              </button>
+              </div>
             ))}
           </div>
         )}

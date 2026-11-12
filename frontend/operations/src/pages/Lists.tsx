@@ -4,6 +4,7 @@ import { Gate, useLoad } from "../useLoad";
 import { Card, Patient, Pill, Table } from "../ui";
 import { PatientCoverage } from "./PatientCoverage";
 import { PatientDetails } from "./PatientDetails";
+import { PatientIdentity } from "./PatientIdentity";
 
 export function Patients({ initialSearch = "" }: { initialSearch?: string }) {
   const [version, setVersion] = useState(0);        // a new number reloads the list
@@ -35,7 +36,11 @@ export function Patients({ initialSearch = "" }: { initialSearch?: string }) {
                 rows={patients.map((p) => [
                   <Patient key="i" name={p.patient_name} id={p.id} />,
                   <Pill key="s" kind={p.status === "active" ? "ok" : "bad"}>{p.status}</Pill>,
-                  <Pill key="v" kind={p.identity_status === "verified" ? "ok" : "warn"}>{p.identity_status}</Pill>,
+                  <span key="v">
+                    <Pill kind={p.identity_status === "verified" ? "ok" : "warn"}>{p.identity_status === "verified" ? "verified" : "not verified"}</Pill>
+                    {p.under_review && <><br /><Pill kind="bad">possible duplicate</Pill></>}
+                    {p.same_as_another && <><br /><Pill kind="info">same as another record</Pill></>}
+                  </span>,
                   p.has_login ? "yes" : <Pill key="n" kind="warn">no login</Pill>,
                   p.care.filter((c) => c.status === "active" && !c.contested).map((c) => c.clinician).join(", ") || "none",
                   p.proxies.filter((g) => g.status === "active").map((g) => `${g.guardian} (${g.type})`).join(", ") || "none",
@@ -49,6 +54,7 @@ export function Patients({ initialSearch = "" }: { initialSearch?: string }) {
             <div className="grid">
               <PatientDetails person={editing} onClose={() => setEditing("")}
                 onSaved={() => { setEditing(""); setVersion((v) => v + 1); }} />
+              <PatientIdentity person={editing} onChanged={() => setVersion((v) => v + 1)} />
               <PatientCoverage person={editing} />
             </div>
           )}

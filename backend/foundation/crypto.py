@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import hmac
 import os
 import uuid
 
@@ -110,6 +112,18 @@ def decrypt(token: str, *, tenant_id: uuid.UUID | str, context: str) -> str:
         return plain.decode("utf-8")
     except (ValueError, KeyError, InvalidTag, binascii.Error, UnicodeError):
         raise CryptoError from None
+
+
+def blind_index(value: str, *, tenant_id: uuid.UUID | str, context: str) -> str:
+    """A keyed fingerprint of `value` for this customer and purpose: equal values give equal
+    fingerprints, so they can be FOUND without decrypting anything, and the fingerprint reveals
+    nothing else (HMAC-SHA256 under a key derived for this customer and this `context`). It uses
+    the CURRENT key, so after a key rotation the fingerprints must be rebuilt, like re-encrypting
+    (`manage.py rebuild_match_keys`)."""
+    customer_key = _tenant_key(_keys()[current_key_id()], tenant_id)
+    purpose_key = hmac.new(
+        customer_key, b"blind-index|" + context.encode(), hashlib.sha256).digest()
+    return hmac.new(purpose_key, value.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def needs_rotation(token: str) -> bool:

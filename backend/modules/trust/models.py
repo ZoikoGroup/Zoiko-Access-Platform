@@ -171,10 +171,18 @@ class PersonProfile(CellScopedModel):
     legal_name_enc = models.TextField(blank=True, default="")
     birth_date_enc = models.TextField(blank=True, default="")
     phone_enc = models.TextField(blank=True, default="")
+    # Keyed fingerprints (foundation/crypto.py blind_index) of the birth date and the phone number,
+    # so possible duplicates can be FOUND without decrypting everyone. They reveal only equality.
+    birth_key = models.CharField(max_length=64, blank=True, default="")
+    phone_key = models.CharField(max_length=64, blank=True, default="")
     updated_by_ref = models.CharField(max_length=22, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
-        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="profile_scope_idx")]
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="profile_scope_idx"),
+            models.Index(fields=["birth_key"], name="profile_birthkey_idx"),
+            models.Index(fields=["phone_key"], name="profile_phonekey_idx"),
+        ]
 
 
 class ActorName(CellScopedModel):
@@ -453,3 +461,116 @@ class NameCheck(CellScopedModel):
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="namecheck_scope_idx")]
+
+
+# --------------------------------------------------------------------------- identity (GHE-06)
+# Matching (are these two records the same person?) and proofing (has someone checked who this is?)
+# are different things, and neither grants access by itself (GHE-06 section 01).
+
+
+class MatchState(models.TextChoices):
+    POSSIBLE_MATCH = "possible_match", "Possible match (held for review)"
+    MATCHED_PENDING_AUTH = "matched_pending_auth", "One reviewer agrees, a second is needed"
+    LINKED = "linked", "Confirmed the same person"
+    SPLIT_REVIEW = "split_review", "Link under review (to be split)"
+    CLOSED_NOT_SAME = "closed_not_same", "Closed: not the same person"
+
+
+OPEN_MATCH_STATES = (
+    MatchState.POSSIBLE_MATCH, MatchState.MATCHED_PENDING_AUTH, MatchState.SPLIT_REVIEW)
+
+
+class MatchCase(CellScopedModel):
+    """Two patient records that might be one person, held for a human to decide. Nothing is ever
+    merged automatically, and no data is merged at all: a confirmed link only records the decision.
+    Holds no names or details: only how the records compared (same, close, differ) and flags."""
+
+    ref_no = models.CharField(max_length=12)                    # e.g. M-0007
+    person_a = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="match_a")
+    person_b = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="match_b")
+    state = models.CharField(
+        max_length=24, choices=MatchState.choices, default=MatchState.POSSIBLE_MATCH)
+    factors = models.JSONField(default=dict)                    # {"name": "close", ...}
+    conflict_flags = models.JSONField(default=list)             # twin, transposition...
+    confidence = models.CharField(max_length=8)                 # high, medium
+    critical = models.BooleanField(default=False)               # a wrong link could harm someone
+    policy_version = models.CharField(max_length=40)
+    first_reviewer_ref = models.CharField(max_length=22, blank=True, default="")
+    recheck_requested = models.BooleanField(default=False)
+    evidence_digest = models.CharField(max_length=64)           # what was compared at the end
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="matchcase_scope_idx")]
+        constraints = [
+            # One case for each pair of records, for good: "not the same" is remembered.
+            models.UniqueConstraint(
+                fields=["tenant_id", "person_a", "person_b"], name="matchcase_one_per_pair"),
+            models.UniqueConstraint(fields=["tenant_id", "ref_no"], name="matchcase_ref_unique"),
+        ]
+
+
+class MatchAction(models.TextChoices):
+    OPENED = "opened", "Opened"
+    REQUEST_RECHECK = "request_recheck", "Asked for the details to be checked again"
+    CONFIRM_SAME = "confirm_same", "Agreed they are the same person"
+    MARK_NOT_SAME = "mark_not_same", "Decided they are not the same person"
+    SPLIT = "split", "Sent the link back for review"
+    REOPENED = "reopened", "Reopened on new evidence"
+
+
+class MatchDecision(CellScopedModel):
+    """One step in a case. Append-only (the database refuses UPDATE and DELETE) and chained: each
+    row carries the digest of the one before it. References and codes only."""
+
+    case = models.ForeignKey(MatchCase, on_delete=models.PROTECT, related_name="decisions")
+    seq = models.PositiveIntegerField()
+    action = models.CharField(max_length=16, choices=MatchAction.choices)
+    state_after = models.CharField(max_length=24)
+    actor_ref = models.CharField(max_length=64)                 # a login's id, or "system"
+    note = models.CharField(max_length=24, blank=True, default="")   # a code, never free text
+    occurred_at = models.DateTimeField()
+    prev_digest = models.CharField(max_length=64)
+    record_digest = models.CharField(max_length=64)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="matchdec_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(fields=["case", "seq"], name="matchdec_one_per_seq"),
+        ]
+
+
+class EvidenceType(models.TextChoices):
+    PASSPORT = "passport", "Passport"
+    NATIONAL_ID = "national_id", "National identity card"
+    DRIVING_LICENCE = "driving_licence", "Driving licence"
+    OTHER_DOCUMENT = "other_document", "Another official document"
+
+
+class ProofingOutcome(models.TextChoices):
+    PASSED = "passed", "Passed"
+    FAILED = "failed", "Failed"
+
+
+class ProofingRecord(CellScopedModel):
+    """A person at a clinic checked who this patient is, against an official document. It records
+    THAT a check was made, by whom, where and when: never the document or its number. Verified means
+    a passed, unwithdrawn, unexpired check made against the details the patient has NOW; changing
+    the name or birth date afterwards lapses it (so the record stays tied to what was checked)."""
+
+    person = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="proofing")
+    evidence_type = models.CharField(max_length=16, choices=EvidenceType.choices)
+    outcome = models.CharField(max_length=8, choices=ProofingOutcome.choices)
+    organization_ref = models.CharField(max_length=22)          # the clinic that checked
+    checked_by_ref = models.CharField(max_length=22)
+    checked_at = models.DateTimeField()
+    valid_until = models.DateTimeField(null=True, blank=True)
+    details_digest = models.CharField(max_length=64)            # fingerprint of name + birth date
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    withdrawn_by_ref = models.CharField(max_length=22, blank=True, default="")
+    withdraw_reason = models.CharField(max_length=16, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="proofing_scope_idx"),
+            models.Index(fields=["person", "checked_at"], name="proofing_person_idx"),
+        ]

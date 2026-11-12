@@ -4,7 +4,7 @@ import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
 import type {
-  BookingSystem, DeveloperClient, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
+  BookingSystem, DeveloperClient, IdentityData, MatchesData, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
 } from "./consoleTypes";
 import type {
   ClinicSettings, CoverageRow, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
@@ -362,6 +362,15 @@ export const resolveJourneyException = (id: string) =>
 export const getJourneys = () => v1<JourneysData>("staff/journeys");
 export const getJourneyHistory = async (id: string) =>
   (await v1<{ history: JourneyHistory }>(`staff/journeys/${enc(id)}/history`)).history;
+
+export const getMatches = () => v1<MatchesData>("staff/matches");
+export const decideMatch = (id: string, action: string, note = "") =>
+  post(`staff/matches/${enc(id)}/decide`, { action, note });
+export const getIdentity = (person: string) => v1<IdentityData>(`people/${enc(person)}/identity`);
+export const recordIdentityCheck = (person: string, body: { evidence_type: string; outcome: string; valid_days?: number }) =>
+  post(`people/${enc(person)}/identity/check`, body);
+export const withdrawIdentityCheck = (person: string, reason: string) =>
+  post(`people/${enc(person)}/identity/withdraw`, { reason });
 
 export const getBookingSystem = () => v1<BookingSystem>("staff/booking-system");
 export const setBookingSystem = (system: string) => post<BookingSystem>("staff/booking-system", { system });

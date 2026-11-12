@@ -74,6 +74,10 @@ export interface PatientRow {
   patient_name?: string | null;
   status: string;
   identity_status: string;
+  /** A possible duplicate of this patient is waiting for a decision. */
+  under_review?: boolean;
+  /** Confirmed to be the same person as another record (nothing has been merged). */
+  same_as_another?: boolean;
   has_login: boolean;
   care: { id: string; clinician: string; basis: string; status: string; contested: boolean }[];
   proxies: { id: string; guardian: string; type: string; status: string }[];

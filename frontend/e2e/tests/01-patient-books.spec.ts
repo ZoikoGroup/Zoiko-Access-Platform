@@ -15,7 +15,7 @@ test("a patient books an appointment and sees it waiting for the clinic", async 
   await expect(page.getByRole("heading", { name: /Welcome back/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Find Healthcare" }).first().click();
-  await page.locator("button.service", { hasText: SERVICE }).click();
+  await page.locator(".service", { hasText: SERVICE }).locator("button.service-pick").click();
   await expect(page.getByText(`Free times for ${SERVICE}`)).toBeVisible();
 
   await page.locator("button.slot").first().click();

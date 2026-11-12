@@ -2003,11 +2003,19 @@ def my_profiles(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse
     editable = {p for p in persons if is_allowed(auth, "write:person", subject_ref=p)}
     with tenant_transaction():
         own = trust.own_person_of(auth.actor_public_id)
+        orgs = trust.organization_names()
+        identity = {p: trust.identity_status_of(p) for p in persons}
     return JsonResponse({"profiles": [
         {"person": p, "own": p == own, "editable": p in editable,
          "name": found.get(p, {}).get("name", ""),
          "birth_date": found.get(p, {}).get("birth_date", ""),
-         "phone": found.get(p, {}).get("phone", "")}
+         "phone": found.get(p, {}).get("phone", ""),
+         # Whether a clinic has checked who this patient is. Never whether a possible duplicate is
+         # being reviewed: a patient is not told while it is unresolved (GHE-06).
+         "identity": {
+             "status": identity[p]["status"], "checked_on": identity[p]["checked_on"],
+             "valid_until": identity[p]["valid_until"],
+             "clinic": orgs.get(identity[p]["clinic_ref"], ""), "why_not": identity[p]["why_not"]}}
         for p in persons]})
 
 

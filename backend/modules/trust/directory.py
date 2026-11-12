@@ -10,6 +10,7 @@ from typing import Any
 from foundation.cell_context import require_context
 
 from .display_names import display_names
+from .identity_match import linked_people, open_case_people
 from .models import (
     Actor,
     CareRelationship,
@@ -91,11 +92,16 @@ def patient_registry() -> dict[str, Any]:
             "id": g.public_id, "guardian": labels.get(g.delegate.public_id, ""),
             "type": g.relationship_type, "status": g.status,
         })
+    people = list(Person.objects.filter(**scope).order_by("created_at"))
+    refs = [p.public_id for p in people]
+    under_review = open_case_people(refs)
+    same_as_another = linked_people(refs)
     return {"patients": [
         {"id": p.public_id, "status": p.status, "identity_status": p.identity_status,
          "has_login": p.linked_actor_id is not None, "care": care.get(p.pk, []),
-         "proxies": proxies.get(p.pk, [])}
-        for p in Person.objects.filter(**scope).order_by("created_at")
+         "proxies": proxies.get(p.pk, []), "under_review": p.public_id in under_review,
+         "same_as_another": p.public_id in same_as_another}
+        for p in people
     ]}
 
 

@@ -36,6 +36,7 @@ APPEND_ONLY = frozenset({
     "messaging_messageview",
     "workflow_workflowtransition",
     "connector_operationevent",
+    "trust_matchdecision",
 })
 
 # The one place the app deletes rows (finished plumbing). probe_probe exists only under test

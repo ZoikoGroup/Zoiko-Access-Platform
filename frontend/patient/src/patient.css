@@ -19,11 +19,18 @@
 
 .service-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
 .service {
-  display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; text-align: left;
+  position: relative; display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; text-align: left;
   background: var(--card); border: 1px solid var(--line); border-radius: 14px;
 }
 .service.selected { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
 .service h3 { font-size: 15px; }
+/* The whole card selects the service (the button's ::after covers it) while a second control, such as
+   "Tell me when one opens", stays a separate button above it: buttons must not be nested. */
+.service-pick { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.service-pick::after { content: ""; position: absolute; inset: 0; border-radius: 14px; }
+.service-pick:focus-visible { outline: none; }
+.service-pick:focus-visible::after { outline: 2px solid var(--brand); outline-offset: 2px; }
+.service .linklike { position: relative; z-index: 1; }
 .service .meta { color: var(--muted); font-size: 12px; }
 .service .next { margin-top: auto; padding-top: 8px; font-size: 13px; }
 

@@ -3,7 +3,7 @@
 export type PageId =
   | "dashboard" | "patients" | "providers" | "organizations" | "team" | "services" | "appointments"
   | "waitlist" | "family" | "referrals" | "workflows" | "messages" | "billing" | "compliance" | "reports"
-  | "integrations" | "exceptions" | "journeys" | "ai" | "settings";
+  | "integrations" | "exceptions" | "journeys" | "matches" | "ai" | "settings";
 
 export interface NavItem {
   id: PageId;
@@ -16,6 +16,7 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", live: true },
   { id: "patients", label: "Patients", icon: "patients", live: true },
+  { id: "matches", label: "Duplicates", icon: "shield", live: true },
   { id: "providers", label: "Providers", icon: "providers", live: true },
   { id: "organizations", label: "Organizations", icon: "organizations", live: true },
   { id: "team", label: "Team", icon: "providers", live: true },

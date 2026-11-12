@@ -43,6 +43,29 @@ function One({ row, onSaved }: { row: ProfileRow; onSaved: () => Promise<void> }
   );
 }
 
+const WHY: Record<string, string> = {
+  withdrawn: "The last check was withdrawn, so it needs repeating.",
+  check_failed: "The last check did not pass. Ask your clinic what to bring.",
+  expired: "Your last check has expired, so it needs repeating.",
+  details_changed: "Your name or birth date changed after the check, so it needs repeating.",
+};
+
+/** Whether a clinic has checked who this patient is. A patient cannot set this themselves. */
+function Identity({ row }: { row: ProfileRow }) {
+  const id = row.identity;
+  if (!id) return null;
+  return (
+    <div className="notice" role="status" style={{ marginTop: 12 }}>
+      {id.status === "verified"
+        ? <><b>Identity verified.</b> {id.clinic || "Your clinic"} checked an official document on {id.checked_on}
+            {id.valid_until ? `; the check is valid until ${id.valid_until}` : ""}.</>
+        : <><b>Identity not verified yet.</b> To verify it, bring an official document (such as a passport or
+            driving licence) to your clinic. Nobody can verify you without seeing it, and you cannot verify
+            yourself here. {WHY[id.why_not] ?? ""}</>}
+    </div>
+  );
+}
+
 export function Profile({ profiles, onSaved }: { profiles: ProfileRow[]; onSaved: () => Promise<void> }) {
   return (
     <>
@@ -56,6 +79,7 @@ export function Profile({ profiles, onSaved }: { profiles: ProfileRow[]; onSaved
         ) : profiles.map((row, i) => (
           <Card key={row.person} title={row.own ? "My details" : (row.name || `Family member ${i}`)}>
             <One row={row} onSaved={onSaved} />
+            <Identity row={row} />
           </Card>
         ))}
         <EmailCard load={getEmailStatus} onSave={setEmail} onResend={resendVerification} />

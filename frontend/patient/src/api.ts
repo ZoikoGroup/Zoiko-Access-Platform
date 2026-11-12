@@ -82,6 +82,11 @@ export interface ProfileRow {
   name: string;
   birth_date: string;
   phone: string;
+  /** Whether a clinic has checked who this patient is. */
+  identity?: {
+    status: "verified" | "unverified"; checked_on: string | null; valid_until: string | null;
+    clinic: string; why_not: "" | "withdrawn" | "check_failed" | "expired" | "details_changed";
+  };
 }
 
 export interface CoverageRow {
