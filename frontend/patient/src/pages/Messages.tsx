@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, getThread, getThreads, replyToThread, startThread, type MessageThread, type ThreadView } from "../api";
 import { Card, Pill } from "../ui";
 
@@ -6,16 +6,22 @@ function when(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 }
 
+// One key for one message: sending the same words twice (a double tap, a retry) posts once. Typing
+// something different starts a new message, so it gets a new key.
+const newKey = () => crypto.randomUUID().replace(/-/g, "") + "k";
+
 function NewMessage({ onSent }: { onSent: (id: string) => Promise<void> }) {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const keyRef = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setError("");
-    try { const id = await startThread({ subject, body }); setSubject(""); setBody(""); await onSent(id); }
+    keyRef.current ??= newKey();
+    try { const id = await startThread({ subject, body }, keyRef.current); keyRef.current = null; setSubject(""); setBody(""); await onSent(id); }
     catch (err) {
       setError(err instanceof ApiError && err.status === 429 ? "You have sent a lot of messages in the last hour. Please wait a little."
         : err instanceof ApiError && err.status === 422 ? "A subject and a message are needed (the message can be up to 2000 characters)."
@@ -26,10 +32,10 @@ function NewMessage({ onSent }: { onSent: (id: string) => Promise<void> }) {
   return (
     <form className="profile-form" onSubmit={(e) => void submit(e)}>
       <label>Subject
-        <input value={subject} maxLength={120} onChange={(e) => setSubject(e.target.value)} required />
+        <input value={subject} maxLength={120} onChange={(e) => { keyRef.current = null; setSubject(e.target.value); }} required />
       </label>
       <label>Your message
-        <textarea value={body} maxLength={2000} onChange={(e) => setBody(e.target.value)} required
+        <textarea value={body} maxLength={2000} onChange={(e) => { keyRef.current = null; setBody(e.target.value); }} required
           style={{ minHeight: 110, padding: "9px 12px", border: "1px solid var(--line)", borderRadius: 10, background: "var(--bg)" }} />
       </label>
       {error && <div className="error" role="alert">{error}</div>}
@@ -41,6 +47,7 @@ function NewMessage({ onSent }: { onSent: (id: string) => Promise<void> }) {
 function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<void> }) {
   const [view, setView] = useState<ThreadView | null>(null);
   const [text, setText] = useState("");
+  const replyKey = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -53,7 +60,8 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
   async function send(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setError("");
-    try { await replyToThread(id, text); setText(""); await load(); }
+    replyKey.current ??= newKey();
+    try { await replyToThread(id, text, replyKey.current); replyKey.current = null; setText(""); await load(); }
     catch (err) {
       setError(err instanceof ApiError && err.status === 409 ? "The clinic has closed this conversation. Start a new message."
         : err instanceof ApiError && err.status === 429 ? "Please wait a little before sending more."
@@ -78,7 +86,7 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
       ))}
       {view.status === "open" && (
         <form className="profile-form" onSubmit={(e) => void send(e)} style={{ marginTop: 12 }}>
-          <textarea value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} aria-label="Your reply"
+          <textarea value={text} maxLength={2000} onChange={(e) => { replyKey.current = null; setText(e.target.value); }} aria-label="Your reply"
             placeholder="Write a reply" style={{ minHeight: 80, padding: "9px 12px", border: "1px solid var(--line)", borderRadius: 10, background: "var(--bg)" }} />
           {error && <div className="error" role="alert">{error}</div>}
           <div><button className="btn" type="submit" disabled={busy || !text.trim()}>{busy ? "Sending…" : "Reply"}</button></div>

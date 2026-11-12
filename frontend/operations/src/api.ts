@@ -162,8 +162,8 @@ export const listFamilyRequests = async () =>
   await v1<{ requests: FamilyRequest[]; approved: FamilyRequest[] }>("staff/family-requests");
 export const familyStep = (id: string, step: "proof-needed" | "proof-received" | "suspend" | "resume", reason = "") =>
   post(`staff/family-requests/${encodeURIComponent(id)}/${step}`, reason ? { reason } : {});
-export const approveFamily = (id: string, validUntil: string, scopes: string[]) =>
-  post(`staff/family-requests/${encodeURIComponent(id)}/approve`, { verified: true, valid_until: validUntil, scopes });
+export const approveFamily = (id: string, validUntil: string, scopes: string[], proofKind: string, proofRef: string) =>
+  post(`staff/family-requests/${encodeURIComponent(id)}/approve`, { verified: true, valid_until: validUntil, scopes, proof_kind: proofKind, proof_ref: proofRef });
 export const rejectFamily = (id: string) => post(`staff/family-requests/${encodeURIComponent(id)}/reject`);
 export const listMessageThreads = async () => (await v1<{ threads: MessageThread[] }>("messages/threads")).threads;
 export const getMessageThread = async (id: string) =>

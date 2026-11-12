@@ -270,6 +270,11 @@ class ProxyGrant(CellScopedModel):
     )
     valid_from = models.DateTimeField(null=True, blank=True)
     valid_until = models.DateTimeField(null=True, blank=True)
+    # What staff saw to establish the legal basis, recorded at approval (DEV-144): a kind from a
+    # fixed list and a short reference to the proof held in the clinic's own records. Never the
+    # document itself.
+    proof_kind = models.CharField(max_length=24, blank=True, default="")
+    proof_ref = models.CharField(max_length=64, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [

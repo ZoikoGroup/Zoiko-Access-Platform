@@ -81,12 +81,14 @@ export function Pill({ kind, children }: { kind: PillKind; children: ReactNode }
   return <span className={`pill ${kind}`}>{children}</span>;
 }
 
-export function Table({ headers, rows, empty }: {
-  headers: string[]; rows: ReactNode[][]; empty: string;
+export function Table({ headers, rows, empty, label = "Table" }: {
+  headers: string[]; rows: ReactNode[][]; empty: string; label?: string;
 }) {
   if (rows.length === 0) return <div className="empty">{empty}</div>;
+  // A table wider than the screen scrolls sideways inside this box, so a keyboard user must be able
+  // to reach it and scroll it (WCAG 2.1.1 and the "scrollable region" rule).
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" tabIndex={0} role="region" aria-label={label}>
       <table>
         <thead><tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr></thead>
         <tbody>

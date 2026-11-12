@@ -45,6 +45,9 @@ ALL_SCOPES = ["appointments", "messages", "referrals", "insurance"]
 def decide(p, grant, verb, subject="ops", **body):
     if verb == "approve" and "scopes" not in body:
         body["scopes"] = ALL_SCOPES            # the staff screen always chooses; default: all four
+    if verb == "approve":                      # the staff screen always says what proof it saw
+        body.setdefault("proof_kind", "birth_record")
+        body.setdefault("proof_ref", "proof-0001")
     return p.post(f"staff/family-requests/{grant}/{verb}", body, subject=subject)
 
 
@@ -313,3 +316,54 @@ def test_only_the_requester_gets_the_notice(p):
     p.patient("pat2")
     decide(p, made["id"], "approve", verified=True)
     assert len(family_notices(p)) == 1 and family_notices(p, "pat2") == []
+
+
+# -------------------------------------------------------- what proof staff saw (GHE-06 AT-15)
+@pytest.mark.parametrize("over", [
+    {"proof_kind": ""}, {"proof_kind": "a letter"}, {"proof_kind": "BIRTH_RECORD"},
+    {"proof_ref": ""}, {"proof_ref": "x"}, {"proof_ref": "has space in it"},
+    {"proof_ref": "y" * 65},
+])
+def test_a_guardian_cannot_be_approved_without_saying_what_proof_was_seen(p, over):
+    made = requested(p)
+    assert decide(p, made["id"], "approve", verified=True, **over).status_code == 422
+    assert json.loads(p.get("staff/family-requests", subject="ops").content)["approved"] == []
+
+
+def test_the_proof_is_recorded_with_the_approval_and_staff_can_see_it(p):
+    made = requested(p)
+    r = decide(p, made["id"], "approve", verified=True, proof_kind="court_order",
+               proof_ref="file-1042")
+    assert r.status_code == 200
+    [row] = json.loads(p.get("staff/family-requests", subject="ops").content)["approved"]
+    assert row["proof_kind"] == "court_order" and row["proof_ref"] == "file-1042"
+
+
+def test_the_guardian_sees_the_kind_of_proof_but_not_the_clinics_file_reference(p):
+    made = requested(p)
+    decide(p, made["id"], "approve", verified=True, proof_kind="birth_record",
+           proof_ref="file-SECRET-7")
+    seen = json.loads(p.get("family", subject="pat").content)["family"]
+    assert seen and seen[0]["proof_kind"] == "birth_record"
+    assert "file-SECRET-7" not in json.dumps(seen)
+
+
+def test_the_proof_kind_is_in_the_audit_trail_but_not_the_reference(p):
+    from foundation.cell_context import tenant_transaction
+    from modules.evidence.models import AuditEvent
+    made = requested(p)
+    decide(p, made["id"], "approve", verified=True, proof_kind="adoption_record",
+           proof_ref="file-SECRET-8")
+    with tenant_transaction(p.clinic.ctx):
+        events = list(AuditEvent.objects.filter(action="family.approve"))
+    assert len(events) == 1 and "file-SECRET-8" not in json.dumps(events[0].details)
+
+
+def test_a_rejected_request_records_no_proof(p):
+    made = requested(p)
+    assert decide(p, made["id"], "reject").status_code == 200
+    from foundation.cell_context import tenant_transaction
+    from modules.trust.models import ProxyGrant
+    with tenant_transaction(p.clinic.ctx):
+        grant = ProxyGrant.objects.get(public_id=made["id"])
+    assert grant.proof_kind == "" and grant.proof_ref == ""

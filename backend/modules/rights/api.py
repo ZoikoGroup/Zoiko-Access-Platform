@@ -9,9 +9,10 @@ from .services import (
     get_case,
     list_cases,
     open_count,
+    overdue_count,
     start,
     withdraw,
 )
 
 __all__ = ["close", "confirm_identity", "file_request", "get_case", "list_cases", "open_count",
-           "start", "withdraw"]
+           "overdue_count", "start", "withdraw"]

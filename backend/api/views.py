@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -17,6 +18,7 @@ from django.views.decorators.http import require_GET, require_POST
 from foundation import metrics
 from foundation.cell_context import tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
+from foundation.idempotency import IdempotentOutcome
 from foundation.idempotency import run as run_once
 from foundation.mail import mail_stats
 from foundation.outbox import backlog_stats
@@ -745,6 +747,8 @@ def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
                 1 for r in referral.list_referrals(destination_organization_ref=org)
                 if r["state"] == "issued"),
             "data_requests": 0 if org is None else rights.open_count(org),
+            # an administrator's number: webhook deliveries that gave up and need a person
+            "webhooks_gave_up": integration.gave_up_count() if "R13" in auth.roles else 0,
         }
         today = (scheduling.today_counts(org) if org else
                  {"confirmed": 0, "waiting": 0, "still_to_come": 0})
@@ -753,6 +757,7 @@ def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
             "hours": target,
             "bookings": scheduling.overdue_requests(target),
             "messages": 0 if org is None else messaging.overdue_threads_for_staff(org, target),
+            "data_requests": 0 if org is None else rights.overdue_count(org, target),
         }
     return JsonResponse({"tenant": auth.tenant_name, "counts": numbers, "attention": attention,
                          "late": late, "today": today, **_evidence_block(auth, org)})
@@ -2040,6 +2045,19 @@ def _thread_json(t: dict[str, Any], staff: bool) -> dict[str, Any]:
     }
 
 
+def _once(
+    request: HttpRequest, auth: trust.Authenticated, scope: str, body: dict[str, Any],
+    work: Callable[[], dict[str, Any]],
+) -> IdempotentOutcome:
+    """With an Idempotency-Key header, do the work once however often it is sent (DEV-148); with
+    none, just do it, so older clients keep working."""
+    key = request.headers.get("Idempotency-Key", "")
+    if not key:
+        return IdempotentOutcome(replayed=False, result=work())
+    return run_once(scope=f"actor:{auth.actor_public_id} {scope}", key=key, payload=body,
+                    retain_for=IDEMPOTENCY_RETENTION, work=work)
+
+
 @endpoint("GET", "POST")
 def message_threads(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """GET: the threads this login may see (a clinic: its own; a patient: their people's).
@@ -2063,10 +2081,15 @@ def message_threads(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
                     person = mine[0]
         decision = _authorize(auth, "write:comms", organization_public_id=org, subject_ref=person)
         with tenant_transaction():
-            made = messaging.start_thread(
-                person_ref=person, organization_ref=org, subject=text(body, "subject"),
-                body=text(body, "body"), actor_public_id=auth.actor_public_id, decision=decision)
-        return JsonResponse({"thread": _thread_json(made, False)}, status=201)
+            outcome = _once(
+                request, auth, "POST /messages/threads", body,
+                lambda: {"thread": messaging.start_thread(
+                    person_ref=person, organization_ref=org, subject=text(body, "subject"),
+                    body=text(body, "body"), actor_public_id=auth.actor_public_id,
+                    decision=decision)["public_id"]})
+            made = messaging.get_thread(str(outcome.result["thread"]))
+        return JsonResponse({"thread": _thread_json(made, False)},
+                            status=200 if outcome.replayed else 201)
     if staff:
         _staff_only(auth)
         if org is None or not is_allowed(auth, "read:comms", organization_public_id=org):
@@ -2133,9 +2156,12 @@ def message_reply(
     body = json_body(request)
     _, org, decision = _thread_access(auth, thread_id, "write:comms")
     with tenant_transaction():
-        done = messaging.reply(
-            thread_ref=thread_id, body=text(body, "body"), actor_public_id=auth.actor_public_id,
-            decision=decision, organization_public_id=org)
+        _once(request, auth, f"POST /messages/{thread_id}/reply", body,
+              lambda: {"thread": messaging.reply(
+                  thread_ref=thread_id, body=text(body, "body"),
+                  actor_public_id=auth.actor_public_id, decision=decision,
+                  organization_public_id=org)["public_id"]})
+        done = messaging.get_thread(thread_id)
     return JsonResponse({"thread": _thread_json(done, _is_staff(auth))})
 
 
@@ -2157,7 +2183,7 @@ def _family_json(g: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": g["public_id"], "status": g["status"], "relationship": g["relationship"],
         "person": g["person_ref"], "name": g["name"], "birth_date": g["birth_date"],
-        "scopes": g.get("scopes", []),
+        "scopes": g.get("scopes", []), "proof_kind": g.get("proof_kind", ""),
         "valid_until": g["valid_until"], "requested_at": g["created_at"],
     }
 
@@ -2211,7 +2237,8 @@ def staff_family_requests(request: HttpRequest, auth: trust.Authenticated) -> Ht
     names = _names(auth, {p for p in owns.values() if p})
 
     def shown(g: dict[str, Any]) -> dict[str, Any]:
-        return {**_family_json(g), "requested_by": labels.get(g["delegate_ref"], ""),
+        return {**_family_json(g), "proof_ref": g.get("proof_ref", ""),
+                "requested_by": labels.get(g["delegate_ref"], ""),
                 "requested_by_name": names.get(owns.get(g["delegate_ref"], "")) or None}
 
     return JsonResponse({"requests": [shown(g) for g in rows],
@@ -2234,6 +2261,8 @@ def _decide_family(
             done = trust.approve_family_member(
                 grant_ref=grant_id, approver_public_id=auth.actor_public_id, decision=decision,
                 organization_public_id=org, verified=body.get("verified") is True,
+                proof_kind=text(body, "proof_kind", False),
+                proof_ref=text(body, "proof_ref", False),
                 scopes=[s for s in body.get("scopes", []) if isinstance(s, str)]
                 if isinstance(body.get("scopes"), list) else None,
                 valid_until=text(body, "valid_until", False))
@@ -2863,9 +2892,10 @@ def staff_workflows(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
                 definition_key=text(body, "definition"), subject_ref=text(body, "subject"),
                 organization_ref=org, owner_ref=text(body, "owner"),
                 evidence=body.get("evidence"), purpose=text(body, "purpose", required=False),
+                idempotency_key=text(body, "idempotency_key", required=False),
                 actor_public_id=auth.actor_public_id, decision=decision)
             _owners([made])
-        return JsonResponse({"instance": made}, status=201)
+        return JsonResponse({"instance": made}, status=200 if made["replayed"] else 201)
     _authorize(auth, "read:workflow", organization_public_id=org)
     with tenant_transaction():
         rows = _owners(orchestration.list_instances(
@@ -2921,7 +2951,8 @@ def staff_workflow_step(
         elif step == "overlay":
             done = orchestration.set_overlay(
                 instance_ref=instance_id, organization_ref=org, expected_version=version,
-                overlay=text(body, "overlay"), note=note, actor_public_id=me, decision=decision)
+                overlay=text(body, "overlay"), note=note, actor_public_id=me, decision=decision,
+                evidence=body.get("evidence"))
         else:
             done = orchestration.reassign(
                 instance_ref=instance_id, organization_ref=org, expected_version=version,
@@ -3026,6 +3057,9 @@ def staff_webhook_deliveries(request: HttpRequest, auth: trust.Authenticated) ->
     _authorize(auth, "read:integration", organization_public_id=org)
     with tenant_transaction():
         rows = integration.list_deliveries(request.GET.get("state") or None)
+        labels = trust.actor_labels()
+    for r in rows:
+        r["owner_name"] = labels.get(r["owner"], "")
     return JsonResponse({"deliveries": rows})
 
 

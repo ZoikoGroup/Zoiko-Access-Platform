@@ -100,16 +100,16 @@
   "req_id": "WF-T13",
   "group": "Lifecycle",
   "title": "Same CreateWorkflow request is retried with same key and body.",
-  "status": "partly",
-  "evidence": "A repeated start is refused with a conflict (one live workflow per subject) rather than answered with the original response."
+  "status": "met",
+  "evidence": "test_orchestration.py: starting a workflow with an idempotency key twice gives one instance and the same answer (the second marked as replayed)."
  },
  {
   "source": "GHE-12",
   "req_id": "WF-T14",
   "group": "Lifecycle",
   "title": "Same key reused with differing payload.",
-  "status": "partly",
-  "evidence": "test_orchestration.py: the same idempotency key with a different target is a conflict. Start has no idempotency key."
+  "status": "met",
+  "evidence": "test_orchestration.py: the same key with a different request is a conflict and creates nothing; the same idempotency key with a different target is also a conflict."
  },
  {
   "source": "GHE-12",
@@ -428,8 +428,8 @@
   "req_id": "WF-T54",
   "group": "Operations",
   "title": "Operator resolves patient-match exception without evidence.",
-  "status": "partly",
-  "evidence": "test_orchestration.py: clearing an exception needs a written reason but not evidence."
+  "status": "met",
+  "evidence": "test_orchestration.py: an exception or a reconciliation cannot be cleared without evidence of its resolution, only a written reason is refused."
  },
  {
   "source": "GHE-12",

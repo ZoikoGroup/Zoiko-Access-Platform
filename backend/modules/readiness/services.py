@@ -34,6 +34,7 @@ from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 from modules.jurisdiction import api as jurisdiction
 from modules.policy import api as policy
+from modules.safety import api as safety
 
 from .models import Decision, Evidence, GateDecision, Release
 
@@ -43,6 +44,7 @@ G3 = ("signed_build", "security_signoff", "privacy_signoff", "requirements_cover
       "recovery_exercised", "operations_staffed")
 G4 = ("legal_authority", "clinical_partner", "clinical_safety_signoff", "operating_entity")
 COUNTRY_PACK = "country_pack"            # checked by the system, signed by nobody
+HAZARD_REGISTER = "hazard_register"      # likewise: every hazard accepted or retired (GHE-08 AT42)
 CLINICAL = frozenset({"clinical_partner", "clinical_safety_signoff"})
 ALL_REQUIREMENTS = (*G3, *G4)
 MAX_VALID_DAYS = 366
@@ -110,9 +112,23 @@ def _pack_state(rel: Release, clock: Clock | None) -> dict[str, Any]:
             "signer": "", "role": "", "reference": found or "", "expires_on": None, "note": ""}
 
 
+def _hazard_state() -> dict[str, Any]:
+    """The hazard register must exist and hold no unresolved hazard: a hazard that is open, verified
+    but not accepted, or rejected holds the release back. An empty register is not a clean one."""
+    sums = safety.resolution_summary()
+    ok = sums["total"] > 0 and sums["unresolved"] == 0
+    if sums["total"] == 0:
+        why = "no hazards recorded"
+    else:
+        why = f"{sums['total'] - sums['unresolved']} of {sums['total']} resolved"
+    return {"gate": "G3", "requirement": HAZARD_REGISTER, "status": "signed" if ok else "missing",
+            "signer": "", "role": "", "reference": why, "expires_on": None, "note": ""}
+
+
 def evaluate_now(rel: Release, clock: Clock | None = None) -> dict[str, Any]:
     """The decision and what blocks it, worked out now without recording anything."""
     states = requirement_states(rel, clock)
+    states.append(_hazard_state())
     states.append(_pack_state(rel, clock))
     blockers = [f"{s['gate'].lower()}.{s['requirement']}:{s['status']}"
                 for s in states if s["status"] != "signed"]

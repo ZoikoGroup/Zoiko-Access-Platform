@@ -208,3 +208,17 @@ def test_the_lookup_itself_only_counts_signed_unexpired_packs(world):
         assert jurisdiction.data_request_days("") is None
         far = FixedClock(dt.datetime.now(dt.UTC) + dt.timedelta(days=800))
         assert jurisdiction.data_request_days("GB", far) is None             # past its review date
+
+
+# ---------------------------------------------- the client cannot choose the country (AT-02)
+def test_a_locale_an_address_or_a_country_sent_by_the_patient_never_changes_the_deadline(world, p):
+    signed(world, ref="gb-care-navigation", manifest=full(days=30))
+    signed(world, ref="de-care-navigation", country="DE", manifest=full(days=5))
+    set_country(world, p, "GB")
+    r = p.post("rights", {"type": "access", "note": "", "country": "DE", "locale": "de-DE"},
+               subject="pat", HTTP_ACCEPT_LANGUAGE="de-DE", HTTP_X_FORWARDED_FOR="85.214.132.117",
+               HTTP_X_ZOIKO_COUNTRY="DE")
+    assert r.status_code == 201
+    made = json.loads(r.content)["request"]
+    assert 29 * 24 < hours_until(made["due_at"]) < 30 * 24 + 1       # the customer's country, GB
+    assert made["due_basis"] == "gb-care-navigation@1"

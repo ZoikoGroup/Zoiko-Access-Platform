@@ -1,0 +1,322 @@
+[
+ {
+  "source": "GHE-06",
+  "req_id": "AT-01",
+  "group": "Acceptance",
+  "title": "Email verified but person not clinically proofed",
+  "status": "partly",
+  "evidence": "A verified email does not make a person proofed: guardians and family links need a staff check (test_family.py). Identity proofing itself is not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-02",
+  "group": "Acceptance",
+  "title": "Recovery through compromised contact",
+  "status": "partly",
+  "evidence": "Account recovery is a single-use, one-hour link to the verified email (test_email.py, test_change_password.py). A compromised contact is not detected."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-03",
+  "group": "Acceptance",
+  "title": "Token issued to wrong audience or expired",
+  "status": "met",
+  "evidence": "test_auth.py: an expired, tampered or foreign-key token is refused."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-04",
+  "group": "Acceptance",
+  "title": "Clinician SSO success with inactive regional license",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-05",
+  "group": "Acceptance",
+  "title": "Workload token used as human proxy",
+  "status": "partly",
+  "evidence": "A partner's credential can only post signed partner messages and cannot act as a person (test_partner_events.py)."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-06",
+  "group": "Acceptance",
+  "title": "Foreign global account presents valid login",
+  "status": "partly",
+  "evidence": "A login belongs to one customer and a token fixes it (test_auth.py, test_rls.py). There are no global accounts."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-07",
+  "group": "Acceptance",
+  "title": "Same name and DOB for twins",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-08",
+  "group": "Acceptance",
+  "title": "Swapped identifiers from lab partner",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-09",
+  "group": "Acceptance",
+  "title": "No-match patient registers successfully",
+  "status": "partly",
+  "evidence": "A patient registers and gets their own new record (test_auth.py). There is no matching to test the no-match case against."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-10",
+  "group": "Acceptance",
+  "title": "High probabilistic score but source rejects assignment",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-11",
+  "group": "Acceptance",
+  "title": "Patient ID from incorrect assigning authority",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-12",
+  "group": "Acceptance",
+  "title": "Erroneous historical merge discovered",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-13",
+  "group": "Acceptance",
+  "title": "Duplicate result arrives while adjudication pending",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-14",
+  "group": "Acceptance",
+  "title": "Reviewer tries approve own critical match decision",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-15",
+  "group": "Acceptance",
+  "title": "Guardian lacks verified legal basis for minor",
+  "status": "partly",
+  "evidence": "A guardian is approved by a staff member who must say what kind of proof they saw and where it is kept; both are recorded and audited (test_family.py). The legal basis is still the staff member's word: nothing here verifies the document or ties a kind of proof to a relationship."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-16",
+  "group": "Acceptance",
+  "title": "Minor age threshold changes under market rule",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-17",
+  "group": "Acceptance",
+  "title": "Patient revokes caregiver with active session",
+  "status": "partly",
+  "evidence": "A guardian's access is checked live on every request, so revoking takes effect at once (test_grant_states.py, test_guardian_scope.py)."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-18",
+  "group": "Acceptance",
+  "title": "Proxy allowed scheduling but requests notes",
+  "status": "met",
+  "evidence": "test_guardian_scope.py: a guardian sees only the parts the clinic granted (appointments, messages, referrals, insurance) and never records."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-19",
+  "group": "Acceptance",
+  "title": "Employer sponsor requests individual lab result",
+  "status": "met",
+  "evidence": "test_prohibitions.py: the employer role is barred from patient data whatever else is true."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-20",
+  "group": "Acceptance",
+  "title": "Clinician moves facilities",
+  "status": "met",
+  "evidence": "test_clinician.py: a doctor's care link is tied to the clinic site and ends when they leave it."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-21",
+  "group": "Acceptance",
+  "title": "Facility license or provider contract suspended",
+  "status": "met",
+  "evidence": "test_suspensions.py: a suspended customer's staff are refused at once, and it takes two different support people."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-22",
+  "group": "Acceptance",
+  "title": "Nurse has staff role but no current care assignment",
+  "status": "met",
+  "evidence": "test_site_patients.py: staff reach only the patients who have dealings with their own site."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-23",
+  "group": "Acceptance",
+  "title": "Support agent tries emergency clinical access",
+  "status": "met",
+  "evidence": "test_prohibitions.py: support is barred from patient data and messages, and no emergency access exists."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-24",
+  "group": "Acceptance",
+  "title": "Approved OAuth scope with missing lawful-purpose flow",
+  "status": "partly",
+  "evidence": "A doctor states a purpose that the rules check against their role (test_purpose.py). There is no OAuth."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-25",
+  "group": "Acceptance",
+  "title": "Revocation store unavailable",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-26",
+  "group": "Acceptance",
+  "title": "Old country pack with broader policy than current",
+  "status": "partly",
+  "evidence": "A suspended or expired pack stops applying (test_packs.py, test_country_deadline.py); packs are not otherwise used."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-27",
+  "group": "Acceptance",
+  "title": "Cross-tenant user reuses patient link",
+  "status": "partly",
+  "evidence": "Customers are separated by row-level security (test_rls.py, test_db_role.py)."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-28",
+  "group": "Acceptance",
+  "title": "Patient can be inferred by query timing or error text",
+  "status": "partly",
+  "evidence": "Every login failure is the same answer (test_auth.py) and another customer's object is 'not found', never 'forbidden'."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-29",
+  "group": "Acceptance",
+  "title": "Overseas support session without transfer authorization",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-30",
+  "group": "Acceptance",
+  "title": "Cross-cell referral missing source consent/authority where relevant",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-31",
+  "group": "Acceptance",
+  "title": "Source record permission revoked after workflow queued",
+  "status": "partly",
+  "evidence": "Each workflow step re-checks the actor's rights as it is taken (test_orchestration.py)."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-32",
+  "group": "Acceptance",
+  "title": "Unapproved regional instance receives global tenant metadata",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-33",
+  "group": "Acceptance",
+  "title": "Break-glass called in nonactivated country",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-34",
+  "group": "Acceptance",
+  "title": "Enabled emergency request lacks reason/step-up",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-35",
+  "group": "Acceptance",
+  "title": "Emergency session expires before clinical action",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-36",
+  "group": "Acceptance",
+  "title": "Audit write or evidence integrity check fails",
+  "status": "partly",
+  "evidence": "Audit rows are written in the same transaction as the change they describe (test_audit.py), so a failure undoes the change."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-37",
+  "group": "Acceptance",
+  "title": "License revocation occurs during message delivery",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-38",
+  "group": "Acceptance",
+  "title": "Identity provider outage during urgent care",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-39",
+  "group": "Acceptance",
+  "title": "Unauthorized reviewer exports identity-match evidence",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ },
+ {
+  "source": "GHE-06",
+  "req_id": "AT-40",
+  "group": "Acceptance",
+  "title": "Patient challenges identity association",
+  "status": "not_built",
+  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+ }
+]

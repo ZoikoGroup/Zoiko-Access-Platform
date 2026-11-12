@@ -461,15 +461,16 @@ export const getThreads = async () => (await request<{ threads: MessageThread[] 
 export const getThread = async (id: string) =>
   (await request<{ thread: ThreadView }>(`messages/threads/${encodeURIComponent(id)}`)).body.thread;
 
-export async function startThread(body: { subject: string; body: string }): Promise<string> {
+export async function startThread(body: { subject: string; body: string }, key?: string): Promise<string> {
   const { body: made } = await request<{ thread: { id: string } }>("messages/threads", {
-    method: "POST", body: JSON.stringify(body),
+    method: "POST", body: JSON.stringify(body), headers: key ? { "Idempotency-Key": key } : {},
   });
   return made.thread.id;
 }
 
-export async function replyToThread(id: string, body: string): Promise<void> {
-  await request(`messages/threads/${encodeURIComponent(id)}/reply`, { method: "POST", body: JSON.stringify({ body }) });
+export async function replyToThread(id: string, body: string, key?: string): Promise<void> {
+  await request(`messages/threads/${encodeURIComponent(id)}/reply`, {
+    method: "POST", body: JSON.stringify({ body }), headers: key ? { "Idempotency-Key": key } : {} });
 }
 
 export const getWaitlist = async () => (await request<{ entries: WaitEntry[] }>("waitlist")).body.entries;

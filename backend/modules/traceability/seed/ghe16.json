@@ -1,0 +1,514 @@
+[
+ {
+  "source": "GHE-16",
+  "req_id": "TC01",
+  "group": "Acceptance",
+  "title": "Send patient content from a non-activated market",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC02",
+  "group": "Acceptance",
+  "title": "Submit intent without valid region binding",
+  "status": "partly",
+  "evidence": "Every request needs a signed-in token that fixes the customer; no token, no request. Regions are not modelled."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC03",
+  "group": "Acceptance",
+  "title": "Attempt a cross-cell thread lookup with valid tenant login",
+  "status": "partly",
+  "evidence": "One customer can never read another's threads (test_rls.py, test_messaging.py). There is one cell."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC04",
+  "group": "Acceptance",
+  "title": "Use provider credential for another patient relationship",
+  "status": "partly",
+  "evidence": "A doctor reaches only the patients they have a care link with (test_clinician.py, test_site_patients.py)."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC05",
+  "group": "Acceptance",
+  "title": "Try to send C2 body through public SMS channel",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC06",
+  "group": "Acceptance",
+  "title": "Load content in global analytics/control plane",
+  "status": "partly",
+  "evidence": "Metrics labels hold route patterns only, never content (test_metrics.py). No analytics or control plane exists."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC07",
+  "group": "Acceptance",
+  "title": "Change country pack to expired/unsigned revision",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC08",
+  "group": "Acceptance",
+  "title": "Unapproved overseas backup vendor failover",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC09",
+  "group": "Acceptance",
+  "title": "Deliver to a phone not verified for intended patient",
+  "status": "partly",
+  "evidence": "Staff digest emails go only to verified addresses (test_digest.py). There is no phone channel."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC10",
+  "group": "Acceptance",
+  "title": "Revoke proxy after notification dispatch before open",
+  "status": "partly",
+  "evidence": "A guardian's access is checked live on every request, so a revoked guardian is refused at once (test_guardian_scope.py, test_grant_states.py). Notification-open is not modelled."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC11",
+  "group": "Acceptance",
+  "title": "Change clinician team membership during work item pending",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC12",
+  "group": "Acceptance",
+  "title": "Employer requests employee-level message export",
+  "status": "partly",
+  "evidence": "The employer role has no right to messages under the default-deny rules (test_prohibitions.py). No export exists to test."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC13",
+  "group": "Acceptance",
+  "title": "Send generic push to shared lock-screen device",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC14",
+  "group": "Acceptance",
+  "title": "Try using opaque message ID from other patient",
+  "status": "partly",
+  "evidence": "Public ids are random and every read is checked against the signed-in patient (test_messaging.py, test_ids.py)."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC15",
+  "group": "Acceptance",
+  "title": "Suspected phone recycling flag set",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC16",
+  "group": "Acceptance",
+  "title": "Mass send with one unapproved recipient in batch",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC17",
+  "group": "Acceptance",
+  "title": "Submit same idempotency key and exact payload twice",
+  "status": "met",
+  "evidence": "A message or reply sent twice with one key posts once and returns the same thread (test_message_idempotency.py)."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC18",
+  "group": "Acceptance",
+  "title": "Submit same key with different payload",
+  "status": "met",
+  "evidence": "The same key with different words is refused with 409 and nothing new is made (test_message_idempotency.py)."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC19",
+  "group": "Acceptance",
+  "title": "Vendor sends signed callback with invalid signature",
+  "status": "partly",
+  "evidence": "The signed-message mechanism refuses a bad signature (test_partner_events.py), but there is no communications vendor."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC20",
+  "group": "Acceptance",
+  "title": "Callback replay with reused nonce",
+  "status": "partly",
+  "evidence": "A repeated delivery id is stored once and a reused id with new content is refused (test_partner_events.py); no vendor callbacks."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC21",
+  "group": "Acceptance",
+  "title": "Receipt arrives out of order / delayed",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC22",
+  "group": "Acceptance",
+  "title": "Vendor times out then delivers previously submitted message",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC23",
+  "group": "Acceptance",
+  "title": "Provider rejects payload with unsafe text",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC24",
+  "group": "Acceptance",
+  "title": "Attempt cancellation after irreversible external delivery",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC25",
+  "group": "Acceptance",
+  "title": "Provider adapter reports HTTP 200 for a critical task",
+  "status": "partly",
+  "evidence": "test_orchestration.py: a transport acknowledgement is refused as evidence of a clinical step. No provider adapter exists."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC26",
+  "group": "Acceptance",
+  "title": "Clinician opens result without explicit sign-off",
+  "status": "partly",
+  "evidence": "test_orchestration.py: a viewed or read receipt is refused as evidence of review. There are no clinical results."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC27",
+  "group": "Acceptance",
+  "title": "Unlicensed/admin user attempts reviewed attestation",
+  "status": "met",
+  "evidence": "test_orchestration.py: an administrator cannot enter a clinical review or handoff for the accountable owner."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC28",
+  "group": "Acceptance",
+  "title": "Primary clinical alert timer expires",
+  "status": "partly",
+  "evidence": "test_orchestration.py: an expired timer opens an escalation for the named owner. No message is sent."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC29",
+  "group": "Acceptance",
+  "title": "Backup contact unreachable",
+  "status": "partly",
+  "evidence": "test_orchestration.py: an unsuccessful try is counted and can hand the escalation to a fallback person."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC30",
+  "group": "Acceptance",
+  "title": "Quiet hours suppress routine reminder",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC31",
+  "group": "Acceptance",
+  "title": "Clinician declines handoff",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC32",
+  "group": "Acceptance",
+  "title": "Safety plan absent/unapproved",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC33",
+  "group": "Acceptance",
+  "title": "Patient inbox keyboard navigation at 320 CSS px",
+  "status": "partly",
+  "evidence": "The accessibility scan passes on the patient inbox (browser robot 10), at desktop width only."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC34",
+  "group": "Acceptance",
+  "title": "Screen reader receives new-message status",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC35",
+  "group": "Acceptance",
+  "title": "User selects right-to-left locale",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC36",
+  "group": "Acceptance",
+  "title": "Critical template translation lacks approval",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC37",
+  "group": "Acceptance",
+  "title": "User updates preferred channel during pending send",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC38",
+  "group": "Acceptance",
+  "title": "Expired link or invalid deep link",
+  "status": "partly",
+  "evidence": "Verification and reset links expire and work once (test_email.py, test_change_password.py)."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC39",
+  "group": "Acceptance",
+  "title": "No usable digital channel / disability access needs",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC40",
+  "group": "Acceptance",
+  "title": "Timezone passes DST skip/repeat",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC41",
+  "group": "Acceptance",
+  "title": "Regional communications worker crashes after outbox write",
+  "status": "partly",
+  "evidence": "Mail is queued in the database before it is sent and events are at-least-once (test_outbox.py, test_email.py). No crash is simulated."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC42",
+  "group": "Acceptance",
+  "title": "Vendor circuit breaker opens",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC43",
+  "group": "Acceptance",
+  "title": "Dead-letter queue exceeds threshold",
+  "status": "partly",
+  "evidence": "A webhook delivery that gave up stays visible, can be sent again, and is counted on the administrator's dashboard (test_webhooks.py). There is no threshold that raises an alert."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC44",
+  "group": "Acceptance",
+  "title": "Regional KMS unavailable",
+  "status": "partly",
+  "evidence": "If a key is unavailable, decryption fails safely with no fallback. Nothing reports it as degraded."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC45",
+  "group": "Acceptance",
+  "title": "On-call roster becomes stale",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC46",
+  "group": "Acceptance",
+  "title": "Breach candidate: wrong-recipient report",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC47",
+  "group": "Acceptance",
+  "title": "Recovery replays old webhook events",
+  "status": "partly",
+  "evidence": "Replayed partner deliveries are stored once (test_partner_events.py). There is no recovery replay."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC48",
+  "group": "Acceptance",
+  "title": "Failover proposed to unapproved geographic zone",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC49",
+  "group": "Acceptance",
+  "title": "Unapproved template variable introduced",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC50",
+  "group": "Acceptance",
+  "title": "New template approved by only marketing",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC51",
+  "group": "Acceptance",
+  "title": "Patient withdraws optional marketing consent",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC52",
+  "group": "Acceptance",
+  "title": "Notification body appears in APM trace",
+  "status": "partly",
+  "evidence": "Metrics and logs hold no message bodies (test_metrics.py, test_errors.py). There is no tracing tool."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC53",
+  "group": "Acceptance",
+  "title": "Staff requests message evidence without purpose",
+  "status": "partly",
+  "evidence": "Doctors state a purpose that the rules check and the audit records (test_purpose.py, test_audit_who.py). Staff message evidence is not a separate feature."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC54",
+  "group": "Acceptance",
+  "title": "Legal hold prevents immediate erasure",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC55",
+  "group": "Acceptance",
+  "title": "Small employer cohort aggregate query",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC56",
+  "group": "Acceptance",
+  "title": "Partner vendor subprocessor changed unapproved",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC57",
+  "group": "Acceptance",
+  "title": "Map FHIR CommunicationRequest to dispatched intent",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC58",
+  "group": "Acceptance",
+  "title": "Import partner Communication delivery fact",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC59",
+  "group": "Acceptance",
+  "title": "Connector loses source event correlation",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC60",
+  "group": "Acceptance",
+  "title": "Role transition in provider roster",
+  "status": "partly",
+  "evidence": "A doctor who leaves a site loses that site's patients and inbox (test_clinician.py, test_site_patients.py)."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC61",
+  "group": "Acceptance",
+  "title": "Deploy service with no approved safety evidence",
+  "status": "partly",
+  "evidence": "test_readiness.py: a release is not ready without its signed requirements. It records a decision and blocks nothing."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC62",
+  "group": "Acceptance",
+  "title": "Simulate all urgent routes unavailable",
+  "status": "not_built",
+  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC63",
+  "group": "Acceptance",
+  "title": "Test downgrade of approved country/channel policy",
+  "status": "partly",
+  "evidence": "test_country_deadline.py, test_readiness.py: suspending a pack removes what it gave and the release's authorisation."
+ },
+ {
+  "source": "GHE-16",
+  "req_id": "TC64",
+  "group": "Acceptance",
+  "title": "Review signed audit chain after corrections/cancellations",
+  "status": "partly",
+  "evidence": "The audit chain is checked end to end and corrections are new entries (test_audit.py)."
+ }
+]

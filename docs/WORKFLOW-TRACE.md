@@ -2,7 +2,7 @@
 
 Written 2026-11-11 by the developer, from GHE-12 section 12. Each row is a judgement made by reading the test and the code, not an automatic result; "Met" means one of our own automated tests proves the behaviour. The specification's own tests have **not** been run as written (they need partners, country packs and a regional setup that do not exist). This is the developer's reading and has not been reviewed by anyone else.
 
-**Totals: 18 met, 18 partly, 24 not built (of 60).**
+**Totals: 21 met, 15 partly, 24 not built (of 60).**
 
 Most of the "not built" rows need things the engine cannot invent: partners that return results, country packs applied at run time, patient matching, regions and failover, and the release gate. They are listed so a reviewer can see exactly where the line is.
 
@@ -20,8 +20,8 @@ Most of the "not built" rows need things the engine cannot invent: partners that
 | WF-T10 | Identity | Revoked delegation sends an otherwise valid step request. | Not built | Engine actors are staff; there is no delegation in a workflow step. |
 | WF-T11 | Identity | Patient match is ambiguous when result arrives. | Not built | No patient matching in the engine. |
 | WF-T12 | Identity | Provider credential expires between request and review. | Not built | Review attestations are references; no provider credential is checked. |
-| WF-T13 | Lifecycle | Same CreateWorkflow request is retried with same key and body. | Partly | A repeated start is refused with a conflict (one live workflow per subject) rather than answered with the original response. |
-| WF-T14 | Lifecycle | Same key reused with differing payload. | Partly | test_orchestration.py: the same idempotency key with a different target is a conflict. Start has no idempotency key. |
+| WF-T13 | Lifecycle | Same CreateWorkflow request is retried with same key and body. | Met | test_orchestration.py: starting a workflow with an idempotency key twice gives one instance and the same answer (the second marked as replayed). |
+| WF-T14 | Lifecycle | Same key reused with differing payload. | Met | test_orchestration.py: the same key with a different request is a conflict and creates nothing; the same idempotency key with a different target is also a conflict. |
 | WF-T15 | Lifecycle | Concurrent transitions use stale expected_version. | Met | test_orchestration.py: a stale expected version is a conflict and changes nothing. Tested one after the other, not truly in parallel. |
 | WF-T16 | Lifecycle | Unauthorized actor requests CANCELLED state. | Met | test_orchestration.py: only the owner or an administrator may move; others are refused and nothing changes. |
 | WF-T17 | Lifecycle | Simulated partner transport ACK attempts CLINICAL_REVIEWED. | Met | test_orchestration.py: every transport and read receipt kind is refused as evidence. |
@@ -61,7 +61,7 @@ Most of the "not built" rows need things the engine cannot invent: partners that
 | WF-T51 | Regional | Global observability exporter requests workflow payload. | Partly | Metrics carry route patterns and counts only, no payloads (DEV-130, tested). No exporter or workflow payload exists to test against. |
 | WF-T52 | Regional | Regional failure triggers failover to unauthorized region. | Not built | No failover. |
 | WF-T53 | Operations | Admin tries to enter clinical attestation on partner behalf. | Met | test_orchestration.py: an administrator cannot enter a review or a handoff for the accountable owner; they must first take responsibility, which is recorded. |
-| WF-T54 | Operations | Operator resolves patient-match exception without evidence. | Partly | test_orchestration.py: clearing an exception needs a written reason but not evidence. |
+| WF-T54 | Operations | Operator resolves patient-match exception without evidence. | Met | test_orchestration.py: an exception or a reconciliation cannot be cleared without evidence of its resolution, only a written reason is refused. |
 | WF-T55 | Operations | Operator presses replay for non-idempotent unknown action. | Not built | There is no replay command for external actions. |
 | WF-T56 | Operations | User of assistive technology reviews workflow status. | Partly | The accessibility scan passes on the Workflow engine page. No assistive-technology review by a person. |
 | WF-T57 | Operations | Patient locale lacks approved emergency text. | Not built | No locale-specific emergency text. |

@@ -319,3 +319,26 @@ def test_the_sealed_secret_moves_to_a_new_key_and_still_verifies(p, settings):
     with tenant_transaction(p.clinic.ctx):
         assert PartnerClient.objects.get(public_id=c["public_id"]).secret_enc.startswith("zf1:t2:")
     assert send(c).status_code == 202
+
+
+# ------------------------------------------------------ a partner cannot pick its customer (T-12)
+@pytest.mark.parametrize("extra", [{"tenant_id": "x"}, {"cell_id": "ZZ-99"}, {"patient": "p-1"},
+                                   {"region": "EU"}, {"organization": "other"}])
+def test_a_message_that_tries_to_name_a_customer_cell_patient_or_region_is_held(p, extra):
+    c = partner(p)
+    raw = json.dumps({"type": "partner.lab.x.v1", "data": {}, **extra}).encode()
+    r = send(c, raw)
+    assert r.status_code == 422 and r.json()["held"] is True
+    assert [e["state"] for e in events(p)] == ["quarantined"]
+
+
+def test_values_inside_the_data_never_move_a_message_to_another_customer(p):
+    other = Web()
+    other.login("admin2", trust.ActorType.FACILITY_USER, "R13")
+    c = partner(p)
+    raw = json.dumps({"type": "partner.lab.result_ready.v1",
+                      "data": {"tenant_id": "someone-else", "order": "ord-1"}}).encode()
+    assert send(c, raw).status_code == 202
+    assert len(events(p)) == 1
+    assert json.loads(other.get("staff/integrations/inbound", subject="admin2").content
+                      )["events"] == []

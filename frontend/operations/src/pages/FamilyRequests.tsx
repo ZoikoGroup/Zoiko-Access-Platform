@@ -23,10 +23,18 @@ const SCOPES: [string, string][] = [
   ["insurance", "See and manage insurance"],
 ];
 
+const PROOF_KINDS: [string, string][] = [
+  ["birth_record", "Birth record"], ["adoption_record", "Adoption record"], ["court_order", "Court order"],
+  ["power_of_attorney", "Power of attorney"], ["carer_registration", "Carer registration"],
+  ["patient_written_consent", "The patient's written consent"], ["other_document", "Another document"],
+];
+
 function Request({ r, onDone }: { r: FamilyRequest; onDone: () => Promise<void> }) {
   const [checked, setChecked] = useState(false);
   const [until, setUntil] = useState("");
   const [scopes, setScopes] = useState<string[]>(["appointments"]);   // the minimum to start with
+  const [proofKind, setProofKind] = useState("");
+  const [proofRef, setProofRef] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -46,6 +54,17 @@ function Request({ r, onDone }: { r: FamilyRequest; onDone: () => Promise<void> 
         <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
           <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
           I have checked proof of identity and proof of authority for this request
+        </label>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+          What proof did you see?
+          <select value={proofKind} onChange={(e) => setProofKind(e.target.value)}>
+            <option value="">Choose…</option>
+            {PROOF_KINDS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+          </select>
+        </label>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+          Where is it kept? (a reference in your own records, never the document)
+          <input value={proofRef} maxLength={64} onChange={(e) => setProofRef(e.target.value)} placeholder="file-1042" />
         </label>
         <fieldset style={{ border: "none", padding: 0, margin: "8px 0 0" }}>
           <legend><small>What may this person do? Choose only what is needed. Medical records stay closed.</small></legend>
@@ -67,7 +86,7 @@ function Request({ r, onDone }: { r: FamilyRequest; onDone: () => Promise<void> 
       <span>
         {r.status === "proposed" && <><button className="btn ghost" disabled={busy} onClick={() => void run(() => familyStep(r.id, "proof-needed"))}>Ask for proof</button>{" "}</>}
         {(r.status === "proposed" || r.status === "proof_required") && <><button className="btn ghost" disabled={busy} onClick={() => void run(() => familyStep(r.id, "proof-received"))}>Proof received</button>{" "}</>}
-        <button className="btn" disabled={busy || !checked || scopes.length === 0} onClick={() => void run(() => approveFamily(r.id, until, scopes))}>Approve</button>{" "}
+        <button className="btn" disabled={busy || !checked || scopes.length === 0 || !proofKind || proofRef.length < 4} onClick={() => void run(() => approveFamily(r.id, until, scopes, proofKind, proofRef))}>Approve</button>{" "}
         <button className="btn ghost" disabled={busy} onClick={() => void run(() => rejectFamily(r.id))}>Reject</button>
       </span>
     </div>
@@ -89,6 +108,7 @@ function Approved({ r, onDone }: { r: FamilyRequest; onDone: () => Promise<void>
       <div className="info">
         <b>{r.name || "Unnamed"} <Pill kind={STATUS[r.status]?.kind ?? "info"}>{STATUS[r.status]?.text ?? r.status}</Pill></b>
         <small>Acts for them: {r.requested_by_name ?? r.requested_by}. {(r.scopes ?? []).join(", ")}</small>
+        {r.proof_kind && <small>Proof seen: {PROOF_KINDS.find(([v]) => v === r.proof_kind)?.[1] ?? r.proof_kind}{r.proof_ref ? ` (${r.proof_ref})` : ""}.</small>}
         {error && <small style={{ color: "var(--bad)" }}>{error}</small>}
       </div>
       {r.status === "active" && (

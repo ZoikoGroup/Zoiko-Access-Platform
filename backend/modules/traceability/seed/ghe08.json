@@ -1,0 +1,434 @@
+[
+ {
+  "source": "GHE-08",
+  "req_id": "AT01",
+  "group": "Acceptance",
+  "title": "Unknown intended purpose -> block enable; no default classification.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT02",
+  "group": "Acceptance",
+  "title": "Changed marketing clinical claim triggers reclassification review.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT03",
+  "group": "Acceptance",
+  "title": "A feature approved in market A cannot run in market B.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT04",
+  "group": "Acceptance",
+  "title": "Expired market pack blocks clinically consequential use.",
+  "status": "partly",
+  "evidence": "An expired pack gives nothing (test_packs.py) and a release is not authorised without a signed pack (test_readiness.py). No clinical use is gated."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT05",
+  "group": "Acceptance",
+  "title": "Missing required legal manufacturer record (device) prevents enable.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT06",
+  "group": "Acceptance",
+  "title": "Missing registered care operator (when required) prevents activation.",
+  "status": "partly",
+  "evidence": "test_readiness.py: a country release needs a clinical partner requirement signed by a safety officer. There is no care-operator register."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT07",
+  "group": "Acceptance",
+  "title": "Unapproved use population, clinician specialty or intended user blocked.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT08",
+  "group": "Acceptance",
+  "title": "Feature prohibited for minors cannot run through guardian delegation.",
+  "status": "partly",
+  "evidence": "A guardian is never granted medical records (test_guardian_scope.py). There are no minor-specific clinical features."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT09",
+  "group": "Acceptance",
+  "title": "Insufficient clinical-risk controls prevent release sign-off.",
+  "status": "partly",
+  "evidence": "test_hazards.py: a hazard needs an assessment and a different person to verify and accept it. No release sign-off depends on it."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT10",
+  "group": "Acceptance",
+  "title": "Same approver cannot bypass independent-signature policy.",
+  "status": "met",
+  "evidence": "test_readiness.py: one person signs at most one requirement of a release and never the one who made it."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT11",
+  "group": "Acceptance",
+  "title": "Revoked clinical professional cannot review/attest.",
+  "status": "partly",
+  "evidence": "A revoked doctor privilege is handled for referrals (test_referral_privilege.py). Review attestations do not check a credential."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT12",
+  "group": "Acceptance",
+  "title": "Wrong patient match quarantines report; no notification.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT13",
+  "group": "Acceptance",
+  "title": "Wrong order/accession prevents result association.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT14",
+  "group": "Acceptance",
+  "title": "Preliminary or revoked report cannot satisfy reviewed-final milestone.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT15",
+  "group": "Acceptance",
+  "title": "Correction/retraction reopens already closed clinical handoff.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT16",
+  "group": "Acceptance",
+  "title": "Delivered SMS/email never becomes clinician review event.",
+  "status": "met",
+  "evidence": "test_orchestration.py: an email or notification delivered is refused as evidence of a clinical review."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT17",
+  "group": "Acceptance",
+  "title": "Patient read receipt never constitutes provider follow-up acceptance.",
+  "status": "met",
+  "evidence": "test_orchestration.py: a read receipt or view is refused as evidence of a provider's follow-up acceptance."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT18",
+  "group": "Acceptance",
+  "title": "Unsigned reviewer attestation rejected.",
+  "status": "partly",
+  "evidence": "Attestations are references to artefacts held elsewhere; nothing here checks a signature."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT19",
+  "group": "Acceptance",
+  "title": "Reviewer attesting previous report version rejected.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT20",
+  "group": "Acceptance",
+  "title": "Critical event routing without active partner protocol blocked.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT21",
+  "group": "Acceptance",
+  "title": "Unavailable primary provider route raises unresolved escalation incident.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: an overdue step opens an escalation for a named owner; the incident register (test_incidents.py) is separate."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT22",
+  "group": "Acceptance",
+  "title": "Provider duty roster absent blocks clinical-critical configuration.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT23",
+  "group": "Acceptance",
+  "title": "Unsupported critical-result parsing disables content-based priority.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT24",
+  "group": "Acceptance",
+  "title": "Duplicate retry/replay cannot create duplicate test/clinical action.",
+  "status": "partly",
+  "evidence": "A repeated request with the same key has one effect (test_idempotency.py, test_orchestration.py)."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT25",
+  "group": "Acceptance",
+  "title": "Delayed/out-of-order events cannot falsely complete pathway.",
+  "status": "met",
+  "evidence": "test_orchestration.py: only the next step is accepted and a step cannot go back, so a late or out-of-order event cannot complete a pathway."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT26",
+  "group": "Acceptance",
+  "title": "Network partition enters audited safe degraded state.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT27",
+  "group": "Acceptance",
+  "title": "Expired physician affiliation invalidates task ownership/attestation.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT28",
+  "group": "Acceptance",
+  "title": "Patient release forbidden before applicable provider review policy.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT29",
+  "group": "Acceptance",
+  "title": "Employer tenant cannot see personally identifiable clinical incident.",
+  "status": "partly",
+  "evidence": "The employer role is barred from patient data (test_prohibitions.py). There are no clinical incidents to see."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT30",
+  "group": "Acceptance",
+  "title": "Cross-border incident telemetry contains no patient clinical detail.",
+  "status": "partly",
+  "evidence": "Metrics carry route patterns and counts only (test_metrics.py)."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT31",
+  "group": "Acceptance",
+  "title": "Clinical AI module unavailable/unapproved cannot activate via admin.",
+  "status": "met",
+  "evidence": "test_ai.py: an AI feature cannot run without a permit approved by two people, and a permit screen cannot switch one on."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT32",
+  "group": "Acceptance",
+  "title": "Nonclinical AI answer cannot invoke clinical-ordering tools.",
+  "status": "met",
+  "evidence": "test_ai.py: AI tools are whitelist-only and anything that changes data waits for a human."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT33",
+  "group": "Acceptance",
+  "title": "Any clinical policy cache stale -> deny, not allow.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT34",
+  "group": "Acceptance",
+  "title": "Immediate suspend blocks already queued sensitive actions.",
+  "status": "partly",
+  "evidence": "A suspended partner or pack stops applying at the next request (test_partner_events.py, test_packs.py). Already-queued actions are not cancelled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT35",
+  "group": "Acceptance",
+  "title": "Rollback cannot silently reinstate a retired unsafe feature.",
+  "status": "partly",
+  "evidence": "test_packs.py: a suspended pack returns only as a new draft revision, never by rolling back."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT36",
+  "group": "Acceptance",
+  "title": "Unsigned/modified manifest rejected on regional startup.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT37",
+  "group": "Acceptance",
+  "title": "Country-specific adverse event time limits are configurable/tested.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT38",
+  "group": "Acceptance",
+  "title": "Incident severity unknown remains open pending clinician evaluation.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT39",
+  "group": "Acceptance",
+  "title": "Incident preserved after feature suspension or decommission.",
+  "status": "partly",
+  "evidence": "test_incidents.py: an incident is never deleted. Decommissioning is not modelled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT40",
+  "group": "Acceptance",
+  "title": "Affected provider receives acknowledgment-required incident notice.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT41",
+  "group": "Acceptance",
+  "title": "Clinical safety record traces to build digest, controls, test runs.",
+  "status": "partly",
+  "evidence": "test_hazards.py, test_readiness.py: hazards and release approvals are recorded and fingerprinted. Nothing links them to a build digest or test runs."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT42",
+  "group": "Acceptance",
+  "title": "Unaccepted residual risk vetoes live release.",
+  "status": "partly",
+  "evidence": "test_readiness.py: a release is held at 'not ready' while any hazard is open, verified but not accepted, or rejected (or the register is empty), and any veto blocks it. It records a decision and stops no real release."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT43",
+  "group": "Acceptance",
+  "title": "No trusted national source availability is invented in UI.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT44",
+  "group": "Acceptance",
+  "title": "Invalid terminology/unit conversion blocks downstream clinical use.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT45",
+  "group": "Acceptance",
+  "title": "Accessible warning survives keyboard and screen-reader tests.",
+  "status": "partly",
+  "evidence": "The accessibility scan (browser robot 10) passes on every page. No clinical warnings exist to test."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT46",
+  "group": "Acceptance",
+  "title": "Local language warning validated for approved deployment language.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT47",
+  "group": "Acceptance",
+  "title": "Unavailable emergency contact shows approved local alternatives.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT48",
+  "group": "Acceptance",
+  "title": "Partner-offboard withdraws feature access and preserves evidence.",
+  "status": "partly",
+  "evidence": "test_partner_events.py: a revoked partner keeps its history and is refused at once."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT49",
+  "group": "Acceptance",
+  "title": "No release if documented training and clinical sign-off incomplete.",
+  "status": "partly",
+  "evidence": "test_readiness.py: a release is not ready until operations are staffed and the clinical requirements are signed. Nothing blocks a release."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT50",
+  "group": "Acceptance",
+  "title": "Go-live dossier fails when one safety-critical integration test fails.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT51",
+  "group": "Acceptance",
+  "title": "Stale clinician attestation cannot be automatically recycled.",
+  "status": "met",
+  "evidence": "test_readiness.py: an attestation expires and stops counting, and one release's attestations never count for another."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT52",
+  "group": "Acceptance",
+  "title": "Functional toggle cannot override regulatory safety veto.",
+  "status": "met",
+  "evidence": "test_readiness.py: a veto stands whatever is signed, and clinical workflow paths cannot be published without the clinical switch."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT53",
+  "group": "Acceptance",
+  "title": "Feature activation request and approval recorded in cell-local audit.",
+  "status": "partly",
+  "evidence": "Every change is in the audit trail (test_audit.py). There is no feature activation to record."
+ },
+ {
+  "source": "GHE-08",
+  "req_id": "AT54",
+  "group": "Acceptance",
+  "title": "Incident/requalification triggers required postmarket follow-up.",
+  "status": "not_built",
+  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+ }
+]

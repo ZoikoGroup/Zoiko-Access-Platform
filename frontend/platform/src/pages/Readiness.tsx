@@ -18,6 +18,7 @@ const WORDS: Record<string, string> = {
   legal_authority: "Legal authority for the country", clinical_partner: "Clinical partner in place",
   clinical_safety_signoff: "Clinical safety sign-off", operating_entity: "Operating entity",
   country_pack: "Signed country pack (checked by the system)",
+  hazard_register: "Every hazard accepted or retired (checked by the system)",
 };
 const CAPABILITIES = ["provider_directory", "booking", "messaging", "referrals", "waiting_list"];
 
@@ -37,7 +38,7 @@ function Requirement({ rel, q, canSign, canVeto, onDone }: {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const system = q.requirement === "country_pack";
+  const system = q.requirement === "country_pack" || q.requirement === "hazard_register";
   async function run(step: "sign" | "veto") {
     setBusy(true); setError("");
     try {

@@ -78,6 +78,10 @@ class WorkflowInstance(CellScopedModel):
     blocked_owner_ref = models.CharField(max_length=22, blank=True, default="")
     closure_digest = models.CharField(max_length=64, blank=True, default="")
     closed_at = models.DateTimeField(null=True, blank=True)
+    # The key a start was made with and a fingerprint of what was asked, so asking again is safe
+    # and asking something different under the same key is a conflict (DEV-145).
+    start_key = models.CharField(max_length=64, blank=True, default="")
+    start_digest = models.CharField(max_length=64, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [
@@ -89,6 +93,9 @@ class WorkflowInstance(CellScopedModel):
                 fields=["tenant_id", "definition_key", "subject_ref"],
                 condition=~Q(state__in=["closed", "cancelled"]),
                 name="orch_one_live_per_subject"),
+            models.UniqueConstraint(
+                fields=["tenant_id", "start_key"], condition=~Q(start_key=""),
+                name="orch_start_key_unique"),
         ]
 
 

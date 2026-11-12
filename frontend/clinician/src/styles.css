@@ -194,3 +194,18 @@ td.mono, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-siz
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 @media (forced-colors: active) { .pill, .btn, .slot { border: 1px solid CanvasText; } }
+
+/* A phone, or a screen magnified to 400%: nothing may force sideways scrolling (WCAG 1.4.10). */
+@media (max-width: 860px) {
+  .shell > * { min-width: 0; }                  /* a grid item may shrink below its content */
+}
+@media (max-width: 480px) {
+  .topbar { padding: 0 10px; gap: 6px; }
+  .brand b { font-size: 16px; }
+  .brand small { display: none; }
+  .chip { max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  main.content { padding-left: 12px; padding-right: 12px; }
+}
+
+/* Every control is at least 24 CSS pixels tall (WCAG 2.2 target size, 2.5.8). */
+select { min-height: 32px; }

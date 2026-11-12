@@ -20,6 +20,7 @@ from modules.integration.delivery import sign
 from modules.integration.models import (
     DeliveryState,
     EndpointState,
+    WebhookDelivery,
     WebhookEndpoint,
 )
 from modules.trust import api as trust
@@ -428,3 +429,69 @@ def test_a_redirect_is_never_followed(settings):
     finally:
         server.shutdown()
     assert status == 302 and hits == ["/hook"]
+
+
+def test_the_dashboard_tells_an_administrator_how_many_deliveries_gave_up(p, receiver):
+    active(p)
+    receiver.status = 400
+    happen(p, ref="gave-up-1")
+    send(p, receiver)
+    mine = json.loads(p.get("staff/dashboard", subject="boss").content)["attention"]
+    assert mine["webhooks_gave_up"] == 1
+    other = json.loads(p.get("staff/dashboard", subject="ops").content)["attention"]
+    assert other["webhooks_gave_up"] == 0                    # a number for administrators only
+    parked = deliveries(p, "dead_letter")[0]
+    p.post(f"staff/integrations/deliveries/{parked['public_id']}/redrive", subject="boss")
+    receiver.status = 200
+    send(p, receiver)
+    assert json.loads(p.get("staff/dashboard", subject="boss").content
+                      )["attention"]["webhooks_gave_up"] == 0
+
+
+# --------------------------------------------------------- what a delivery keeps (T-23)
+def test_a_delivery_carries_its_owner_the_rules_and_a_fingerprint_of_the_message(p, receiver):
+    import hashlib
+
+    from modules.policy import api as policy
+    ep = active(p)
+    happen(p, ref="evidence-1")
+    [row] = deliveries(p)
+    with tenant_transaction(p.clinic.ctx):
+        endpoint_row = WebhookEndpoint.objects.get(public_id=ep["public_id"])
+        stored = WebhookDelivery.objects.get(public_id=row["public_id"])
+    assert row["owner"] == endpoint_row.created_by_ref and row["owner_name"]
+    assert row["policy_digest"] == policy.POLICY_DIGEST and len(row["policy_digest"]) == 64
+    assert row["body_digest"] == hashlib.sha256(stored.body.encode()).hexdigest()
+
+
+def test_a_delivery_that_gave_up_keeps_all_three_and_they_survive_sending_it_again(p, receiver):
+    active(p)
+    receiver.status = 400
+    happen(p, ref="evidence-2")
+    before = deliveries(p)[0]
+    send(p, receiver)
+    parked = deliveries(p, "dead_letter")[0]
+    for key in ("owner", "policy_digest", "body_digest"):
+        assert parked[key] == before[key] and parked[key]
+    p.post(f"staff/integrations/deliveries/{parked['public_id']}/redrive", subject="boss")
+    receiver.status = 200
+    send(p, receiver)
+    after = deliveries(p, "delivered")[0]
+    assert (after["owner"], after["policy_digest"], after["body_digest"]) == (
+        parked["owner"], parked["policy_digest"], parked["body_digest"])
+
+
+# ------------------------------------------------- one failing partner does not stop another (C-02)
+def test_one_failing_address_does_not_hold_up_another_and_its_backlog_stays_visible(p, receiver):
+    good, bad = Receiver(200), Receiver(503)
+
+    def route(url, headers, body, timeout):
+        return (bad if "bad" in url else good)(url, headers, body, timeout)
+
+    ok = active(p, url="https://good.example.org/hooks", label="Healthy system")
+    sick = active(p, url="https://bad.example.org/hooks", label="Failing system")
+    happen(p, ref="independent-1")
+    with tenant_transaction(p.clinic.ctx):
+        integration.deliver_due(transport=route)
+    rows = {d["endpoint"]: d["state"] for d in deliveries(p)}
+    assert rows[ok["public_id"]] == "delivered" and rows[sick["public_id"]] == "retrying"

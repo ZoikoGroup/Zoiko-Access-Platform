@@ -1,0 +1,642 @@
+[
+ {
+  "source": "GHE-18",
+  "req_id": "A-01",
+  "group": "Isolation, jurisdiction and IaC",
+  "title": "Unsigned country pack in cell manifest -> Provision is refused and leaves no active secrets.",
+  "status": "not_built",
+  "evidence": "There are no regional cells, cloud accounts or infrastructure-as-code in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "A-02",
+  "group": "Isolation, jurisdiction and IaC",
+  "title": "Cell requested in unapproved geographic location -> Fail closed; policy reason and approval missing are explicit.",
+  "status": "not_built",
+  "evidence": "There are no regional cells, cloud accounts or infrastructure-as-code in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "A-03",
+  "group": "Isolation, jurisdiction and IaC",
+  "title": "Global telemetry receives subject identifier -> DLP rejects export, records regional privacy incident.",
+  "status": "partly",
+  "evidence": "Metric labels are route patterns only, never a subject identifier (test_metrics.py). There is no export path or data-loss filter."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "A-04",
+  "group": "Isolation, jurisdiction and IaC",
+  "title": "One tenant tries other tenant DB pool -> Tenant scope denial with trace; no data leaked.",
+  "status": "met",
+  "evidence": "test_db_role.py: the application refuses to run on a database login that could bypass row-level security, and every module's tests prove one customer cannot see another's data."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "A-05",
+  "group": "Isolation, jurisdiction and IaC",
+  "title": "Regional account project state opened by global deployer -> Access denied unless delegated, time-bound regional grant.",
+  "status": "not_built",
+  "evidence": "There are no regional cells, cloud accounts or infrastructure-as-code in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "A-06",
+  "group": "Isolation, jurisdiction and IaC",
+  "title": "Cloud IaC plan adds wide public egress -> Policy-as-code blocks merge/apply.",
+  "status": "not_built",
+  "evidence": "There are no regional cells, cloud accounts or infrastructure-as-code in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "A-07",
+  "group": "Isolation, jurisdiction and IaC",
+  "title": "Manual prod security group drift -> Drift detection alerts and generates remediation ticket.",
+  "status": "not_built",
+  "evidence": "There are no regional cells, cloud accounts or infrastructure-as-code in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "A-08",
+  "group": "Isolation, jurisdiction and IaC",
+  "title": "Region failover points to another country with no clearance -> Failover prevented; continuity channel engaged.",
+  "status": "not_built",
+  "evidence": "There are no regional cells, cloud accounts or infrastructure-as-code in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "A-09",
+  "group": "Isolation, jurisdiction and IaC",
+  "title": "Production data copied to synthetic staging -> Data scanner rejects and quarantines.",
+  "status": "not_built",
+  "evidence": "There are no regional cells, cloud accounts or infrastructure-as-code in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "A-10",
+  "group": "Isolation, jurisdiction and IaC",
+  "title": "Cell decommissioned with open legal holds -> Deletion denied; retain evidence and hold state.",
+  "status": "not_built",
+  "evidence": "There are no regional cells, cloud accounts or infrastructure-as-code in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "B-01",
+  "group": "Keys, access and release supply chain",
+  "title": "Expired regional deploy credential -> Build/deploy rejected with diagnostic.",
+  "status": "not_built",
+  "evidence": "There is no build pipeline, artefact signing or key service in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "B-02",
+  "group": "Keys, access and release supply chain",
+  "title": "Untrusted container digest -> Admission gate denies deployment.",
+  "status": "not_built",
+  "evidence": "There is no build pipeline, artefact signing or key service in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "B-03",
+  "group": "Keys, access and release supply chain",
+  "title": "Signed binary but absent SBOM -> Mandatory artifact attestation gate blocks promotion.",
+  "status": "not_built",
+  "evidence": "There is no build pipeline, artefact signing or key service in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "B-04",
+  "group": "Keys, access and release supply chain",
+  "title": "Unresolved critical launch vulnerability -> Release veto, exception signoff not silently assumed.",
+  "status": "not_built",
+  "evidence": "There is no build pipeline, artefact signing or key service in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "B-05",
+  "group": "Keys, access and release supply chain",
+  "title": "Secret embedded in CI output or logging -> Redacted/rejected and security incident raised.",
+  "status": "not_built",
+  "evidence": "There is no build pipeline, artefact signing or key service in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "B-06",
+  "group": "Keys, access and release supply chain",
+  "title": "KMS key unavailable at application startup -> Cell health degraded; cannot decrypt; no bypass.",
+  "status": "partly",
+  "evidence": "If a key is unavailable, decryption fails safely with no fallback. The health check does not report it as degraded."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "B-07",
+  "group": "Keys, access and release supply chain",
+  "title": "Regional support session exceeds TTL -> Session revoked and logged locally.",
+  "status": "not_built",
+  "evidence": "There is no build pipeline, artefact signing or key service in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "B-08",
+  "group": "Keys, access and release supply chain",
+  "title": "Key rotation mid-workflow -> Outstanding work completes safely with allowed key versions.",
+  "status": "met",
+  "evidence": "test_key_rotation.py: sealed values move to a new key while old ones stay readable, including webhook and partner secrets."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "B-09",
+  "group": "Keys, access and release supply chain",
+  "title": "Unapproved infrastructure drift during release -> Release held pending reconciliation.",
+  "status": "not_built",
+  "evidence": "There is no build pipeline, artefact signing or key service in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "B-10",
+  "group": "Keys, access and release supply chain",
+  "title": "Cloud vendor outage affects KMS -> Safe fail-closed with visible protected queue backlog.",
+  "status": "not_built",
+  "evidence": "There is no build pipeline, artefact signing or key service in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "C-01",
+  "group": "Durable operations and clinical integrity",
+  "title": "Worker restarts after write before response -> Exactly one downstream effect; persisted idempotent receipt.",
+  "status": "partly",
+  "evidence": "Repeating a request with the same key gives one effect (test_orchestration.py, test_partner_events.py). A restart between write and response is not simulated."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "C-02",
+  "group": "Durable operations and clinical integrity",
+  "title": "Queue broker stops for one partner -> Other partner queues continue; affected backlog visible.",
+  "status": "partly",
+  "evidence": "Each webhook delivery is its own row, so one failing address does not stop others (test_webhooks.py). No broker exists and the case is not tested as stated."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "C-03",
+  "group": "Durable operations and clinical integrity",
+  "title": "Technical ACK with missing clinician evidence -> Clinical handoff remains UNACKNOWLEDGED.",
+  "status": "met",
+  "evidence": "test_orchestration.py: a transport acknowledgement is refused as evidence, so a clinical step stays unacknowledged."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "C-04",
+  "group": "Durable operations and clinical integrity",
+  "title": "Workflow timer overdue in regional cell -> SLO/safety sentinel alerts named owner per protocol.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: an overdue timer marks a workflow at risk and opens an escalation for the named owner. There is no safety sentinel."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "C-05",
+  "group": "Durable operations and clinical integrity",
+  "title": "Patient wrong-recipient event observed -> Containment and CSO escalation; do not deliver/release.",
+  "status": "not_built",
+  "evidence": "Nothing models this resilience behaviour yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "C-06",
+  "group": "Durable operations and clinical integrity",
+  "title": "Event replay duplicates critical notification -> Idempotency suppresses unsafe duplicate actions.",
+  "status": "partly",
+  "evidence": "The event inbox records each event once per consumer. Not tested against critical notifications here."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "C-07",
+  "group": "Durable operations and clinical integrity",
+  "title": "Region becomes read-only -> Uncertain writes denied, old state explicitly read-only.",
+  "status": "not_built",
+  "evidence": "Nothing models this resilience behaviour yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "C-08",
+  "group": "Durable operations and clinical integrity",
+  "title": "Partner latency exceeds contract -> Circuit open, local pending state and defined alternate path.",
+  "status": "not_built",
+  "evidence": "Nothing models this resilience behaviour yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "C-09",
+  "group": "Durable operations and clinical integrity",
+  "title": "Restored workflow differs from source evidence -> Reconciliation blocks closure and flags safety event.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: a workflow that disagrees with its history is frozen. No safety event is raised."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "C-10",
+  "group": "Durable operations and clinical integrity",
+  "title": "Unsafe service resumed without CSO clearance -> Feature activation rejected.",
+  "status": "partly",
+  "evidence": "test_readiness.py: a release is not ready without a clinical safety sign-off. Nothing stops an activation."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "D-01",
+  "group": "Backups, DR and lawful failover",
+  "title": "Scheduled backup missing -> Backup coverage alert, recovery objective marked at risk.",
+  "status": "not_built",
+  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "D-02",
+  "group": "Backups, DR and lawful failover",
+  "title": "Restore copy lacks decryption key -> Exercise fails rather than claiming recoverability.",
+  "status": "not_built",
+  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "D-03",
+  "group": "Backups, DR and lawful failover",
+  "title": "PITR restores to time beyond actual log coverage -> Measured RPO gap reported; objective fails if out of bounds.",
+  "status": "not_built",
+  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "D-04",
+  "group": "Backups, DR and lawful failover",
+  "title": "DR target has weaker patient data residency policy -> Failover veto.",
+  "status": "not_built",
+  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "D-05",
+  "group": "Backups, DR and lawful failover",
+  "title": "Split brain DB promotion attempted -> Quorum/durable fence prevents divergent writers.",
+  "status": "not_built",
+  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "D-06",
+  "group": "Backups, DR and lawful failover",
+  "title": "Critical evidence hash differs after restore -> Case/record marked integrity exception.",
+  "status": "partly",
+  "evidence": "The audit and history chains detect a changed or missing step (test_orchestration.py). There is no restore to compare against."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "D-07",
+  "group": "Backups, DR and lawful failover",
+  "title": "Backup includes data under expiring retention category -> Retention/legal hold-aware lifecycle applied.",
+  "status": "not_built",
+  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "D-08",
+  "group": "Backups, DR and lawful failover",
+  "title": "Cross-region replication disabled by country pack -> No hidden replica or snapshots outside approved boundary.",
+  "status": "not_built",
+  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "D-09",
+  "group": "Backups, DR and lawful failover",
+  "title": "DR restore drill passes infrastructure but queue state missing -> Exercise fails clinical/workflow readiness.",
+  "status": "not_built",
+  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "D-10",
+  "group": "Backups, DR and lawful failover",
+  "title": "Full cell deletion before obligations and exports resolved -> Decommission remains HOLD with evidence.",
+  "status": "not_built",
+  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "E-01",
+  "group": "E",
+  "title": "Synthetic checks absent during outage -> SLI source marked UNKNOWN, never 100%.",
+  "status": "met",
+  "evidence": "test_metrics.py: with no requests the indicators give no verdict rather than 100%. There are no synthetic checks."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "E-02",
+  "group": "E",
+  "title": "HTTP 200 with invalid patient-scoped result -> SLI counts failed correctness/safety transaction.",
+  "status": "not_built",
+  "evidence": "There is no monitoring stack beyond request counts and two indicators (DEV-130)."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "E-03",
+  "group": "E",
+  "title": "30-day error budget exhausted -> Risky releases paused under approved policy.",
+  "status": "not_built",
+  "evidence": "There is no monitoring stack beyond request counts and two indicators (DEV-130)."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "E-04",
+  "group": "E",
+  "title": "SLO set only for pod uptime -> Rejected; journey-level SLI required.",
+  "status": "partly",
+  "evidence": "The indicators measure requests answered, not whether a pod is up (test_metrics.py), but not whole user journeys."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "E-05",
+  "group": "E",
+  "title": "Regional logs contain token or clinical payload -> Scrubber rejects and flags privacy issue.",
+  "status": "partly",
+  "evidence": "Logs record an error's type and place, never its message, and metric labels hold no references (test_metrics.py). There is no scrubber to test."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "E-06",
+  "group": "E",
+  "title": "Logs lack actor/correlation for a privileged disclosure -> Audit completeness failure blocks signoff.",
+  "status": "not_built",
+  "evidence": "There is no monitoring stack beyond request counts and two indicators (DEV-130)."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "E-07",
+  "group": "E",
+  "title": "Nonurgent partner delay removed from SLI without agreement -> Configuration test fails and records definition change.",
+  "status": "not_built",
+  "evidence": "There is no monitoring stack beyond request counts and two indicators (DEV-130)."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "E-08",
+  "group": "E",
+  "title": "Alert storm repeats identical pages -> Dedup and escalation still preserve safety signal.",
+  "status": "not_built",
+  "evidence": "There is no monitoring stack beyond request counts and two indicators (DEV-130)."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "E-09",
+  "group": "E",
+  "title": "Cross-cell global dashboard requests raw patient trace -> Authorization denies; safe aggregate only.",
+  "status": "partly",
+  "evidence": "The platform page shows route patterns and counts only (test_metrics.py). There is no cross-cell dashboard."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "E-10",
+  "group": "E",
+  "title": "Clinical handoff unresolved beyond local timer -> CSO-approved escalation fires regardless of API availability.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: an overdue step opens an escalation from the worker whether or not the API is used. No approved clinical-safety officer protocol exists."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "F-01",
+  "group": "F",
+  "title": "Canary reports safety sentinel violation -> Deployment halts even if CPU and latency healthy.",
+  "status": "not_built",
+  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "F-02",
+  "group": "F",
+  "title": "Country pack version drift between gateways -> Feature denial; synchronize/rollback to approved version.",
+  "status": "not_built",
+  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "F-03",
+  "group": "F",
+  "title": "Breaking event schema with live old worker -> Compatibility test fails before rollout.",
+  "status": "not_built",
+  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "F-04",
+  "group": "F",
+  "title": "DB migration breaks prior release -> Rollout stops; documented roll-forward/recovery executed.",
+  "status": "not_built",
+  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "F-05",
+  "group": "F",
+  "title": "Release action lacks 2-person authorization -> Gate fails.",
+  "status": "partly",
+  "evidence": "test_readiness.py: no one signs their own release, and no one signs two requirements. Nothing gates a real release."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "F-06",
+  "group": "F",
+  "title": "Code rollback would delete required data -> Destructive rollback prohibited; restore compatibility instead.",
+  "status": "not_built",
+  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "F-07",
+  "group": "F",
+  "title": "Feature flag enabled in unlicensed market -> Regional policy overrides flag and blocks feature.",
+  "status": "not_built",
+  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "F-08",
+  "group": "F",
+  "title": "Signed artifact deployed to wrong cell -> Digest/pack binding mismatch blocks.",
+  "status": "partly",
+  "evidence": "test_readiness.py: an approval counts only for the exact release fingerprint, which includes the cell. Nothing checks a deployment against it."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "F-09",
+  "group": "F",
+  "title": "Canary exceeds capacity envelope -> Auto pause and capacity investigation.",
+  "status": "not_built",
+  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "F-10",
+  "group": "F",
+  "title": "Partner sandbox data accidentally points production -> Connector environment guard blocks operation.",
+  "status": "not_built",
+  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "G-01",
+  "group": "G",
+  "title": "Regional on-call fails acknowledgment -> Deputy escalation and traceable incident timeline.",
+  "status": "not_built",
+  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "G-02",
+  "group": "G",
+  "title": "Critical communication channel unavailable -> Approved out-of-band pathway activated; no false clinician signoff.",
+  "status": "not_built",
+  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "G-03",
+  "group": "G",
+  "title": "PSP callback state unknown -> No duplicate capture, separate Finance reconciliation.",
+  "status": "not_built",
+  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "G-04",
+  "group": "G",
+  "title": "Multiple simultaneous outages hit same cell -> Incident commander prioritizes safety/data isolation.",
+  "status": "not_built",
+  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "G-05",
+  "group": "G",
+  "title": "Cloud console outage prevents admin access -> Offline local runbook and contacts accessible.",
+  "status": "not_built",
+  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "G-06",
+  "group": "G",
+  "title": "Security incident and critical clinical hazard coincide -> Both owners engaged; clinical veto remains independent.",
+  "status": "not_built",
+  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "G-07",
+  "group": "G",
+  "title": "False monitoring all-green while user journey fails -> Synthetic UX failure triggers incident.",
+  "status": "not_built",
+  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "G-08",
+  "group": "G",
+  "title": "Incident closure with unresolved safety item -> Close denied until handoff/fallback evidence resolved.",
+  "status": "not_built",
+  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "G-09",
+  "group": "G",
+  "title": "Partner contract SLO breached but platform SLO green -> Partner incident raised, separately reported.",
+  "status": "not_built",
+  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "G-10",
+  "group": "G",
+  "title": "Restoration notification omitted -> Support/public status and affected partners informed per policy.",
+  "status": "not_built",
+  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "H-01",
+  "group": "H",
+  "title": "Approved launch estimate multiplied by stress burst -> Cell maintains tested essential safety functions or controlled degradation.",
+  "status": "not_built",
+  "evidence": "There are no capacity, cost or go-live controls in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "H-02",
+  "group": "H",
+  "title": "Budget cap hits during urgent workload -> Safety-critical processing not hard-stopped by cost automation.",
+  "status": "not_built",
+  "evidence": "There are no capacity, cost or go-live controls in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "H-03",
+  "group": "H",
+  "title": "Cost tag embeds subject/diagnosis -> Tagging policy rejects sensitive data.",
+  "status": "not_built",
+  "evidence": "There are no capacity, cost or go-live controls in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "H-04",
+  "group": "H",
+  "title": "Regional metering records wrong currency -> FinOps aggregation quarantines inconsistent units.",
+  "status": "not_built",
+  "evidence": "There are no capacity, cost or go-live controls in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "H-05",
+  "group": "H",
+  "title": "Tenant cancels contract with active patient referral -> Continuity and ownership plan required before shutdown.",
+  "status": "not_built",
+  "evidence": "There are no capacity, cost or go-live controls in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "H-06",
+  "group": "H",
+  "title": "Monitoring dashboard inaccessible to keyboard-only operator -> WCAG 2.2 AA accessibility test fails release.",
+  "status": "partly",
+  "evidence": "The accessibility scan passes on the Service levels page (browser robot 10). It does not gate a release."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "H-07",
+  "group": "H",
+  "title": "Role with no regional authorization tries incident console -> Access denied and logged.",
+  "status": "met",
+  "evidence": "test_incidents.py: staff without a platform role cannot use the incident pages, and the refusal is recorded as an access decision."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "H-08",
+  "group": "H",
+  "title": "SLO scheduled signoff missing country operator -> Market go-live held.",
+  "status": "partly",
+  "evidence": "test_readiness.py: a release is not authorised for a country until the operating entity requirement is signed. Nothing holds a go-live."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "H-09",
+  "group": "H",
+  "title": "Clinical priority feature with unapproved RTO -> Release veto.",
+  "status": "not_built",
+  "evidence": "There are no capacity, cost or go-live controls in this project yet."
+ },
+ {
+  "source": "GHE-18",
+  "req_id": "H-10",
+  "group": "H",
+  "title": "Production go-live without successful restore drill -> GHE-20 launch blocked.",
+  "status": "partly",
+  "evidence": "test_readiness.py: a release is not ready until the recovery requirement is signed. It records a decision and blocks nothing."
+ }
+]

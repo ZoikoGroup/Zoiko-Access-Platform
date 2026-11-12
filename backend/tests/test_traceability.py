@@ -147,18 +147,20 @@ def test_the_list_can_be_filtered_but_the_summary_stays_whole(world):
 # ------------------------------------------------------------------ the recorded readings
 def test_the_recorded_readings_load_and_obey_the_same_rule(world):
     rows = traceability.seed_rows()
-    assert len(rows) == 124
+    assert len(rows) == 398
     assert all(r["status"] != "met" or "test_" in r["evidence"] for r in rows)
     r = call(world, "POST", "platform/traceability/import", {"seed": True}, "sam")
-    assert r.status_code == 200 and r.json()["added"] == 124
+    assert r.status_code == 200 and r.json()["added"] == 398
     s = listing(world)["summary"]
-    assert s["GHE-12"]["total"] == 60 and s["GHE-13"]["total"] == 64
+    got = [s[k]["total"] for k in sorted(s)]
+    assert sorted(s) == ["GHE-04", "GHE-06", "GHE-08", "GHE-12", "GHE-13", "GHE-16", "GHE-18"]
+    assert got == [36, 40, 54, 60, 64, 64, 80]
     again = call(world, "POST", "platform/traceability/import", {"seed": True}, "sam")
-    assert again.json() == {"added": 0, "changed": 0, "unchanged": 124}
+    assert again.json() == {"added": 0, "changed": 0, "unchanged": 398}
 
 
 def test_the_command_loads_every_platform_tenant_and_is_safe_to_repeat(world):
     call_command("load_traceability")
     call_command("load_traceability")
     with tenant_transaction(world.ctx):
-        assert Requirement.objects.count() == 124
+        assert Requirement.objects.count() == 398

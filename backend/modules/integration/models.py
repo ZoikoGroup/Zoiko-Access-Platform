@@ -61,6 +61,12 @@ class WebhookDelivery(CellScopedModel):
     last_status = models.PositiveSmallIntegerField(null=True, blank=True)
     last_error = models.CharField(max_length=64, blank=True, default="")   # class name only
     delivered_at = models.DateTimeField(null=True, blank=True)
+    # What a delivery that gives up still carries (GHE-13 T-23, DEV-146): who answers for it (the
+    # person who registered the address), the access rules in force when it was queued, and a
+    # fingerprint of the exact message, so nothing has to be reconstructed later.
+    owner_ref = models.CharField(max_length=22, blank=True, default="")
+    policy_digest = models.CharField(max_length=64, blank=True, default="")
+    body_digest = models.CharField(max_length=64, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         constraints = [

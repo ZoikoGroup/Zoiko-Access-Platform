@@ -2,7 +2,7 @@
 
 Written 2026-11-11 by the developer, from GHE-13 section 15. Each row is a judgement made by reading the case and the code, not an automatic result; "Met" means one of our own automated tests proves the behaviour. The specification's cases have **not** been run as written (they need partners, certificates, sandboxes and regions that do not exist). This is the developer's reading and nobody else has reviewed it.
 
-**Totals: 9 met, 19 partly, 36 not built (of 64).**
+**Totals: 10 met, 18 partly, 36 not built (of 64).**
 
 What exists is outbound signed webhooks (DEV-127), partner credentials and signed inbound messages (DEV-131), request measurements (DEV-130) and country packs (DEV-128). The "not built" rows are mostly healthcare interoperability (FHIR, HL7, imaging), the published API documents and SDKs, OAuth, and the whole partner onboarding, sandbox and certification lifecycle, none of which can be built without a partner, a standards decision and an approver.
 
@@ -30,7 +30,7 @@ What exists is outbound signed webhooks (DEV-127), partner credentials and signe
 | T-20 | Transport and webhook | Duplicate legitimate webhook has at most one domain business effect. | Partly | test_partner_events.py: a repeated delivery is stored once. No domain effect exists yet to count. |
 | T-21 | Transport and webhook | Unverified destination, redirect or private-network URL cannot be registered for callbacks. | Met | test_webhooks.py: only public https addresses with no credentials or odd ports, a redirect is never followed (a local server answers 302 and the sender stops), and an address on a private network can never be verified or sent to. |
 | T-22 | Transport and webhook | Timeout/5xx triggers bounded backoff with jitter and preserved delivery ID. | Met | test_webhooks.py: a server error is retried with growing, jittered waits and the same delivery id, then parked after 8 tries. |
-| T-23 | Transport and webhook | DLQ entry after retry exhaustion retains owner, policy and evidence and is visible to authorized regional operator. | Partly | test_webhooks.py: a parked delivery stays visible to the clinic administrator and can be sent again. It does not record the owner, policy or evidence. |
+| T-23 | Transport and webhook | DLQ entry after retry exhaustion retains owner, policy and evidence and is visible to authorized regional operator. | Met | test_webhooks.py: a delivery that gave up keeps its owner (who registered the address), the access rules in force when it was queued, a fingerprint of the exact message and its last answer, stays visible to the clinic administrator, is counted on their dashboard and can be sent again. |
 | T-24 | Transport and webhook | Outbound 2xx transport receipt does not make CLINICAL_REVIEWED or HANDOFF_ACKNOWLEDGED true. | Met | test_webhooks.py: a webhook delivery never touches a workflow; test_orchestration.py refuses every transport receipt as evidence. |
 | T-25 | Healthcare interoperability | FHIR resource failing its pinned profile is quarantined without creating clinical state. | Not built | No FHIR. |
 | T-26 | Healthcare interoperability | HL7 v2 ACK updates transport receipt only, not clinical acceptance. | Not built | No HL7. |

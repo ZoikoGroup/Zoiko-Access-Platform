@@ -104,9 +104,14 @@ def current(p, inst):
     return fetch(p, inst)["instance"]
 
 
-def overlay(p, inst, value, note="Partner has not answered", who="ops"):
-    return post(p, f"staff/workflows/{inst['public_id']}/overlay", {
-        "expected_version": inst["version"], "overlay": value, "note": note}, who)
+def overlay(p, inst, value, note="Partner has not answered", who="ops", evidence=None):
+    body = {"expected_version": inst["version"], "overlay": value, "note": note}
+    if evidence is not None:
+        body["evidence"] = evidence
+    return post(p, f"staff/workflows/{inst['public_id']}/overlay", body, who)
+
+
+RESOLVED = [{"kind": "exception_resolution", "ref": "resolution-0001"}]
 
 
 def tick(p, minutes):
@@ -393,8 +398,8 @@ def test_it_cannot_close_with_an_open_exception_or_while_a_person_is_still_owed_
         overlay(p, inst, "exception", "Patient match in doubt").content)["instance"]
     r = move(p, flagged, "closed")
     assert r.status_code == 422 and "open_exception" in r.json().get("fields", [])
-    cleared = json.loads(overlay(p, flagged, "clear", "Match confirmed by the clinician"
-                                 ).content)["instance"]
+    cleared = json.loads(overlay(p, flagged, "clear", "Match confirmed by the clinician",
+                                 evidence=RESOLVED).content)["instance"]
     assert go(p, cleared, "closed")["state"] == "closed"
 
 
@@ -685,3 +690,106 @@ def test_an_administrator_cannot_enter_a_review_or_handoff_for_the_owner(p, sett
     mine_now = json.loads(r.content)["instance"]
     assert go(p, mine_now, "handoff_acknowledged", who="boss")["state"] == "handoff_acknowledged"
     assert [s["kind"] for s in fetch(p, inst)["steps"]].count("owner") == 1
+
+
+# ---------------------------------------------------- starting is idempotent (WF-T13, T14)
+def begin_with(p, key, **over):
+    body = {"definition": "visit-flow", "subject": "subject-0001", "owner": p.desk,
+            "evidence": ORIGIN, "purpose": "OPERATIONS", "idempotency_key": key, **over}
+    return post(p, "staff/workflows", body, "ops")
+
+
+def test_starting_twice_with_the_same_key_gives_one_workflow_and_the_same_answer(p):
+    define(p)
+    first = begin_with(p, "start-key-0001")
+    again = begin_with(p, "start-key-0001")
+    assert first.status_code == 201 and again.status_code == 200
+    a, b = json.loads(first.content)["instance"], json.loads(again.content)["instance"]
+    assert a["public_id"] == b["public_id"] and a["replayed"] is False and b["replayed"] is True
+    assert len(json.loads(p.get("staff/workflows", subject="boss").content)["instances"]) == 1
+    assert len(fetch(p, a)["steps"]) == 1
+
+
+def test_the_same_key_with_a_different_request_is_a_conflict_and_changes_nothing(p):
+    define(p)
+    begin_with(p, "start-key-0002")
+    for change in ({"subject": "subject-0099"}, {"owner": p.ops2_id}):
+        assert begin_with(p, "start-key-0002", **change).status_code == 409
+    assert len(json.loads(p.get("staff/workflows", subject="boss").content)["instances"]) == 1
+
+
+def test_a_key_must_be_well_formed_and_without_one_the_old_rule_still_applies(p):
+    define(p)
+    for bad in ("short", "has spaces here", "x" * 70):
+        assert begin_with(p, bad).status_code == 422
+    assert begin_with(p, "").status_code == 201
+    assert begin_with(p, "").status_code == 409                # one live workflow per subject
+
+
+def test_two_different_keys_for_the_same_subject_still_cannot_make_two_workflows(p):
+    define(p)
+    assert begin_with(p, "start-key-0003").status_code == 201
+    assert begin_with(p, "start-key-0004").status_code == 409
+
+
+def test_one_customers_key_does_not_collide_with_anothers(p):
+    define(p)
+    begin_with(p, "start-key-0005")
+    outsider = Web()
+    outsider.login("admin2", trust.ActorType.FACILITY_USER, "R13")
+    outsider.login("desk2", trust.ActorType.FACILITY_USER, "R04")
+    mine = json.loads(outsider.post("staff/workflows/definitions", {
+        "key": "visit-flow", "journey": "visit", "path": PATH, "timer_policies": []},
+        subject="admin2").content)["definition"]
+    outsider.post(f"staff/workflows/definitions/{mine['public_id']}/publish", {}, subject="admin2")
+    r = outsider.post("staff/workflows", {
+        "definition": "visit-flow", "subject": "subject-0001", "owner": "x" * 22,
+        "evidence": ORIGIN, "idempotency_key": "start-key-0005"}, subject="desk2")
+    assert r.status_code == 422                                # (no such owner), not a conflict
+
+
+# ----------------------------------------------- clearing an exception needs evidence (T54)
+@pytest.mark.parametrize("value", ["exception", "reconciling"])
+def test_an_exception_or_a_reconciliation_cannot_be_cleared_on_someones_word_alone(p, value):
+    define(p)
+    inst = started(p)
+    flagged = json.loads(overlay(p, inst, value, "Source and booking disagree").content)["instance"]
+    assert overlay(p, flagged, "clear", "It is fine now").status_code == 422
+    wrong = [{"kind": "validation", "ref": "ref-0001"}]
+    assert overlay(p, flagged, "clear", "It is fine now", evidence=wrong).status_code == 422
+    assert overlay(p, flagged, "clear", "It is fine now", evidence=[]).status_code == 422
+    assert current(p, inst)["overlay"] == value
+
+
+def test_with_evidence_of_the_resolution_it_clears_and_the_history_shows_what_was_given(p):
+    define(p)
+    inst = started(p)
+    flagged = json.loads(
+        overlay(p, inst, "exception", "Patient match in doubt").content)["instance"]
+    r = overlay(p, flagged, "clear", "Match confirmed at the desk", evidence=RESOLVED)
+    assert r.status_code == 200 and json.loads(r.content)["instance"]["overlay"] == "clear"
+    last = fetch(p, inst)["steps"][-1]
+    assert last["kind"] == "overlay" and last["evidence"] == RESOLVED
+
+
+def test_marking_something_at_risk_or_clearing_an_at_risk_needs_no_evidence(p):
+    define(p)
+    inst = started(p)
+    risky = json.loads(overlay(p, inst, "at_risk").content)["instance"]
+    assert overlay(p, risky, "clear", "The partner answered").status_code == 200
+    flagged = json.loads(
+        overlay(p, current(p, inst), "exception", "Needs a look").content)["instance"]
+    assert flagged["overlay"] == "exception"                    # raising one needs none either
+
+
+# ------------------------------------------ the context comes from the login, not the body (T09)
+def test_a_request_that_names_another_customer_or_cell_still_acts_only_in_its_own(p):
+    define(p)
+    r = post(p, "staff/workflows", {
+        "definition": "visit-flow", "subject": "subject-0001", "owner": p.desk,
+        "evidence": ORIGIN, "tenant_id": "00000000-0000-0000-0000-000000000000",
+        "cell_id": "ZZ-99", "organization": "someone-elses-org", "tenant": "other"}, "ops")
+    assert r.status_code == 201
+    made = json.loads(r.content)["instance"]
+    assert made["organization_ref"] == p.clinic.org
+    assert len(json.loads(p.get("staff/workflows", subject="boss").content)["instances"]) == 1

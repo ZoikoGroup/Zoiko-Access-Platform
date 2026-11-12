@@ -15,6 +15,7 @@ from foundation.mail import queue_email
 from foundation.models import QueuedEmail
 from foundation.timeutil import Clock, utc_now
 from modules.messaging import api as messaging
+from modules.rights import api as rights
 from modules.scheduling import api as scheduling
 from modules.trust import api as trust
 
@@ -37,7 +38,8 @@ def send_late_digest(clock: Clock | None = None) -> int:
         hours = trust.response_target_hours(org)        # this clinic's own target
         bookings = scheduling.overdue_requests(hours, clock, organization_ref=org)
         threads = messaging.overdue_threads_for_staff(org, hours, clock)
-        if bookings + threads == 0:
+        requests = rights.overdue_count(org, hours, clock)
+        if bookings + threads + requests == 0:
             continue
         subject = f"Running late at {name}: {day}"[:200]
         if QueuedEmail.objects.filter(
@@ -54,6 +56,9 @@ def send_late_digest(clock: Clock | None = None) -> int:
             items.append(
                 f"- {_plural(threads, 'conversation', 'conversations')} with an unopened "
                 "patient message")
+        if requests:
+            items.append(f"- {_plural(requests, 'data request', 'data requests')} "
+                         "past the date to answer")
         body = (f"{name} has work waiting longer than {hours} hours:\n\n" + "\n".join(items)
                 + f"\n\nOpen the staff app: {settings.STAFF_APP_URL}\n")
         with transaction.atomic():

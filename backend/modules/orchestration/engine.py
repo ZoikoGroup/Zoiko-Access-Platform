@@ -20,6 +20,7 @@ The rules that matter, each with the spec section it comes from:
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import re
 from typing import Any
@@ -70,7 +71,7 @@ EDGE_EVIDENCE = {
     "cancelled": "cancellation_authorization",
     "blocked": "block_reason",
 }
-EXTRA_KINDS = {"request_origin", "block_resolution"}
+EXTRA_KINDS = {"request_origin", "block_resolution", "exception_resolution"}
 ALLOWED_KINDS = frozenset(EDGE_EVIDENCE.values()) | EXTRA_KINDS
 # "Disallowed shortcuts": things that happen but prove none of the facts above.
 REFUSED_KINDS = frozenset({
@@ -271,16 +272,30 @@ def _start_timers(inst: WorkflowInstance, now: dt.datetime) -> None:
 def start(
     *, definition_key: str, subject_ref: str, organization_ref: str, owner_ref: str,
     evidence: Any, purpose: str, actor_public_id: str, decision: policy.Decision,
-    clock: Clock | None = None,
+    idempotency_key: str = "", clock: Clock | None = None,
 ) -> dict[str, Any]:
-    """NONE -> REQUESTED. Needs a staff actor, the request origin as evidence, a named owner."""
+    """NONE -> REQUESTED. Needs a staff actor, the request origin as evidence, a named owner.
+
+    With an idempotency key, asking again gives the first answer (and `replayed` true) without a
+    second workflow; the same key with a different request is a conflict."""
     _receipt(decision, actor_public_id, organization_ref)
     if not _SUBJECT.match(subject_ref or ""):
         raise _bad("subject_ref")
+    if idempotency_key and not _IDEM.match(idempotency_key):
+        raise _bad("idempotency_key")
     clean = check_evidence(evidence, "request_origin")
     _check_owner(owner_ref)
     now = utc_now(clock)
+    digest = hashlib.sha256(json.dumps(
+        [definition_key, subject_ref, organization_ref, owner_ref]).encode()).hexdigest()
     with transaction.atomic():
+        if idempotency_key:
+            earlier = WorkflowInstance.objects.select_related("definition").filter(
+                start_key=idempotency_key, **_scope()).first()
+            if earlier is not None:
+                if earlier.start_digest != digest or earlier.organization_ref != organization_ref:
+                    raise _conflict()
+                return {**instance_dict(earlier), "replayed": True}
         definition = (WorkflowDefinition.objects.filter(
             key=definition_key, status=DefinitionStatus.PUBLISHED, **_scope())
             .order_by("-version").first())
@@ -290,7 +305,8 @@ def start(
             definition=definition, definition_key=definition.key,
             definition_version=definition.version, journey=definition.journey,
             organization_ref=organization_ref, subject_ref=subject_ref, owner_ref=owner_ref,
-            state=State.REQUESTED, overlay=Overlay.CLEAR, **_scope())
+            state=State.REQUESTED, overlay=Overlay.CLEAR, start_key=idempotency_key,
+            start_digest=digest if idempotency_key else "", **_scope())
         try:
             with transaction.atomic():
                 inst.save()
@@ -303,7 +319,7 @@ def start(
         record(actor_ref=actor_public_id, action="orchestration.requested",
                object_type="workflow_instance", object_ref=inst.public_id,
                outcome=AuditOutcome.ALLOWED)
-        return instance_dict(inst)
+        return {**instance_dict(inst), "replayed": False}
 
 
 # ------------------------------------------------------------------ moving
@@ -431,10 +447,12 @@ def resume(
 
 def set_overlay(
     *, instance_ref: str, organization_ref: str, expected_version: int, overlay: str, note: str,
-    actor_public_id: str, decision: policy.Decision, clock: Clock | None = None,
+    actor_public_id: str, decision: policy.Decision, evidence: Any = None,
+    clock: Clock | None = None,
 ) -> dict[str, Any]:
-    """Operational health. It never changes the state, and clearing it needs a reason and no
-    escalation still waiting for a person."""
+    """Operational health. It never changes the state. Clearing it needs a reason and no
+    escalation still waiting for a person; clearing an exception or a reconciliation also needs
+    evidence of its resolution (GHE-12 WF-T54, DEV-147), not just somebody's word."""
     _receipt(decision, actor_public_id, organization_ref)
     if overlay not in Overlay.values:
         raise _bad("overlay")
@@ -450,6 +468,9 @@ def set_overlay(
         if inst.overlay == overlay:
             return instance_dict(inst)
         text = _clean_note(note, low=3)
+        needs_proof = overlay == Overlay.CLEAR and inst.overlay in (
+            Overlay.EXCEPTION, Overlay.RECONCILING)
+        clean = check_evidence(evidence, "exception_resolution" if needs_proof else None)
         if overlay == Overlay.CLEAR and Escalation.objects.filter(
                 instance=inst, status=EscalationStatus.OPEN, **_scope()).exists():
             raise _conflict()                          # a person has not been reached yet
@@ -457,7 +478,7 @@ def set_overlay(
         inst.entity_version += 1
         inst.save()
         _append(inst, "overlay", inst.state, actor=actor_public_id, role=decision.role_code,
-                note=text, decision_ref=decision.decision_public_id, now=now)
+                evidence=clean, note=text, decision_ref=decision.decision_public_id, now=now)
         record(actor_ref=actor_public_id, action=f"orchestration.overlay_{overlay}",
                object_type="workflow_instance", object_ref=inst.public_id,
                outcome=AuditOutcome.ALLOWED)

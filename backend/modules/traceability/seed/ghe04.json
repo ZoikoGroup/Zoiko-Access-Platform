@@ -1,0 +1,290 @@
+[
+ {
+  "source": "GHE-04",
+  "req_id": "AT-01",
+  "group": "Verification",
+  "title": "Unknown country/service returns DENY, not default UK/US allow.",
+  "status": "partly",
+  "evidence": "An unknown country gives no deadline and never an allow (test_country_deadline.py). Nothing else consults packs, so there is no resolver to deny anything."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-02",
+  "group": "Verification",
+  "title": "Browser locale, VPN geoIP and client-submitted country never override verified contract/site/cell.",
+  "status": "partly",
+  "evidence": "A customer's country is set only by Zoiko support, never by the browser or the client (test_country_deadline.py). No test sends a locale or address."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-03",
+  "group": "Verification",
+  "title": "Country and subnational conflicts resolve to the stricter eligible authorization.",
+  "status": "partly",
+  "evidence": "For the deadline, the strictest signed pack wins (test_country_deadline.py). Subnational rules are not modelled."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-04",
+  "group": "Verification",
+  "title": "Missing licensing/legal entity blocks regulated service regardless of approved billing.",
+  "status": "not_built",
+  "evidence": "No licensing or legal-entity check exists; the pack only records an evidence status."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-05",
+  "group": "Verification",
+  "title": "Provider license expired or scoped to wrong subregion blocks clinical handoff.",
+  "status": "not_built",
+  "evidence": "Provider licences are not modelled."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-06",
+  "group": "Verification",
+  "title": "Unapproved clinical AI remains disabled despite underlying model endpoint being deployed.",
+  "status": "partly",
+  "evidence": "A pack cannot switch on clinical AI, and AI is built switched off (test_packs.py, test_ai.py). There is no deployed model endpoint to test against."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-07",
+  "group": "Verification",
+  "title": "Employer payment alone cannot enable clinician or employee-record viewing.",
+  "status": "met",
+  "evidence": "test_prohibitions.py: the employer role is barred from patient records whatever else is true; there is no employer payment to test."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-08",
+  "group": "Verification",
+  "title": "Unsigned/tampered manifest rejected by cell.",
+  "status": "partly",
+  "evidence": "A pack's content has a fingerprint and approvals bind it (test_packs.py). There are no cells and no signatures, so nothing is rejected by a cell."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-09",
+  "group": "Verification",
+  "title": "Manifest with expired dates or wrong cell mapping rejected.",
+  "status": "partly",
+  "evidence": "An expired pack gives nothing (test_packs.py, test_country_deadline.py). There is no cell mapping."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-10",
+  "group": "Verification",
+  "title": "Forged or replayed approval signature cannot activate a revision.",
+  "status": "not_built",
+  "evidence": "Approvals are rows in our own database, not signatures, so there is nothing to forge or replay."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-11",
+  "group": "Verification",
+  "title": "Unknown fields and incompatible schema versions are rejected.",
+  "status": "partly",
+  "evidence": "Unknown fields are refused (test_packs.py). Schema versions are not modelled."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-12",
+  "group": "Verification",
+  "title": "Author cannot self-approve mandatory Legal/DPO/CSO/CISO approvals.",
+  "status": "met",
+  "evidence": "test_packs.py: the author cannot approve their own pack, and two different people must approve (support and safety officers stand in for the named roles)."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-13",
+  "group": "Verification",
+  "title": "A material change invalidates affected signatures and produces a new immutable revision.",
+  "status": "met",
+  "evidence": "test_packs.py: sending a pack back clears its approvals, only a draft can change, and a suspended pack returns only as a new revision."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-14",
+  "group": "Verification",
+  "title": "Preflight executes without mutating live production state.",
+  "status": "not_built",
+  "evidence": "There is no preflight."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-15",
+  "group": "Verification",
+  "title": "G3 production enable cannot occur with any required gate PENDING/UNKNOWN.",
+  "status": "partly",
+  "evidence": "test_readiness.py: a release stays 'not ready' while any requirement is missing. This records a decision and blocks nothing."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-16",
+  "group": "Verification",
+  "title": "Concurrent activations and conflicting revisions cannot both become effective.",
+  "status": "not_built",
+  "evidence": "There is no activation, so no concurrent activation."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-17",
+  "group": "Verification",
+  "title": "Revocation reaches policy cache within verified bound; stale cache cannot newly authorize.",
+  "status": "partly",
+  "evidence": "A suspended pack stops giving new deadlines at once (test_country_deadline.py). There is no cache to bound."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-18",
+  "group": "Verification",
+  "title": "Loss of global control plane does not create new entitlements.",
+  "status": "not_built",
+  "evidence": "There is no global control plane separate from the cell."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-19",
+  "group": "Verification",
+  "title": "Rollback cannot restore a now-prohibited configuration.",
+  "status": "partly",
+  "evidence": "A suspended pack comes back only as a new draft revision, never by rolling back (test_packs.py)."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-20",
+  "group": "Verification",
+  "title": "In-flight clinical cases are preserved with assigned local continuation on suspension.",
+  "status": "partly",
+  "evidence": "A deadline already given to a request stands when its pack is suspended (test_country_deadline.py). No clinical cases are involved."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-21",
+  "group": "Verification",
+  "title": "Transport delivery never substitutes for clinical acknowledgment.",
+  "status": "met",
+  "evidence": "test_orchestration.py: a delivery or a read receipt is refused as evidence of any clinical step."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-22",
+  "group": "Verification",
+  "title": "Any unapproved cross-cell payload movement is rejected and locally audited.",
+  "status": "not_built",
+  "evidence": "There is one cell, so no cross-cell movement to reject."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-23",
+  "group": "Verification",
+  "title": "Source and receiving jurisdictions each independently approve authorized transfers.",
+  "status": "not_built",
+  "evidence": "No cross-jurisdiction transfers."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-24",
+  "group": "Verification",
+  "title": "Global registry and notifications never contain PHI, person IDs or small-cohort leakage.",
+  "status": "partly",
+  "evidence": "Packs hold settings only, and webhook and partner messages carry references only (test_webhooks.py, test_partner_events.py). There is no global registry or notification service."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-25",
+  "group": "Verification",
+  "title": "Unauthorized support impersonation and global superuser access rejected.",
+  "status": "partly",
+  "evidence": "Support is barred from patient data and messages (test_prohibitions.py). Impersonation is not a feature, so it is not tested."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-26",
+  "group": "Verification",
+  "title": "Restricted country pack cannot access connector in another market.",
+  "status": "not_built",
+  "evidence": "No markets or connectors to separate."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-27",
+  "group": "Verification",
+  "title": "Missing partner contract or disabled gateway blocks service with correct user notice.",
+  "status": "not_built",
+  "evidence": "No partner contract model."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-28",
+  "group": "Verification",
+  "title": "Expired evidence triggers alert ahead of deadline and suspension at required point.",
+  "status": "partly",
+  "evidence": "An expired pack shows as expired and stops counting (test_packs.py). Nothing alerts ahead of the deadline."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-29",
+  "group": "Verification",
+  "title": "Locally authorized emergency disable succeeds without unsafe clinical case loss.",
+  "status": "partly",
+  "evidence": "Either a support or a safety officer may suspend a pack with a reason (test_packs.py). No clinical cases are involved."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-30",
+  "group": "Verification",
+  "title": "Provider/tenant offboarding prevents new care, preserves required lawful records/rights.",
+  "status": "not_built",
+  "evidence": "No offboarding workflow."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-31",
+  "group": "Verification",
+  "title": "Patient rights requests route to correct controlling entity and cell.",
+  "status": "partly",
+  "evidence": "A data request goes to the patient's own clinic (test_rights.py). There are no other controlling entities or cells."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-32",
+  "group": "Verification",
+  "title": "Regional restore replays same signed policy and cannot revert to obsolete permissions.",
+  "status": "not_built",
+  "evidence": "No regional restore."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-33",
+  "group": "Verification",
+  "title": "Country support and accessibility/language obligations verified for approved journey.",
+  "status": "partly",
+  "evidence": "The accessibility scan passes on every page of the four apps (browser robot 10). There is no language support."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-34",
+  "group": "Verification",
+  "title": "Market claims in UI/marketing API cannot exceed approved capability set.",
+  "status": "not_built",
+  "evidence": "No marketing or capability-claim check."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-35",
+  "group": "Verification",
+  "title": "Local operator access is confined to approved cell, scope, purpose and ticket duration.",
+  "status": "partly",
+  "evidence": "Staff are confined to their own customer by row-level security and to their own organization by the rules (test_policy.py). There is no purpose or ticket duration."
+ },
+ {
+  "source": "GHE-04",
+  "req_id": "AT-36",
+  "group": "Verification",
+  "title": "Legal/clinical/security/privacy veto overrides executive/commercial approval.",
+  "status": "met",
+  "evidence": "test_readiness.py: any veto blocks the decision whatever else is signed; no commercial approval exists to override it."
+ }
+]

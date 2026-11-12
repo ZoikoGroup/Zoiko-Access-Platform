@@ -26,14 +26,39 @@ def dev_login(settings):
     settings.DEV_AUTH_STUB = True
 
 
-@pytest.fixture
-def world():
+def make_world():
     w = Platform()
     for subject in ("sam", "tess", *[f"s{i}" for i in range(1, 9)]):
         w.staff(subject, "R11")
     for subject in ("iyer", "c1", "c2"):
         w.staff(subject, "R12")
     return w
+
+
+def settle_hazards(w, leave=None):
+    """Seed the hazard register and accept every hazard (optionally leaving one in `leave`)."""
+    from modules.safety import api as safety
+    from modules.safety.models import Hazard
+    with tenant_transaction(w.ctx):
+        safety.ensure_seed("system")
+        Hazard.objects.update(status="ACCEPTED")
+        if leave:
+            first = Hazard.objects.order_by("ref_no").first()
+            Hazard.objects.filter(pk=first.pk).update(status=leave)
+
+
+@pytest.fixture
+def world():
+    """A platform with its hazard register seeded and every hazard accepted."""
+    w = make_world()
+    settle_hazards(w)
+    return w
+
+
+@pytest.fixture
+def bare():
+    """A platform whose hazard register has never been touched."""
+    return make_world()
 
 
 def make(w, ref="rel-2026-11-1", caps=("booking",), country="GB", who="sam", **over):
@@ -88,7 +113,7 @@ def test_a_new_release_is_not_ready_and_lists_everything_missing(world):
     assert rel["decision"] == "no_go" and len(rel["tuple_digest"]) == 64
     assert len(rel["blockers"]) == 11                       # six G3, four G4, and the country pack
     assert "g4.country_pack:missing" in rel["blockers"]
-    assert [q["status"] for q in rel["requirements"]] == ["missing"] * 11
+    assert sorted(q["status"] for q in rel["requirements"]) == ["missing"] * 11 + ["signed"]
 
 
 def test_only_support_creates_a_release_and_nobody_else_can_see_them(world):
@@ -322,3 +347,41 @@ def test_every_step_is_audited_without_free_text(world):
     assert steps == ["readiness.release_created", "readiness.signed", "readiness.vetoed"]
     assert any(e.action == "readiness.decision_no_go" for e in events)
     assert "Private" not in json.dumps([e.details for e in events])
+
+
+# --------------------------------------------------------- the hazard register (GHE-08 AT42)
+def test_an_empty_hazard_register_holds_a_release_back_even_with_everything_signed(bare):
+    rel = release(bare)
+    sign_g3(bare, rel)
+    now = show(bare, rel)
+    assert now["decision"] == "no_go" and "g3.hazard_register:missing" in now["blockers"]
+    row = next(q for q in now["requirements"] if q["requirement"] == "hazard_register")
+    assert row["reference"] == "no hazards recorded" and row["signer"] == ""
+
+
+@pytest.mark.parametrize("status", ["OPEN", "VERIFIED", "REJECTED"])
+def test_a_hazard_that_is_not_accepted_or_retired_holds_a_release_back(bare, status):
+    rel = release(bare)
+    sign_g3(bare, rel)
+    settle_hazards(bare, leave=status)
+    now = show(bare, rel)
+    assert now["decision"] == "no_go" and "g3.hazard_register:missing" in now["blockers"]
+    row = next(q for q in now["requirements"] if q["requirement"] == "hazard_register")
+    assert "resolved" in row["reference"] and not row["reference"].startswith("0 of")
+
+
+def test_accepted_and_retired_hazards_let_it_through_and_resolving_the_last_one_releases_it(bare):
+    from modules.safety.models import Hazard
+    rel = release(bare)
+    sign_g3(bare, rel)
+    settle_hazards(bare, leave="VERIFIED")
+    assert decision_of(bare, rel) == "no_go"
+    with tenant_transaction(bare.ctx):
+        Hazard.objects.filter(status="VERIFIED").update(status="RETIRED")
+    assert decision_of(bare, rel) == "g3_ready"
+
+
+def test_the_hazard_requirement_is_checked_by_the_system_and_cannot_be_signed(world):
+    rel = release(world)
+    assert attest(world, rel, "hazard_register", "s1").status_code == 422
+    assert stop(world, rel, "hazard_register").status_code == 422

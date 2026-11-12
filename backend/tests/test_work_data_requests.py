@@ -178,3 +178,59 @@ def test_another_customers_staff_see_none_of_it_and_doctors_see_the_queue_rules_
     got = json.loads(outsider.get("staff/work", subject="desk").content)["items"]
     assert [i for i in got if i["kind"] == "answer_data_request"] == []
     assert p.get("staff/work", subject="pat").status_code == 403
+
+
+# ------------------------------------------------------ the dashboard and the daily email
+def go_past_date(p, hours=1):
+    from modules.rights.models import RightsCase
+    with tenant_transaction(p.clinic.ctx):
+        RightsCase.objects.update(due_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=hours))
+
+
+def late_numbers(p):
+    r = p.get("staff/dashboard", subject="ops")
+    assert r.status_code == 200, r.content
+    return json.loads(r.content)["late"]
+
+
+def test_the_dashboard_counts_data_requests_past_their_date(p):
+    file_request(p)
+    assert late_numbers(p)["data_requests"] == 0                # not due yet (own target applies)
+    go_past_date(p)
+    assert late_numbers(p)["data_requests"] == 1
+
+
+def test_a_request_with_no_date_is_late_after_the_clinics_own_target(p):
+    from modules.rights.models import RightsCase
+    file_request(p)
+    with tenant_transaction(p.clinic.ctx):
+        RightsCase.objects.update(
+            created_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=30))   # past 24 hours
+    assert late_numbers(p)["data_requests"] == 1
+
+
+def test_a_request_not_yet_past_its_date_or_already_ended_is_not_late(p):
+    made = file_request(p)
+    from modules.rights.models import RightsCase
+    with tenant_transaction(p.clinic.ctx):
+        RightsCase.objects.update(due_at=dt.datetime.now(dt.UTC) + dt.timedelta(days=5))
+    assert late_numbers(p)["data_requests"] == 0
+    go_past_date(p)
+    p.post(f"rights/{made['id']}/withdraw", subject="pat")
+    assert late_numbers(p)["data_requests"] == 0
+
+
+def test_the_daily_email_mentions_late_data_requests_with_a_count_only(p):
+    from foundation.models import QueuedEmail
+    from modules.comms import digest
+    from tests.test_digest import give_email
+    give_email(p, p.desk, "desk@clinic.test")
+    p.post("rights", {"type": "access", "note": "SECRET WORDS ABOUT ME"}, subject="pat")
+    with tenant_transaction(p.clinic.ctx):
+        assert digest.send_late_digest() == 0                   # nothing late yet
+    go_past_date(p)
+    with tenant_transaction(p.clinic.ctx):
+        assert digest.send_late_digest() == 1
+        (mail,) = QueuedEmail.objects.filter(kind=digest.KIND)
+    assert "1 data request past the date to answer" in mail.body
+    assert "SECRET" not in mail.body and p.person not in mail.body

@@ -44,6 +44,7 @@ A failed robot leaves a screenshot and a trace under `test-results/` (not commit
 | 14 | A patient who ticks "Remember me for 30 days" is still signed in on a device that kept only long-term storage, and "Sign out" ends it; one who does not tick it is not; staff cannot tick it. |
 | 15 | The patient and platform apps, when a refresh fails after a good load, keep the old page and say "The information below is old: it was last updated at <time>". |
 | 16 | The clinic administrator sets a price, staff make, issue and mark an invoice as paid with a payment reference, and the patient sees it as paid in their own app (invoices from earlier runs stay in the list). |
+| 17 | Every page of the staff, patient, doctor and platform apps at 320 pixels: no sideways scrolling, automated accessibility rules pass, patient menu works from the keyboard. |
 
 ## Good to know
 

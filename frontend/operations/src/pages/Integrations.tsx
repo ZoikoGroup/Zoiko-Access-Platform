@@ -140,7 +140,7 @@ export function Integrations() {
             <div key={d.public_id} className="appt">
               <div className="info">
                 <b>{d.event_type} <Pill kind={DELIVERY_STATE[d.state].kind}>{DELIVERY_STATE[d.state].text}</Pill></b>
-                <small>{d.attempts} attempt{d.attempts === 1 ? "" : "s"}{d.last_status ? `, last answer ${d.last_status}` : ""}{d.last_error ? `, ${d.last_error}` : ""}. {d.created_at.slice(0, 16).replace("T", " ")}</small>
+                <small>{d.attempts} attempt{d.attempts === 1 ? "" : "s"}{d.last_status ? `, last answer ${d.last_status}` : ""}{d.last_error ? `, ${d.last_error}` : ""}. {d.created_at.slice(0, 16).replace("T", " ")}{d.owner_name ? ` Owner: ${d.owner_name}.` : ""}{d.body_digest ? ` Message fingerprint ${d.body_digest.slice(0, 10)}.` : ""}</small>
               </div>
               {d.state === "dead_letter" && <button className="btn ghost" onClick={() => void redrive(d.public_id)}>Send again</button>}
             </div>

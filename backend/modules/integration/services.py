@@ -9,6 +9,7 @@ delivery id.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import random
 import re
@@ -82,6 +83,7 @@ def delivery_dict(d: WebhookDelivery) -> dict[str, Any]:
         "delivery_id": str(d.delivery_id), "state": d.state, "attempts": d.attempts,
         "next_attempt_at": d.next_attempt_at.isoformat(), "last_status": d.last_status,
         "last_error": d.last_error, "created_at": d.created_at.isoformat(),
+        "owner": d.owner_ref, "policy_digest": d.policy_digest, "body_digest": d.body_digest,
         "delivered_at": d.delivered_at.isoformat() if d.delivered_at else None,
     }
 
@@ -257,6 +259,11 @@ def list_endpoints() -> list[dict[str, Any]]:
     return [endpoint_dict(r) for r in rows]
 
 
+def gave_up_count() -> int:
+    """How many deliveries have given up and wait for a person (a number only)."""
+    return WebhookDelivery.objects.filter(state=DeliveryState.DEAD_LETTER, **_scope()).count()
+
+
 def list_deliveries(state: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
     rows = WebhookDelivery.objects.select_related("endpoint").filter(**_scope())
     if state:
@@ -312,7 +319,8 @@ def enqueue(event: PublishedEvent) -> None:
         WebhookDelivery.objects.get_or_create(
             endpoint=ep, event_id=event.event_id,
             defaults={"event_type": event.event_type, "body": body, "next_attempt_at": now,
-                      **_scope()})
+                      "owner_ref": ep.created_by_ref, "policy_digest": policy.POLICY_DIGEST,
+                      "body_digest": hashlib.sha256(body.encode()).hexdigest(), **_scope()})
 
 
 def register_subscribers() -> None:

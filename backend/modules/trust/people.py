@@ -286,6 +286,8 @@ def approve_proxy_grant(
     *,
     valid_until: dt.datetime | None = None,
     rights: list[str] | None = None,
+    proof_kind: str = "",
+    proof_ref: str = "",
     clock: Clock | None = None,
 ) -> ProxyGrant:
     """Someone other than the delegate approves. Only then does the grant count. `rights` lists
@@ -309,10 +311,11 @@ def approve_proxy_grant(
         grant.valid_from = now
         grant.valid_until = valid_until
         grant.rights = chosen
+        grant.proof_kind, grant.proof_ref = proof_kind, proof_ref
         grant.entity_version += 1
         grant.save(update_fields=[
-            "status", "approved_by", "valid_from", "valid_until", "rights", "entity_version",
-            "updated_at"])
+            "status", "approved_by", "valid_from", "valid_until", "rights", "proof_kind",
+            "proof_ref", "entity_version", "updated_at"])
         _audit(approver.public_id, "proxy.approve", "proxy_grant", grant.public_id)
         return grant
 

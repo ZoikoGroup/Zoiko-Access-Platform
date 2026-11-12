@@ -25,6 +25,7 @@ const ATTENTION: { key: keyof DashboardData["attention"]; text: (n: number) => s
   { key: "messages", page: "messages", text: (n) => `${n} conversation${n === 1 ? "" : "s"} with a new message from a patient` },
   { key: "referrals_to_decide", page: "referrals", text: (n) => `${n} referral${n === 1 ? "" : "s"} waiting for a decision` },
   { key: "data_requests", page: "rights", text: (n) => `${n} data request${n === 1 ? "" : "s"} from patients waiting for the clinic` },
+  { key: "webhooks_gave_up", page: "integrations", text: (n) => `${n} webhook deliver${n === 1 ? "y" : "ies"} gave up and need${n === 1 ? "s" : ""} someone to look` },
   { key: "family_requests", page: "family", text: (n) => `${n} family request${n === 1 ? "" : "s"} waiting for proof to be checked` },
   { key: "waiting_list", page: "waitlist", text: (n) => `${n} ${n === 1 ? "person" : "people"} on a waiting list` },
 ];
@@ -32,7 +33,7 @@ const ATTENTION: { key: keyof DashboardData["attention"]; text: (n: number) => s
 function View({ d, tenantName, api, database, onGo }: {
   d: DashboardData; tenantName: string; api: Health; database: Health; onGo: (page: PageId) => void;
 }) {
-  const late = d.late.bookings + d.late.messages;
+  const late = d.late.bookings + d.late.messages + d.late.data_requests;
   const open = ATTENTION.filter((a) => d.attention[a.key] > 0);
   const allowed = d.decisions.filter((x) => x.allowed).length;
   const denied = d.decisions.length - allowed;
@@ -53,7 +54,7 @@ function View({ d, tenantName, api, database, onGo }: {
           {late > 0 && (
             <div className="appt" role="alert">
               <div className="info"><b>{late} item{late === 1 ? " is" : "s are"} running late</b>
-                <span className="sub">{d.late.bookings} booking{d.late.bookings === 1 ? "" : "s"} and {d.late.messages} message{d.late.messages === 1 ? "" : "s"} waiting more than {d.late.hours} hours</span></div>
+                <span className="sub">{d.late.bookings} booking{d.late.bookings === 1 ? "" : "s"}, {d.late.messages} message{d.late.messages === 1 ? "" : "s"} waiting more than {d.late.hours} hours, and {d.late.data_requests} data request{d.late.data_requests === 1 ? "" : "s"} past the date to answer</span></div>
               <button className="btn" onClick={() => onGo("workflows")}>Open the work queue</button>
             </div>
           )}

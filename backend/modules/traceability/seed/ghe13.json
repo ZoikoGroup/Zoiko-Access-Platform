@@ -180,8 +180,8 @@
   "req_id": "T-23",
   "group": "Transport and webhook",
   "title": "DLQ entry after retry exhaustion retains owner, policy and evidence and is visible to authorized regional operator.",
-  "status": "partly",
-  "evidence": "test_webhooks.py: a parked delivery stays visible to the clinic administrator and can be sent again. It does not record the owner, policy or evidence."
+  "status": "met",
+  "evidence": "test_webhooks.py: a delivery that gave up keeps its owner (who registered the address), the access rules in force when it was queued, a fingerprint of the exact message and its last answer, stays visible to the clinic administrator, is counted on their dashboard and can be sent again."
  },
  {
   "source": "GHE-13",

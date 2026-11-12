@@ -52,9 +52,9 @@ export interface Compliance extends Evidence {
 export interface Dashboard extends Evidence {
   tenant: string;
   counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
-  late: { hours: number; bookings: number; messages: number };
+  late: { hours: number; bookings: number; messages: number; data_requests: number };
   today: { confirmed: number; waiting: number; still_to_come: number };
-  attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number; data_requests: number };
+  attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number; data_requests: number; webhooks_gave_up: number };
 }
 
 export interface Directory {
@@ -130,6 +130,8 @@ export interface FamilyRequest {
   requested_at: string;
   requested_by: string;
   requested_by_name: string | null;
+  proof_kind?: string;
+  proof_ref?: string;
 }
 
 export interface MessageThread {
@@ -388,6 +390,9 @@ export interface WebhookDelivery {
   last_error: string;
   created_at: string;
   delivered_at: string | null;
+  owner_name?: string;
+  policy_digest?: string;
+  body_digest?: string;
 }
 
 export interface RightsCase {
