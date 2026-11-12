@@ -105,7 +105,7 @@ def test_the_database_refuses_to_change_or_remove_a_released_definition(defs):
     with pytest.raises(DatabaseError), transaction.atomic():
         WorkflowDefinition.objects.all().delete()
     workflow.retire_definition("J1.booking", 1)          # its state may move; its content may not
-    assert WorkflowDefinition.objects.get().state == "retired"
+    assert WorkflowDefinition.objects.get(key="J1.booking").state == "retired"
 
 
 def test_a_retired_version_starts_nothing_new_but_running_journeys_carry_on(ctx, defs, clock):
