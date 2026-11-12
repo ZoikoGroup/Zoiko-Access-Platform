@@ -6,3 +6,11 @@ class TrustConfig(AppConfig):
 
     name = "modules.trust"
     label = "trust"
+
+    def ready(self) -> None:
+        # `manage.py rotate_field_keys` moves this module's encrypted values onto the current key.
+        from foundation import rotation
+
+        from .rotation import rotate
+
+        rotation.register("trust", rotate)

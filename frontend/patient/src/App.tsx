@@ -12,6 +12,7 @@ import { Messages } from "./pages/Messages";
 import { clearLink, LinkPage, readLinkAction } from "./pages/LinkActions";
 import { Notifications } from "./pages/Notifications";
 import { Planned } from "./pages/Planned";
+import { Bills } from "./pages/Bills";
 import { Privacy } from "./pages/Privacy";
 import { Profile } from "./pages/Profile";
 import { Help } from "./pages/Help";
@@ -34,7 +35,7 @@ const NAV: NavItem[] = [
   { id: "records", label: "My Health Records", icon: "services", waitsFor: "Health records need the clinical record service, a later phase." },
   { id: "careteam", label: "My Care Team", icon: "providers" },
   { id: "family", label: "Family Members", icon: "patients" },
-  { id: "bills", label: "Bills & Payments", icon: "billing", waitsFor: "Bills and payments are a later commercial phase." },
+  { id: "bills", label: "Bills & Payments", icon: "billing" },
   { id: "insurance", label: "Insurance & Claims", icon: "compliance" },
   { id: "messages", label: "Messages", icon: "messages" },
   { id: "notifications", label: "Notifications", icon: "bell" },
@@ -42,7 +43,7 @@ const NAV: NavItem[] = [
   { id: "profile", label: "My Profile", icon: "settings" },
   { id: "help", label: "Help & Support", icon: "integrations" },
 ];
-const LIVE: PageId[] = ["dashboard", "find", "appointments", "referrals", "notifications", "profile", "insurance", "careteam", "privacy", "family", "messages", "help"];
+const LIVE: PageId[] = ["dashboard", "find", "appointments", "referrals", "notifications", "profile", "insurance", "careteam", "privacy", "family", "messages", "help", "bills"];
 
 function startPage(): PageId {
   const wanted = new URLSearchParams(window.location.search).get("page");
@@ -64,6 +65,7 @@ export default function App() {
   const [findQuery, setFindQuery] = useState("");        // set by the top-bar search
   const openPage = (id: PageId) => { setFindQuery(""); setPage(id); };
   const [error, setError] = useState("");
+  const [asOf, setAsOf] = useState<number | null>(null);   // when the data on screen last loaded
   const [link, setLink] = useState(readLinkAction());
 
   const forget = useCallback(() => {
@@ -77,6 +79,7 @@ export default function App() {
     setCoverage([]);
     setNotices([]);
     setUnread(0);
+    setAsOf(null);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -92,6 +95,7 @@ export default function App() {
       setCoverage(cover);
       setNotices(inbox.notifications);
       setUnread(inbox.unread);
+      setAsOf(Date.now());
       setError("");
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) forget();
@@ -129,6 +133,7 @@ export default function App() {
   else if (page === "family") body = <Family onChanged={refresh} />;
   else if (page === "careteam") body = <CareTeam />;
   else if (page === "privacy") body = <Privacy />;
+  else if (page === "bills") body = <Bills />;
   else if (page === "insurance") body = <Insurance coverage={coverage} hasPatient={me.persons.length > 0} onChanged={refresh} />;
   else if (page === "profile") body = <Profile key={profiles.map((x) => x.name).join("|")} profiles={profiles} onSaved={refresh} />;
   else if (page === "referrals") body = <Referrals referrals={referrals} />;
@@ -173,9 +178,14 @@ export default function App() {
           <div className="cell">{me?.cell ?? "…"}</div>
         </div>
       </nav>
-      <main className="content" id="main" tabIndex={-1}>
+      <main className="content" id="main" tabIndex={0}>
         {me?.email?.email && !me.email.verified && <VerifyBanner address={me.email.email} />}
-        {error && <div className="error">Cannot reach the backend: {error}. Is it running (<code>docker compose up -d</code>)?</div>}
+        {error && (
+          <div className="error" role="alert">
+            Cannot reach the backend: {error}. Is it running (<code>docker compose up -d</code>)?
+            {asOf && ` The information below is old: it was last updated at ${new Date(asOf).toLocaleTimeString()}.`}
+          </div>
+        )}
         {body}
       </main>
     </div>

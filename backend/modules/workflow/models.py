@@ -16,6 +16,7 @@ class Kind(models.TextChoices):
     CONFIRM_BOOKING = "confirm_booking", "Confirm an appointment"
     DECIDE_REFERRAL = "decide_referral", "Decide on a referral"
     ANSWER_MESSAGE = "answer_message", "Answer a patient message"
+    ANSWER_DATA_REQUEST = "answer_data_request", "Answer a data request"
 
 
 class Status(models.TextChoices):

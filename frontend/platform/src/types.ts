@@ -8,6 +8,7 @@ export interface TenantRow {
   type: string;
   status: string;
   self_registration: boolean;
+  country?: string;
   created_at: string;
   counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
   services: { active: number; inactive: number };
@@ -23,7 +24,7 @@ export interface Overview {
   cell: string;
   generated_at: string;
   outbox: { pending: number; quarantined: number; oldest_pending_seconds: number | null };
-  mail: { queued: number; failed: number };
+  mail: { queued: number; failed: number; failed_attempts_24h?: number; accepted_attempts_24h?: number };
   tenants: TenantRow[];
   /** What the platform team itself has open: counts only (titles are on the Incidents page). */
   work: {

@@ -76,6 +76,7 @@ export function OverviewPage({ data, api, database, onRefresh, busy, onGo }: {
             <li><Icon name="check" size={16} /> Events that gave up <span className="right">{data.outbox.quarantined}</span></li>
             <li><Icon name="check" size={16} /> Emails waiting to be sent <span className="right">{data.mail.queued}</span></li>
             <li><Icon name="check" size={16} /> Emails that gave up <span className="right">{data.mail.failed}</span></li>
+            <li><Icon name="check" size={16} /> Send tries that failed, last 24 hours <span className="right">{data.mail.failed_attempts_24h ?? 0}</span></li>
             <li><Icon name="check" size={16} /> Oldest waiting event <span className="right">{data.outbox.oldest_pending_seconds === null ? "none" : `${data.outbox.oldest_pending_seconds}s`}</span></li>
           </ul>
         </Card>

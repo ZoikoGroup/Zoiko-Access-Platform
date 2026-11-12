@@ -68,7 +68,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
         roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
         onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} />
       <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} />
-      <main className="content" id="main" tabIndex={-1}>
+      <main className="content" id="main" tabIndex={0}>
         <div className="notice" role="group" aria-label="Why you are working" style={{ marginBottom: 12 }}>
           <label>Why are you opening patient records?{" "}
             <select value={why} onChange={(e) => { setPurpose(e.target.value as Purpose); setWhy(e.target.value as Purpose); }}>

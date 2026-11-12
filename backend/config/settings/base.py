@@ -40,6 +40,12 @@ ZOIKO_CELL_ID = env("ZOIKO_CELL_ID", required=True)
 # Which program wrote an audit row, and which build it was (a release id or commit; "dev" locally).
 ZOIKO_SERVICE_NAME = env("ZOIKO_SERVICE_NAME", "backend")
 ZOIKO_BUILD = env("ZOIKO_BUILD", "dev")
+# Lets a monitoring system read /metrics (request numbers by route). Empty = the endpoint is off.
+METRICS_TOKEN = env("ZOIKO_METRICS_TOKEN", "")
+# Clinical workflow paths (review, handoff) stay unpublishable until this is "true" (DEV-132).
+WORKFLOW_CLINICAL_ENABLED = env("ZOIKO_WORKFLOW_CLINICAL", "").lower() == "true"
+if METRICS_TOKEN and len(METRICS_TOKEN) < 24:
+    raise ValueError("ZOIKO_METRICS_TOKEN must be at least 24 characters (or empty to turn it off)")
 # Google sign-in is offered only when a Google OAuth client id is configured (empty = off).
 GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", "")
 DEV_AUTH_STUB = False  # unsigned dev login; only dev settings turn it on
@@ -60,6 +66,13 @@ INSTALLED_APPS = [
     "modules.coverage",
     "modules.ai",
     "modules.safety",
+    "modules.rights",
+    "modules.integration",
+    "modules.jurisdiction",
+    "modules.orchestration",
+    "modules.readiness",
+    "modules.traceability",
+    "modules.billing",
     "modules.messaging",
     "modules.comms",
     "modules.evidence",
@@ -67,6 +80,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "foundation.middleware.RequestIdMiddleware",        # first: every request gets an id
+    "foundation.middleware.MetricsMiddleware",          # second: times everything after it
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
     "foundation.middleware.ErrorHandlingMiddleware",    # last: sees view exceptions first

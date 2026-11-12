@@ -42,6 +42,8 @@ class Tenant(models.Model):
     authority_ref = models.CharField(max_length=64, blank=True, default="")
     # Whether patients may create their own account here. Off unless the customer turns it on.
     self_registration = models.BooleanField(default=False)
+    # ISO 3166 country the customer operates in, set by Zoiko support. Empty = not set (DEV-133).
+    country = models.CharField(max_length=2, blank=True, default="")
     created_at = models.DateTimeField(default=utc_now, editable=False)
 
     class Meta:

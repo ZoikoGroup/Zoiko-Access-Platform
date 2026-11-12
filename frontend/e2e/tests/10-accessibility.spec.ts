@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { LOGINS, PLATFORM, signIn } from "../helpers";
+import { APPS as ADDRESS, LOGINS, PLATFORM, signIn } from "../helpers";
 
 // Robot 10: an automated accessibility scan (WCAG 2.2 AA rules) of every page in every app.
 // Automated rules find only part of the problems (roughly a third); a person with a screen reader and a
@@ -40,7 +40,7 @@ for (const a of APPS) {
       for (const app of ["staff", "patient", "doctor", "platform"] as const) {
         const ctx = await browser.newContext();
         const p = await ctx.newPage();
-        await p.goto({ staff: "http://localhost:5173", patient: "http://localhost:5174", doctor: "http://localhost:5176", platform: "http://localhost:5175" }[app] + "/");
+        await p.goto(ADDRESS[app] + "/");
         await p.getByRole("button", { name: "Log In", exact: true }).waitFor();
         await scan(p, `${app} sign-in`, found);
         await ctx.close();

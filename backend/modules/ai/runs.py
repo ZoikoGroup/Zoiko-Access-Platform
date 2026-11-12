@@ -30,10 +30,10 @@ from .models import (
     Decision,
     PermitState,
 )
-from .permits import FORBIDDEN_TOOLS, check_permit
+from .permits import FORBIDDEN_TOOLS, check_permit, tool_digest
 
 Provider = Callable[[str], str]
-_PROVIDERS: dict[str, tuple[Provider, str | None, str | None]] = {}
+_PROVIDERS: dict[str, tuple[Provider, str | None, str | None, str | None]] = {}
 MAX_INPUT_CHARS = 8000
 
 
@@ -43,13 +43,15 @@ def register_provider(
     *,
     model_digest: str | None = None,
     prompt_digest: str | None = None,
+    tool_digest: str | None = None,
 ) -> None:
     """Plug in what actually answers.
 
-    A real model passes the digests of the model and prompt it runs; the gate refuses to call it if
-    they differ from the permit (GHE-23). The built-in template is not a model and passes none.
+    A real model passes the digests of the model, prompt and tool policy it runs; the gate refuses
+    to call it if they differ from the permit (GHE-23). The built-in template is not a model and
+    passes none.
     """
-    _PROVIDERS[feature_id] = (provider, model_digest, prompt_digest)
+    _PROVIDERS[feature_id] = (provider, model_digest, prompt_digest, tool_digest)
 
 
 def digest(text: str) -> str:
@@ -78,7 +80,7 @@ def run(
     registered = _PROVIDERS.get(feature_id)
     if registered is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)
-    provider, provider_model, provider_prompt = registered
+    provider, provider_model, provider_prompt, provider_tools = registered
     wanted = list(tools or [])
     shadow = permit.state == PermitState.SHADOW
     names = [str(t.get("tool", "")) for t in wanted]
@@ -92,11 +94,16 @@ def run(
             flags.append("tool_not_on_list")
     if shadow and wanted:
         flags.append("shadow_acts_on_nothing")
-    if provider_model not in (None, permit.model_digest) or provider_prompt not in (
-        None,
-        permit.prompt_digest,
+    if (
+        provider_model not in (None, permit.model_digest)
+        or provider_prompt not in (None, permit.prompt_digest)
+        or provider_tools not in (None, permit.tool_digest)
     ):
         flags.append("digest_mismatch")  # what answers is not what the permit approved
+    if permit.tool_digest and permit.tool_digest != tool_digest(
+        permit.allowed_tools, permit.write_tools, permit.two_person_tools
+    ):
+        flags.append("tool_policy_changed")  # the tool lists are not what the permit was made with
     output = provider(input_text) if not flags else ""
     if not flags and not output.strip():
         flags.append("empty_output")
@@ -123,6 +130,7 @@ def run(
             output_digest=digest(output),
             model_digest=permit.model_digest,
             prompt_digest=permit.prompt_digest,
+            tool_digest=permit.tool_digest,
             validator_flags=flags,
             decision=decision,
             **_scope(),

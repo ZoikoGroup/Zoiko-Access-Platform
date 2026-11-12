@@ -4,11 +4,13 @@ These tests open the real apps in a headless browser and click like a person. De
 
 ## Before you run them
 
-1. The stack is up: `docker compose up -d` (API on 8000).
+1. The stack is up: `docker compose up -d` (API on 8000). If the API is on another port, start the apps with `BACKEND_URL=http://127.0.0.1:<port>` and run the robots with `E2E_API=http://127.0.0.1:<port>/api/v1/`.
 2. The four apps are running, each on its own port (start each with `npm run dev -- --strictPort --port <n>`):
    staff 5173, patient 5174, platform 5175, doctor 5176.
 3. The test clinic exists: `python scripts/seed_e2e.py` (once). The platform robot also needs the
    support logins: `python scripts/seed_platform_tenant.py` (once).
+
+If an app is not on its usual port (for example another project holds 5173), start it elsewhere and tell the robots with `E2E_STAFF`, `E2E_PATIENT`, `E2E_PLATFORM` or `E2E_DOCTOR` (for example `E2E_STAFF=http://localhost:5183`).
 
 ## Run
 
@@ -38,6 +40,10 @@ A failed robot leaves a screenshot and a trace under `test-results/` (not commit
 | 10 | An automated accessibility scan (WCAG 2.2 AA rules) of every page of all four apps and the sign-in pages; fails on any serious or critical finding. |
 | 11 | Every "Open signed in" button on the local launcher page really lands signed in, and the password leaves the address bar. |
 | 12 | One safety officer assesses a hazard, a different one verifies and accepts it, and the first cannot review their own work. |
+| 13 | A patient asks the clinic about their own data; staff record the identity check (an administrator cannot close it before that) and close it with a note; the patient sees the outcome. |
+| 14 | A patient who ticks "Remember me for 30 days" is still signed in on a device that kept only long-term storage, and "Sign out" ends it; one who does not tick it is not; staff cannot tick it. |
+| 15 | The patient and platform apps, when a refresh fails after a good load, keep the old page and say "The information below is old: it was last updated at <time>". |
+| 16 | The clinic administrator sets a price, staff make, issue and mark an invoice as paid with a payment reference, and the patient sees it as paid in their own app (invoices from earlier runs stay in the list). |
 
 ## Good to know
 

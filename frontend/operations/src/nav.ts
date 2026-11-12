@@ -3,7 +3,7 @@
 export type PageId =
   | "dashboard" | "patients" | "providers" | "organizations" | "team" | "services" | "appointments"
   | "waitlist" | "family" | "referrals" | "workflows" | "messages" | "billing" | "compliance" | "reports"
-  | "integrations" | "ai" | "settings";
+  | "integrations" | "ai" | "settings" | "rights" | "engine";
 
 export interface NavItem {
   id: PageId;
@@ -26,12 +26,12 @@ export const NAV: NavItem[] = [
   { id: "referrals", label: "Referrals", icon: "referrals", live: true },
   { id: "workflows", label: "Work queue", icon: "workflows", live: true },
   { id: "messages", label: "Messages", icon: "messages", live: true },
-  { id: "billing", label: "Billing & Claims", icon: "billing", live: false,
-    waitsFor: "Entitlements, invoices and claims: a later phase." },
+  { id: "billing", label: "Billing", icon: "billing", live: true },
   { id: "compliance", label: "Compliance", icon: "compliance", live: true },
+  { id: "rights", label: "Data requests", icon: "compliance", live: true },
+  { id: "engine", label: "Workflow engine", icon: "workflows", live: true },
   { id: "reports", label: "Reports", icon: "reports", live: true },
-  { id: "integrations", label: "Integrations", icon: "integrations", live: false,
-    waitsFor: "Partner connectors and webhooks: planned (B8, partner simulator)." },
+  { id: "integrations", label: "Integrations", icon: "integrations", live: true },
   { id: "ai", label: "AI permits", icon: "settings", live: true },
   { id: "settings", label: "Settings", icon: "settings", live: true },
 ];

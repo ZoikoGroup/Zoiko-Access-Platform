@@ -1,0 +1,482 @@
+[
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T01",
+  "group": "Activation",
+  "title": "New workflow is denied when country pack is draft, expired or suspended.",
+  "status": "not_built",
+  "evidence": "Definitions do not look at country packs, so a draft, expired or suspended pack cannot stop a start."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T02",
+  "group": "Activation",
+  "title": "A workflow template cannot activate without designated clinical fallbacks for a safety-relevant step.",
+  "status": "partly",
+  "evidence": "Clinical paths cannot be published at all while the clinical switch is off; there is no check for named clinical fallbacks."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T03",
+  "group": "Activation",
+  "title": "Run same kernel using two deliberately distinct synthetic country packs.",
+  "status": "not_built",
+  "evidence": "The engine does not read packs, so two packs cannot make it behave differently."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T04",
+  "group": "Activation",
+  "title": "Definition N+1 is deployed while N workflows are active.",
+  "status": "met",
+  "evidence": "test_orchestration.py: a change is a new version and running instances stay on theirs."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T05",
+  "group": "Activation",
+  "title": "Remove old definition deployment while an N instance is in flight.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: a retired definition keeps running instances going. There is no delete path, and the database refuses deleting a definition an instance uses (not tested)."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T06",
+  "group": "Activation",
+  "title": "A non-clinical J4 uses its valid payer closure predicate.",
+  "status": "met",
+  "evidence": "test_orchestration.py: a non-clinical path never invents a review step. There is no payer-specific closure predicate."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T07",
+  "group": "Activation",
+  "title": "Unapproved regulated feature toggle is set true manually.",
+  "status": "not_built",
+  "evidence": "The clinical switch only decides whether a definition can be published. Nothing checks it, or any approval, when a workflow runs."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T08",
+  "group": "Identity",
+  "title": "Authenticated user without required patient relationship starts J2.",
+  "status": "partly",
+  "evidence": "Only staff may start one. Subjects are opaque references, so there is no patient-relationship check."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T09",
+  "group": "Identity",
+  "title": "A workflow callback supplies a different cell_id or tenant_id.",
+  "status": "partly",
+  "evidence": "Tenant and cell come from the login or the partner key, never from the body, but no test sends a conflicting value."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T10",
+  "group": "Identity",
+  "title": "Revoked delegation sends an otherwise valid step request.",
+  "status": "not_built",
+  "evidence": "Engine actors are staff; there is no delegation in a workflow step."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T11",
+  "group": "Identity",
+  "title": "Patient match is ambiguous when result arrives.",
+  "status": "not_built",
+  "evidence": "No patient matching in the engine."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T12",
+  "group": "Identity",
+  "title": "Provider credential expires between request and review.",
+  "status": "not_built",
+  "evidence": "Review attestations are references; no provider credential is checked."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T13",
+  "group": "Lifecycle",
+  "title": "Same CreateWorkflow request is retried with same key and body.",
+  "status": "partly",
+  "evidence": "A repeated start is refused with a conflict (one live workflow per subject) rather than answered with the original response."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T14",
+  "group": "Lifecycle",
+  "title": "Same key reused with differing payload.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: the same idempotency key with a different target is a conflict. Start has no idempotency key."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T15",
+  "group": "Lifecycle",
+  "title": "Concurrent transitions use stale expected_version.",
+  "status": "met",
+  "evidence": "test_orchestration.py: a stale expected version is a conflict and changes nothing. Tested one after the other, not truly in parallel."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T16",
+  "group": "Lifecycle",
+  "title": "Unauthorized actor requests CANCELLED state.",
+  "status": "met",
+  "evidence": "test_orchestration.py: only the owner or an administrator may move; others are refused and nothing changes."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T17",
+  "group": "Lifecycle",
+  "title": "Simulated partner transport ACK attempts CLINICAL_REVIEWED.",
+  "status": "met",
+  "evidence": "test_orchestration.py: every transport and read receipt kind is refused as evidence."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T18",
+  "group": "Lifecycle",
+  "title": "HL7 ACK arrives without a named accepting clinical owner.",
+  "status": "met",
+  "evidence": "test_orchestration.py: acceptance needs an acceptance attestation; a transport acknowledgement is refused."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T19",
+  "group": "Lifecycle",
+  "title": "Provider confirms work began but has not produced result.",
+  "status": "met",
+  "evidence": "test_orchestration.py: each step needs its own evidence kind and cannot be skipped."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T20",
+  "group": "Lifecycle",
+  "title": "Signed result correlation does not match patient/order.",
+  "status": "not_built",
+  "evidence": "No result correlation to a patient or order."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T21",
+  "group": "Lifecycle",
+  "title": "Verified result and valid review attestation match version.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: a review step passes once with the right evidence kind. The attestation itself and its source version are not verified."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T22",
+  "group": "Lifecycle",
+  "title": "Signed review arrives with wrong source version.",
+  "status": "not_built",
+  "evidence": "No source versions on results."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T23",
+  "group": "Lifecycle",
+  "title": "Patient opened report in app but clinician has not reviewed.",
+  "status": "met",
+  "evidence": "test_orchestration.py: viewed, downloaded and read receipts are refused as evidence."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T24",
+  "group": "Lifecycle",
+  "title": "Follow-up email was delivered without receiving provider acceptance.",
+  "status": "met",
+  "evidence": "test_orchestration.py: email sent and notification delivered are refused as evidence."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T25",
+  "group": "Lifecycle",
+  "title": "All journey-specific closure predicates and evidence pass.",
+  "status": "met",
+  "evidence": "test_orchestration.py: the full path closes once with a closure digest and an intact history."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T26",
+  "group": "Lifecycle",
+  "title": "A required safety obligation remains unowned.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: an open exception or an escalation waiting for a person blocks closing. A general 'unowned safety obligation' is not modelled."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T27",
+  "group": "Lifecycle",
+  "title": "A pending partner action exists when cancellation occurs.",
+  "status": "not_built",
+  "evidence": "No partner actions to reconcile on cancellation."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T28",
+  "group": "Lifecycle",
+  "title": "Original report receives a clinically important correction.",
+  "status": "not_built",
+  "evidence": "No report corrections or source versions."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T29",
+  "group": "Evidence",
+  "title": "Partner callback originates from unapproved endpoint/key.",
+  "status": "partly",
+  "evidence": "Partner messages with a bad signature are refused (DEV-131) and a valid one from a disallowed kind is held; they never advance a workflow, because nothing connects them yet."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T30",
+  "group": "Evidence",
+  "title": "Attestation by valid but wrong-scope clinician arrives.",
+  "status": "not_built",
+  "evidence": "No attester scope or relationship check."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T31",
+  "group": "Evidence",
+  "title": "Audit event source-time precedes processing-time due to delayed delivery.",
+  "status": "not_built",
+  "evidence": "A step records one time, not source time and processing time."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T32",
+  "group": "Evidence",
+  "title": "Evidence ledger is missing a transition reference.",
+  "status": "met",
+  "evidence": "test_orchestration.py: a workflow whose state, overlay or version disagrees with its history is found and frozen (423). A break in the chain itself uses the shared chain check."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T33",
+  "group": "Evidence",
+  "title": "Evidence proof is tampered after storage.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: tampering with the stored workflow is found and frozen, and the database refuses editing a step. No incident is raised automatically."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T34",
+  "group": "Evidence",
+  "title": "Closure export requested by employer without clinical disclosure rights.",
+  "status": "not_built",
+  "evidence": "No closure export."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T35",
+  "group": "Evidence",
+  "title": "Record retention/deletion request conflicts with a lawful hold.",
+  "status": "not_built",
+  "evidence": "No retention or lawful-hold handling."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T36",
+  "group": "Evidence",
+  "title": "Rebuild materialized status from event history.",
+  "status": "met",
+  "evidence": "test_orchestration.py: state, overlay and version are rebuilt from the history alone and compared."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T37",
+  "group": "Timeouts",
+  "title": "Provider acceptance timer expires without acknowledgment.",
+  "status": "met",
+  "evidence": "test_orchestration.py: an expired timer marks it at risk and opens an escalation for the owner; nothing accepts automatically."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T38",
+  "group": "Timeouts",
+  "title": "Clinical reviewer unreachable via first channel.",
+  "status": "met",
+  "evidence": "test_orchestration.py: an unsuccessful try is counted and can hand the escalation to a fallback person; the workflow stays where it was."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T39",
+  "group": "Timeouts",
+  "title": "A timer fires after the step was already completed.",
+  "status": "met",
+  "evidence": "test_orchestration.py: a timer for a step already left does nothing."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T40",
+  "group": "Timeouts",
+  "title": "Deadline crosses local DST clock change.",
+  "status": "not_built",
+  "evidence": "Timers are plain minutes in UTC; calendar and time-zone rules are not supported, and DST is not tested."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T41",
+  "group": "Timeouts",
+  "title": "Escalation channel says delivered but no human reach proof.",
+  "status": "met",
+  "evidence": "test_orchestration.py: only a person recording that someone was reached closes an escalation."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T42",
+  "group": "Timeouts",
+  "title": "Safety-relevant queue loses designated on-call owner.",
+  "status": "not_built",
+  "evidence": "Nothing notices when an owner is deactivated or leaves."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T43",
+  "group": "Retries",
+  "title": "Crash after domain commit before outbox publication.",
+  "status": "not_built",
+  "evidence": "The engine writes no outbox events, so there is nothing to heal."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T44",
+  "group": "Retries",
+  "title": "Bus redelivers same callback multiple times.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: a repeated idempotency key makes one transition, and a repeated partner delivery id is stored once (DEV-131). The two are not connected."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T45",
+  "group": "Retries",
+  "title": "Remote provider side-effect outcome unknown.",
+  "status": "partly",
+  "evidence": "A 'reconciling' health state exists and blocks closing, but nothing sets it from an external call."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T46",
+  "group": "Retries",
+  "title": "Remote cancellation not acknowledged.",
+  "status": "not_built",
+  "evidence": "No external cancellation."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T47",
+  "group": "Retries",
+  "title": "Poison event fails parsing repeatedly.",
+  "status": "partly",
+  "evidence": "A partner message that cannot be parsed is held and shown to staff (DEV-131); nothing feeds it into the engine."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T48",
+  "group": "Retries",
+  "title": "Delayed event arrives after successor event.",
+  "status": "met",
+  "evidence": "test_orchestration.py: only the next state is accepted and going back is refused, so a late event cannot move it backwards."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T49",
+  "group": "Regional",
+  "title": "Same reference identifier exists in another region.",
+  "status": "not_built",
+  "evidence": "One region only; no cross-region identifiers."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T50",
+  "group": "Regional",
+  "title": "Cross-border receiver is unapproved while source is valid.",
+  "status": "not_built",
+  "evidence": "No cross-border handling."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T51",
+  "group": "Regional",
+  "title": "Global observability exporter requests workflow payload.",
+  "status": "partly",
+  "evidence": "Metrics carry route patterns and counts only, no payloads (DEV-130, tested). No exporter or workflow payload exists to test against."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T52",
+  "group": "Regional",
+  "title": "Regional failure triggers failover to unauthorized region.",
+  "status": "not_built",
+  "evidence": "No failover."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T53",
+  "group": "Operations",
+  "title": "Admin tries to enter clinical attestation on partner behalf.",
+  "status": "met",
+  "evidence": "test_orchestration.py: an administrator cannot enter a review or a handoff for the accountable owner; they must first take responsibility, which is recorded."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T54",
+  "group": "Operations",
+  "title": "Operator resolves patient-match exception without evidence.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: clearing an exception needs a written reason but not evidence."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T55",
+  "group": "Operations",
+  "title": "Operator presses replay for non-idempotent unknown action.",
+  "status": "not_built",
+  "evidence": "There is no replay command for external actions."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T56",
+  "group": "Operations",
+  "title": "User of assistive technology reviews workflow status.",
+  "status": "partly",
+  "evidence": "The accessibility scan passes on the Workflow engine page. No assistive-technology review by a person."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T57",
+  "group": "Operations",
+  "title": "Patient locale lacks approved emergency text.",
+  "status": "not_built",
+  "evidence": "No locale-specific emergency text."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T58",
+  "group": "Operations",
+  "title": "SRE tests regional restore with active timer and open safety handoff.",
+  "status": "partly",
+  "evidence": "All state, history and timers are in the database, but no restore with an active timer has been rehearsed."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T59",
+  "group": "Operations",
+  "title": "Deactivated partner contract leaves ongoing patients with steps.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: retiring a definition stops new starts. There is no wind-down or handoff plan."
+ },
+ {
+  "source": "GHE-12",
+  "req_id": "WF-T60",
+  "group": "Operations",
+  "title": "Workflow QA matrix contains a missing clinical-safety blocker.",
+  "status": "not_built",
+  "evidence": "The release gate and the requirements matrix (GHE-19) are not built."
+ }
+]

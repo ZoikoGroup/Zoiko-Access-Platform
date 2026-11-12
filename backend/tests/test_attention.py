@@ -48,7 +48,7 @@ def empty_service(p, name="Cardiology"):
 
 def test_a_quiet_clinic_has_nothing_waiting(p):
     assert attention(p) == {"bookings_to_confirm": 0, "family_requests": 0, "waiting_list": 0,
-                            "referrals_to_decide": 0, "messages": 0}
+                            "referrals_to_decide": 0, "messages": 0, "data_requests": 0}
 
 
 def test_each_kind_of_waiting_work_is_counted_and_clears_when_handled(p):
@@ -60,16 +60,18 @@ def test_each_kind_of_waiting_work_is_counted_and_clears_when_handled(p):
                                    "reason": "Chest pain", "urgency": "routine"}, subject="doc")
     family = json.loads(p.post("family", {"relationship": "parent", "name": "Ravi Rao",
                                           "birth_date": "2018-05-02"}, subject="pat").content)
+    asked = json.loads(p.post("rights", {"type": "access"}, subject="pat").content)["request"]
     assert attention(p) == {"bookings_to_confirm": 1, "family_requests": 1, "waiting_list": 1,
-                            "referrals_to_decide": 1, "messages": 0}
+                            "referrals_to_decide": 1, "messages": 0, "data_requests": 1}
     p.post(f"bookings/{waiting_booking}/confirm", subject="ops")
     p.post(f"staff/family-requests/{family['request']['id']}/reject", {}, subject="ops")
     referral = json.loads(p.get("referrals/incoming", subject="ops").content)["referrals"][0]
     p.post(f"referrals/{referral['id']}/decide", {"decision": "accepted"}, subject="doc2")
     entry = json.loads(p.get("staff/waitlist", subject="ops").content)["entries"][0]
     p.post(f"waitlist/{entry['id']}/leave", subject="ops")
+    p.post(f"rights/{asked['id']}/withdraw", subject="pat")
     assert attention(p) == {"bookings_to_confirm": 0, "family_requests": 0, "waiting_list": 0,
-                            "referrals_to_decide": 0, "messages": 0}
+                            "referrals_to_decide": 0, "messages": 0, "data_requests": 0}
 
 
 def test_a_referral_waiting_for_more_information_is_not_counted_as_needing_a_decision(p):
@@ -92,7 +94,7 @@ def test_the_counts_are_only_for_this_customer(p):
     r = other.get("staff/dashboard", subject="desk")
     assert json.loads(r.content)["attention"] == {
         "bookings_to_confirm": 0, "family_requests": 0, "waiting_list": 0,
-        "referrals_to_decide": 0, "messages": 0}
+        "referrals_to_decide": 0, "messages": 0, "data_requests": 0}
 
 
 def test_only_staff_see_the_dashboard(p):

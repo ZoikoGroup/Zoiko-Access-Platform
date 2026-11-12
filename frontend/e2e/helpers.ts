@@ -2,12 +2,14 @@ import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
 /** Where each app runs, and who the robots sign in as. The test clinic comes from scripts/seed_e2e.py. */
 export const APPS = {
-  staff: "http://localhost:5173",
-  patient: "http://localhost:5174",
-  platform: "http://localhost:5175",
-  doctor: "http://localhost:5176",
+  staff: process.env.E2E_STAFF ?? "http://localhost:5173",
+  patient: process.env.E2E_PATIENT ?? "http://localhost:5174",
+  platform: process.env.E2E_PLATFORM ?? "http://localhost:5175",
+  doctor: process.env.E2E_DOCTOR ?? "http://localhost:5176",
 };
-export const API = "http://127.0.0.1:8000/api/v1/";
+// Set E2E_STAFF, E2E_PATIENT, E2E_PLATFORM or E2E_DOCTOR if an app is on another address.
+// Where the robots reach the API directly. Set E2E_API if the backend is not on port 8000.
+export const API = process.env.E2E_API ?? "http://127.0.0.1:8000/api/v1/";
 export const ORG = "E2E Clinic";
 export const PASSWORD = "E2e-Pass-2026!";
 export const LOGINS = {

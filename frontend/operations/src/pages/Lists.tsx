@@ -30,12 +30,11 @@ export function Patients({ initialSearch = "" }: { initialSearch?: string }) {
           </div>
           <div className="grid">
             <Card title={word ? `${patients.length} of ${all.length} patients` : `${all.length} patient${all.length === 1 ? "" : "s"}`}>
-              <Table headers={["Patient", "Status", "Identity", "Own login", "Clinicians with a care relationship", "Guardians with a proxy", "Details"]}
+              <Table headers={["Patient", "Status", "Own login", "Clinicians with a care relationship", "Guardians with a proxy", "Details"]}
                 empty={word ? "No patient matches that name." : "No patients yet."}
                 rows={patients.map((p) => [
                   <Patient key="i" name={p.patient_name} id={p.id} />,
                   <Pill key="s" kind={p.status === "active" ? "ok" : "bad"}>{p.status}</Pill>,
-                  <Pill key="v" kind={p.identity_status === "verified" ? "ok" : "warn"}>{p.identity_status}</Pill>,
                   p.has_login ? "yes" : <Pill key="n" kind="warn">no login</Pill>,
                   p.care.filter((c) => c.status === "active" && !c.contested).map((c) => c.clinician).join(", ") || "none",
                   p.proxies.filter((g) => g.status === "active").map((g) => `${g.guardian} (${g.type})`).join(", ") || "none",

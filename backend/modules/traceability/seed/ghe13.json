@@ -1,0 +1,514 @@
+[
+ {
+  "source": "GHE-13",
+  "req_id": "T-01",
+  "group": "Contract and version",
+  "title": "OpenAPI 3.1 definition validates and includes all live operations, security schemes, required schemas, errors and examples.",
+  "status": "not_built",
+  "evidence": "There is no OpenAPI document."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-02",
+  "group": "Contract and version",
+  "title": "AsyncAPI definition validates and matches approved event topic catalog and payload schema hashes.",
+  "status": "not_built",
+  "evidence": "There is no AsyncAPI document or event topic catalogue."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-03",
+  "group": "Contract and version",
+  "title": "Backward-compatible additive change passes consumer-driven contract tests.",
+  "status": "not_built",
+  "evidence": "No consumer-driven contract tests."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-04",
+  "group": "Contract and version",
+  "title": "Breaking schema change without version bump blocks release.",
+  "status": "not_built",
+  "evidence": "Nothing blocks a release on a breaking change."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-05",
+  "group": "Contract and version",
+  "title": "Unsupported API major version returns documented safe response with deprecation guidance.",
+  "status": "not_built",
+  "evidence": "Only /api/v1 exists; an unknown version is just not found, with no deprecation guidance."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-06",
+  "group": "Contract and version",
+  "title": "Patient identifiers never appear in public or global API object IDs.",
+  "status": "partly",
+  "evidence": "Public ids are random, never derived from a patient identifier, and webhook and partner messages carry references only. No test scans every id."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-07",
+  "group": "Contract and version",
+  "title": "Cursor pagination cannot leak records when privilege is revoked between pages.",
+  "status": "not_built",
+  "evidence": "There are no cursors; lists are capped instead."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-08",
+  "group": "Contract and version",
+  "title": "OpenAPI examples and SDK fixtures contain no real patient data.",
+  "status": "not_built",
+  "evidence": "There are no published examples or SDK fixtures to check."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-09",
+  "group": "Authentication and authorization",
+  "title": "Interactive OAuth flow enforces PKCE and exact registered redirect URI.",
+  "status": "not_built",
+  "evidence": "No OAuth: partners use signed messages, not an interactive flow."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-10",
+  "group": "Authentication and authorization",
+  "title": "Machine client cannot use missing, expired, wrong-audience or wrong-region token.",
+  "status": "partly",
+  "evidence": "test_partner_events.py: a missing, malformed, stale, future or wrong-key credential is refused. There are no audience or region claims."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-11",
+  "group": "Authentication and authorization",
+  "title": "Partner whose read scope exists but lacks relationship/purpose cannot fetch patient resources.",
+  "status": "not_built",
+  "evidence": "A partner cannot read patient resources at all, so there is no scope to check."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-12",
+  "group": "Authentication and authorization",
+  "title": "Partner cannot change tenant, patient ID, object property or region to escalate privileges.",
+  "status": "partly",
+  "evidence": "test_partner_events.py: the customer comes from the key, never the body, and extra body fields are held. No test tries to switch tenant, patient or region."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-13",
+  "group": "Authentication and authorization",
+  "title": "Revoked certificate or client credentials block new calls immediately per revocation policy.",
+  "status": "met",
+  "evidence": "test_partner_events.py: a suspended or revoked partner is refused at once. There are no certificates, only secrets."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-14",
+  "group": "Authentication and authorization",
+  "title": "Rotated signing keys validate across only the approved overlap interval.",
+  "status": "partly",
+  "evidence": "test_partner_events.py, test_webhooks.py: a rotated secret ends the old one at once. There is no approved overlap interval."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-15",
+  "group": "Authentication and authorization",
+  "title": "Embedded SDK source and sample apps contain no long-lived production secret.",
+  "status": "not_built",
+  "evidence": "There is no SDK or sample app."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-16",
+  "group": "Authentication and authorization",
+  "title": "Cross-border API request is denied without explicit GHE-04/05 transfer authority.",
+  "status": "not_built",
+  "evidence": "No cross-border handling."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-17",
+  "group": "Transport and webhook",
+  "title": "Valid signed webhook is accepted once and issued a receipt reference.",
+  "status": "met",
+  "evidence": "test_partner_events.py: a correctly signed message is accepted once and gets a receipt id."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-18",
+  "group": "Transport and webhook",
+  "title": "Tampered body is rejected before interpreting sender-provided clinical state.",
+  "status": "met",
+  "evidence": "test_partner_events.py: a changed body fails the signature and nothing in it is read."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-19",
+  "group": "Transport and webhook",
+  "title": "Expired timestamp, missing nonce or reused nonce with changed digest is rejected.",
+  "status": "met",
+  "evidence": "test_partner_events.py: a stale or future timestamp, a missing delivery id, and a reused id with different content are refused."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-20",
+  "group": "Transport and webhook",
+  "title": "Duplicate legitimate webhook has at most one domain business effect.",
+  "status": "partly",
+  "evidence": "test_partner_events.py: a repeated delivery is stored once. No domain effect exists yet to count."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-21",
+  "group": "Transport and webhook",
+  "title": "Unverified destination, redirect or private-network URL cannot be registered for callbacks.",
+  "status": "met",
+  "evidence": "test_webhooks.py: only public https addresses with no credentials or odd ports, a redirect is never followed (a local server answers 302 and the sender stops), and an address on a private network can never be verified or sent to."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-22",
+  "group": "Transport and webhook",
+  "title": "Timeout/5xx triggers bounded backoff with jitter and preserved delivery ID.",
+  "status": "met",
+  "evidence": "test_webhooks.py: a server error is retried with growing, jittered waits and the same delivery id, then parked after 8 tries."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-23",
+  "group": "Transport and webhook",
+  "title": "DLQ entry after retry exhaustion retains owner, policy and evidence and is visible to authorized regional operator.",
+  "status": "partly",
+  "evidence": "test_webhooks.py: a parked delivery stays visible to the clinic administrator and can be sent again. It does not record the owner, policy or evidence."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-24",
+  "group": "Transport and webhook",
+  "title": "Outbound 2xx transport receipt does not make CLINICAL_REVIEWED or HANDOFF_ACKNOWLEDGED true.",
+  "status": "met",
+  "evidence": "test_webhooks.py: a webhook delivery never touches a workflow; test_orchestration.py refuses every transport receipt as evidence."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-25",
+  "group": "Healthcare interoperability",
+  "title": "FHIR resource failing its pinned profile is quarantined without creating clinical state.",
+  "status": "not_built",
+  "evidence": "No FHIR."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-26",
+  "group": "Healthcare interoperability",
+  "title": "HL7 v2 ACK updates transport receipt only, not clinical acceptance.",
+  "status": "not_built",
+  "evidence": "No HL7."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-27",
+  "group": "Healthcare interoperability",
+  "title": "FHIR and source identifier collisions cannot cross-link two patients.",
+  "status": "not_built",
+  "evidence": "No FHIR or source identifiers."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-28",
+  "group": "Healthcare interoperability",
+  "title": "DICOM UIDs, study identity and version are verified before viewing or forwarding imaging evidence.",
+  "status": "not_built",
+  "evidence": "No imaging."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-29",
+  "group": "Healthcare interoperability",
+  "title": "Unknown terminology mapping preserves original coding and requires controlled review.",
+  "status": "not_built",
+  "evidence": "No terminology mapping."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-30",
+  "group": "Healthcare interoperability",
+  "title": "Source amendment/correction supersedes with provenance; original evidence remains traceable.",
+  "status": "not_built",
+  "evidence": "No source amendments."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-31",
+  "group": "Healthcare interoperability",
+  "title": "Drug/pharmacy and payer transactions cannot be enabled absent approved local license/profile/contract.",
+  "status": "not_built",
+  "evidence": "No drug, pharmacy or payer transactions exist to gate."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-32",
+  "group": "Healthcare interoperability",
+  "title": "Partner unsupported profile/version halts only affected adapter and triggers visible exception.",
+  "status": "not_built",
+  "evidence": "No partner profiles or adapters."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-33",
+  "group": "Idempotency and consistency",
+  "title": "Same idempotency key and same body returns same operation without second external action.",
+  "status": "met",
+  "evidence": "test_partner_events.py, test_orchestration.py: the same key and the same content give the same answer and one stored effect."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-34",
+  "group": "Idempotency and consistency",
+  "title": "Same idempotency key and different body produces conflict and no mutation.",
+  "status": "met",
+  "evidence": "test_partner_events.py, test_orchestration.py: the same key with different content is a conflict and changes nothing."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-35",
+  "group": "Idempotency and consistency",
+  "title": "Network failure after outbound POST cannot automatically repeat a non-idempotent clinical order.",
+  "status": "not_built",
+  "evidence": "No outbound clinical orders. Webhook deliveries are retried by design because they are notifications."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-36",
+  "group": "Idempotency and consistency",
+  "title": "Source query finds previously accepted order, reconciles status without duplicate order.",
+  "status": "not_built",
+  "evidence": "No source query or order reconciliation."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-37",
+  "group": "Idempotency and consistency",
+  "title": "Out-of-order old event never regresses source version or overrides clinical correction.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: a late event cannot move a workflow backwards. There are no source versions or corrections."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-38",
+  "group": "Idempotency and consistency",
+  "title": "Crash after local outbox commit delivers eventually without losing request or creating duplicate effects.",
+  "status": "partly",
+  "evidence": "Webhook deliveries are rows in the database, so a crash does not lose them, and the outbox is at-least-once. No test kills the process between commit and send."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-39",
+  "group": "Idempotency and consistency",
+  "title": "Disconnect with pending pathway creates assigned human reconciliation task.",
+  "status": "not_built",
+  "evidence": "No disconnect handling or reconciliation task."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-40",
+  "group": "Idempotency and consistency",
+  "title": "Regional cell failure recovers inbox/outbox and events without unauthorized cross-region copying.",
+  "status": "not_built",
+  "evidence": "One region; no cell failure handling."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-41",
+  "group": "Sandbox and certification",
+  "title": "Sandbox exercises synthetic patients only and cannot reach production sources or tokens.",
+  "status": "not_built",
+  "evidence": "No sandbox."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-42",
+  "group": "Sandbox and certification",
+  "title": "Mock server produces reproducible signature/timeout/duplicate/mismatch cases.",
+  "status": "partly",
+  "evidence": "test_webhooks.py, test_partner_events.py: the tests use a fake partner that produces signature, timeout, duplicate and mismatch cases repeatably. No mock server is shipped."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-43",
+  "group": "Sandbox and certification",
+  "title": "Partner onboarding blocks client credential issuance before identity/legal/security validation.",
+  "status": "not_built",
+  "evidence": "A clinic administrator can issue a credential at once; there is no identity, legal or security validation first."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-44",
+  "group": "Sandbox and certification",
+  "title": "Certification matrix binds partner, region, use case, version and approved contract.",
+  "status": "not_built",
+  "evidence": "No certification matrix."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-45",
+  "group": "Sandbox and certification",
+  "title": "Missing or failed clinical hazard test blocks activation for affected feature.",
+  "status": "not_built",
+  "evidence": "No hazard tests gate activation."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-46",
+  "group": "Sandbox and certification",
+  "title": "Failed privacy/DPIA/country pack check blocks production enablement.",
+  "status": "not_built",
+  "evidence": "No privacy or country-pack check gates enabling a connector."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-47",
+  "group": "Sandbox and certification",
+  "title": "Only signed authorized approvers can progress SANDBOX to CERTIFIED and LIVE.",
+  "status": "not_built",
+  "evidence": "No sandbox, certified and live stages, and no signed approvers."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-48",
+  "group": "Sandbox and certification",
+  "title": "Material profile or auth change requires compatibility check and risk-based recertification.",
+  "status": "not_built",
+  "evidence": "No recertification on profile or auth changes."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-49",
+  "group": "Observability, incident and offboarding",
+  "title": "Masked audit includes actor, scope, origin, policy version, source evidence and decision outcome.",
+  "status": "partly",
+  "evidence": "Audit rows record who, what, the outcome and the access decision (which carries the rules in force). They do not record origin or source evidence."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-50",
+  "group": "Observability, incident and offboarding",
+  "title": "Global logs, support tickets and metric labels reveal no patient identifiers or clinical data.",
+  "status": "partly",
+  "evidence": "test_metrics.py: metric labels are route patterns only. Logs record error type and place, never messages. Support tickets do not exist."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-51",
+  "group": "Observability, incident and offboarding",
+  "title": "Rate limits protect regional services and preserve separately governed safety workflows.",
+  "status": "partly",
+  "evidence": "test_partner_events.py: each partner has a per-minute budget. There are no regional limits and no separate treatment for safety workflows."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-52",
+  "group": "Observability, incident and offboarding",
+  "title": "Spoofed source or forged source-review attestation is rejected and alerted.",
+  "status": "partly",
+  "evidence": "test_partner_events.py: a forged or unknown signature is refused. Nothing alerts."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-53",
+  "group": "Observability, incident and offboarding",
+  "title": "Expired connector certificate produces alert and predictable fail-safe degradation.",
+  "status": "not_built",
+  "evidence": "There are no connector certificates."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-54",
+  "group": "Observability, incident and offboarding",
+  "title": "Regional support can inspect attempts without reading unauthorized clinical payload.",
+  "status": "partly",
+  "evidence": "Delivery and message lists show status, counts and fingerprints but not bodies. No test asserts that, and there is no separate regional support role."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-55",
+  "group": "Observability, incident and offboarding",
+  "title": "On connector suspension, in-flight healthcare obligations remain tracked and assigned.",
+  "status": "not_built",
+  "evidence": "No in-flight obligations tied to a connector."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-56",
+  "group": "Observability, incident and offboarding",
+  "title": "Offboarding revokes all new transport credentials and retains mandatory evidence.",
+  "status": "partly",
+  "evidence": "test_webhooks.py, test_partner_events.py: revoking is final and keeps the history. There is no offboarding workflow."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-57",
+  "group": "Clinical safety and user-facing claims",
+  "title": "Patient status distinguishes received / accepted / in progress / clinician reviewed / handoff accepted.",
+  "status": "not_built",
+  "evidence": "No patient-facing status of this kind."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-58",
+  "group": "Clinical safety and user-facing claims",
+  "title": "Clinically consequential event with missing human acknowledgment cannot close pathway.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: a workflow cannot close with an escalation still waiting for a person. 'Human acknowledgment' of a partner event is not modelled."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-59",
+  "group": "Clinical safety and user-facing claims",
+  "title": "Partner critical-result webhook cannot silently replace independent approved urgent notification channel.",
+  "status": "not_built",
+  "evidence": "No critical results or urgent channels."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-60",
+  "group": "Clinical safety and user-facing claims",
+  "title": "Mismatched or unverified patient/clinical source payload cannot enter the workflow state engine.",
+  "status": "partly",
+  "evidence": "test_partner_events.py: a mismatched or malformed message is held. Nothing connects partner messages to the workflow engine at all, so none can enter it."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-61",
+  "group": "Clinical safety and user-facing claims",
+  "title": "Employer or payer subscription excludes clinical result details unless explicitly authorized by law and role.",
+  "status": "partly",
+  "evidence": "test_webhooks.py: events are references only and no clinical result detail is ever sent. Nothing checks the receiver's role or type."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-62",
+  "group": "Clinical safety and user-facing claims",
+  "title": "Local market or capability suspension stops new operations and invokes configured human fallback.",
+  "status": "not_built",
+  "evidence": "A suspended pack stops new deadlines only; it does not stop operations or invoke a fallback."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-63",
+  "group": "Clinical safety and user-facing claims",
+  "title": "Manual reconciliation UI cannot fabricate clinical attestation or erase source ambiguity.",
+  "status": "partly",
+  "evidence": "test_orchestration.py: an administrator cannot enter a review or handoff for the owner. There is no manual reconciliation screen."
+ },
+ {
+  "source": "GHE-13",
+  "req_id": "T-64",
+  "group": "Clinical safety and user-facing claims",
+  "title": "Final production evidence includes independent partner test proof, security signoff and clinical safety signoff when applicable.",
+  "status": "not_built",
+  "evidence": "No independent partner proof or signoffs exist."
+ }
+]

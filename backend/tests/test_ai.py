@@ -567,3 +567,77 @@ def test_a_provider_that_is_not_the_approved_model_is_refused_before_it_is_calle
             ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
         )
         assert ok["decision"] == "HUMAN_REVIEW" and ok["output"] == "reply" and called == [1]
+
+
+# ------------------------------------------------------------ the tool policy is pinned (DEV-125)
+def _digest_of(allowed, write, two):
+    import hashlib
+    import json
+
+    body = {"allowed": sorted(allowed), "write": sorted(write), "two_person": sorted(two)}
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+
+
+TOOLS = {"allowed_tools": ["find_slot", "draft_note"], "write_tools": ["draft_note"]}
+
+
+def test_a_permit_records_a_fingerprint_of_its_tool_lists(ctx_a):
+    with tenant_transaction(ctx_a):
+        p = propose(**TOOLS)
+        q = propose(feature_id="message.other_draft", allowed_tools=["find_slot"])
+    assert p["tool_digest"] == _digest_of(["draft_note", "find_slot"], ["draft_note"], [])
+    assert q["tool_digest"] != p["tool_digest"] and len(q["tool_digest"]) == 64
+
+
+def test_the_order_of_the_tools_does_not_change_the_fingerprint(ctx_a):
+    with tenant_transaction(ctx_a):
+        a = propose(allowed_tools=["find_slot", "draft_note"], write_tools=["draft_note"])
+        b = propose(feature_id="message.other_draft", allowed_tools=["draft_note", "find_slot"],
+                    write_tools=["draft_note"])
+    assert a["tool_digest"] == b["tool_digest"]
+
+
+def test_tool_lists_that_changed_after_the_permit_was_made_stop_the_run(ctx_a):
+    from modules.ai.models import AiUsePermit
+
+    permit = live(ctx_a, allowed_tools=["find_slot"])
+    with tenant_transaction(ctx_a):
+        fine = ai.run(ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi",
+                      clock=CLOCK)
+        assert fine["decision"] == "HUMAN_REVIEW" and fine["flags"] == []
+        AiUsePermit.objects.filter(public_id=permit["id"]).update(
+            allowed_tools=["find_slot", "draft_note"])          # edited behind the permit's back
+        bad = ai.run(ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi",
+                     tools=[{"tool": "draft_note", "payload": {}}], clock=CLOCK)
+    assert bad["decision"] == "REJECTED" and bad["output"] == ""
+    assert "tool_policy_changed" in bad["flags"]
+
+
+def test_a_provider_whose_tool_policy_is_not_the_approved_one_is_refused(ctx_a):
+    permit = live(ctx_a, **TOOLS)
+    called = []
+
+    def answer(_text):
+        called.append(1)
+        return "reply"
+
+    with tenant_transaction(ctx_a):
+        ai.register_provider(ai.REPLY_DRAFT, answer, model_digest="a" * 64,
+                             prompt_digest="b" * 64, tool_digest="c" * 64)
+        wrong = ai.run(ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi",
+                       clock=CLOCK)
+        ai.register_provider(ai.REPLY_DRAFT, answer, model_digest="a" * 64,
+                             prompt_digest="b" * 64, tool_digest=permit["tool_digest"])
+        right = ai.run(ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi",
+                       clock=CLOCK)
+    assert wrong["decision"] == "REJECTED" and "digest_mismatch" in wrong["flags"]
+    assert right["decision"] == "HUMAN_REVIEW" and called == [1]   # only the right one ran
+
+
+def test_the_evidence_of_a_run_records_the_tool_policy_it_ran_under(ctx_a):
+    permit = live(ctx_a, **TOOLS)
+    with tenant_transaction(ctx_a):
+        r = ai.run(ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi",
+                   clock=CLOCK)
+        ev = AiResponseEvidence.objects.get(request_ref=r["request_id"])
+    assert ev.tool_digest == permit["tool_digest"]

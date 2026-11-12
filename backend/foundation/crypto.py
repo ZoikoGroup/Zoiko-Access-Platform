@@ -7,8 +7,8 @@ still decide who may ask for the plain value.
 How it works
 - A MASTER key per key id comes from the environment (`ZOIKO_FIELD_KEYS`, "id:base64,id:base64").
   The current id (`ZOIKO_FIELD_KEY_ID`) encrypts; every listed id can still decrypt, so a key can
-  be rotated by adding a new one. `needs_rotation` says which values still use an old key, but
-  nothing re-encrypts them automatically yet (a re-encrypt job is not built).
+  be rotated by adding a new one. `needs_rotation` says which values still use an old key, and
+  the `rotate_field_keys` command (foundation/rotation.py) re-encrypts them all, on demand.
 - Each customer (tenant) gets its OWN data key, derived from the master key with HKDF, so one
   customer's key never opens another's data.
 - Each value is bound to where it lives with AES-GCM "associated data": tenant, table, field and
@@ -110,6 +110,16 @@ def decrypt(token: str, *, tenant_id: uuid.UUID | str, context: str) -> str:
         return plain.decode("utf-8")
     except (ValueError, KeyError, InvalidTag, binascii.Error, UnicodeError):
         raise CryptoError from None
+
+
+def reencrypt(token: str, *, tenant_id: uuid.UUID | str, context: str) -> str:
+    """The same value, sealed again with the current key. A value already on the current key is
+    returned unchanged. Raises CryptoError if it cannot be read (wrong context, damaged, unknown
+    key): nothing is guessed."""
+    if not needs_rotation(token):
+        return token
+    return encrypt(decrypt(token, tenant_id=tenant_id, context=context),
+                   tenant_id=tenant_id, context=context)
 
 
 def needs_rotation(token: str) -> bool:

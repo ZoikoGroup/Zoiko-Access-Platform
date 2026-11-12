@@ -34,6 +34,12 @@ APPEND_ONLY = frozenset({
     "ai_airesponseevidence",
     "safety_hazardevent",
     "messaging_messageview",
+    "foundation_emailattempt",
+    "orchestration_transition",
+    "readiness_evidence",
+    "readiness_gatedecision",
+    "billing_invoiceevent",
+    "billing_creditnote",
 })
 
 # The one place the app deletes rows (finished plumbing). probe_probe exists only under test

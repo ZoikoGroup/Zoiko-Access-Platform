@@ -16,6 +16,10 @@ import { WorkQueue } from "./pages/WorkQueue";
 import { FamilyRequests } from "./pages/FamilyRequests";
 import { Messages } from "./pages/Messages";
 import { Referrals } from "./pages/Referrals";
+import { Billing } from "./pages/Billing";
+import { Engine } from "./pages/Engine";
+import { Integrations } from "./pages/Integrations";
+import { RightsRequests } from "./pages/RightsRequests";
 import { Reports } from "./pages/Reports";
 import { WaitingList } from "./pages/WaitingList";
 import { Services } from "./pages/Services";
@@ -73,6 +77,10 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "team") body = <Team />;
   else if (page === "ai") body = <AiPermits />;
   else if (page === "referrals") body = <Referrals />;
+  else if (page === "rights") body = <RightsRequests />;
+  else if (page === "engine") body = <Engine />;
+  else if (page === "billing") body = <Billing />;
+  else if (page === "integrations") body = <Integrations />;
   else if (page === "reports") body = <Reports staff={staff} />;
   else if (page === "providers") body = <Providers staff={staff} />;
   else if (page === "settings") body = <Settings staff={staff} />;
@@ -90,7 +98,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
         roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
         onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} />
       <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} />
-      <main className="content" id="main" tabIndex={-1}>{body}</main>
+      <main className="content" id="main" tabIndex={0}>{body}</main>
     </div>
   );
 }

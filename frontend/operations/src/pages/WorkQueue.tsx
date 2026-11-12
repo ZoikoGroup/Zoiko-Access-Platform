@@ -10,6 +10,7 @@ const WHERE: Record<WorkItem["kind"], { page: PageId; text: string }> = {
   confirm_booking: { page: "appointments", text: "Open appointments" },
   decide_referral: { page: "referrals", text: "Open referrals" },
   answer_message: { page: "messages", text: "Open messages" },
+  answer_data_request: { page: "rights", text: "Open data requests" },
 };
 
 /** "overdue by 3 h" / "due in 20 min": the time left against the clinic's response target. */

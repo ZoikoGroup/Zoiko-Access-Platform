@@ -13,6 +13,10 @@ import { OverviewPage } from "./pages/Overview";
 import { Planned } from "./pages/Planned";
 import { Hazards } from "./pages/Hazards";
 import { Incidents } from "./pages/Incidents";
+import { Matrix } from "./pages/Matrix";
+import { Packs } from "./pages/Packs";
+import { Readiness } from "./pages/Readiness";
+import { ServiceLevels } from "./pages/ServiceLevels";
 import { Releases } from "./pages/Releases";
 import { Settings } from "./pages/Settings";
 import { SignIn } from "./pages/SignIn";
@@ -45,6 +49,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   }, [page, session.token]);                            // re-read after visiting another page
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState("");
+  const [asOf, setAsOf] = useState<number | null>(null);   // when the overview last loaded
   const [denied, setDenied] = useState(false);
   const [busy, setBusy] = useState(true);
   const [health, setHealth] = useState<{ api: Health; database: Health }>({ api: "checking", database: "checking" });
@@ -54,6 +59,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
     setBusy(true);
     try {
       setData(await getOverview());
+      setAsOf(Date.now());
       setError(""); setDenied(false);
     } catch (e) {
       setDenied(e instanceof ApiError && e.code === "POLICY_DENIED");
@@ -75,6 +81,10 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
   else if (page === "hazards") body = <Hazards />;
   else if (page === "incidents") body = <Incidents canWrite={session.roles.some((r) => r.role === "R11")} />;
+  else if (page === "matrix") body = <Matrix canWrite={session.roles.some((r) => r.role === "R11")} />;
+  else if (page === "readiness") body = <Readiness canWrite={session.roles.some((r) => r.role === "R11")} canAttest={session.roles.some((r) => r.role === "R12")} />;
+  else if (page === "levels") body = <ServiceLevels />;
+  else if (page === "packs") body = <Packs canWrite={session.roles.some((r) => r.role === "R11")} canAttest={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "releases") body = <Releases canAdd={session.roles.some((r) => r.role === "R11")} />;
   else if (denied) body = <div className="notice">Your account is not allowed to use the platform console.</div>;
   else if (!data) body = error ? <div className="error">{error}</div> : <div className="notice">Loading…</div>;
@@ -109,7 +119,12 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
         roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
         onGo={(p, query) => { setCustomerQuery(query ?? ""); setPage(p); }} />
       <Sidebar page={page} onPage={(p) => { setCustomerQuery(""); setPage(p); }} cell={data?.cell ?? ""} api={health.api} database={health.database} />
-      <main className="content" id="main" tabIndex={-1}>{error && data && <div className="error">{error}</div>}{body}</main>
+      <main className="content" id="main" tabIndex={0}>{error && data && (
+        <div className="error" role="alert">
+          {error}
+          {asOf && ` The information below is old: it was last updated at ${new Date(asOf).toLocaleTimeString()}.`}
+        </div>
+      )}{body}</main>
     </div>
   );
 }

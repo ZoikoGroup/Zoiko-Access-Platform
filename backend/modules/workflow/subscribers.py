@@ -14,6 +14,7 @@ from foundation.outbox import PublishedEvent
 from foundation.timeutil import utc_now
 from modules.messaging import api as messaging
 from modules.referral import api as referral
+from modules.rights import api as rights
 from modules.scheduling import api as scheduling
 from modules.trust import api as trust
 
@@ -23,6 +24,7 @@ from .services import close_item, open_item
 BOOKING_CONSUMER = "workflow.booking_queue"
 REFERRAL_CONSUMER = "workflow.referral_queue"
 MESSAGE_CONSUMER = "workflow.message_queue"
+RIGHTS_CONSUMER = "workflow.rights_queue"
 
 
 def _due(organization_ref: str) -> dt.datetime:
@@ -93,12 +95,35 @@ def on_message_event(event: PublishedEvent) -> None:
         _gone(exc)
 
 
+def on_rights_event(event: PublishedEvent) -> None:
+    """A data request opens work for the clinic, due on the date a country pack gave it (or the
+    clinic's own response target when none did), and closes it when the request ends."""
+    ref = str(event.payload.get("case_ref", ""))
+    try:
+        if event.event_type == "rights.requested.v1":
+            case = rights.get_case(ref)
+            if case["state"] in ("received", "in_progress"):
+                due = (dt.datetime.fromisoformat(case["due_at"]) if case["due_at"]
+                       else _due(case["organization_ref"]))
+                open_item(organization_ref=case["organization_ref"],
+                          kind=Kind.ANSWER_DATA_REQUEST, subject_ref=case["public_id"],
+                          due_at=due)
+        elif event.event_type == "rights.withdrawn.v1":
+            close_item(kind=Kind.ANSWER_DATA_REQUEST, subject_ref=ref, status=Status.CANCELLED,
+                       actor_ref="patient")
+        elif event.event_type == "rights.closed.v1":
+            close_item(kind=Kind.ANSWER_DATA_REQUEST, subject_ref=ref, actor_ref=_closer(event))
+    except ZoikoError as exc:
+        _gone(exc)
+
+
 def register_subscribers() -> None:
     """Idempotent: safe to call at start-up and again from tests."""
     for consumer, prefix, handler in (
         (BOOKING_CONSUMER, "booking.", on_booking_event),
         (REFERRAL_CONSUMER, "referral.", on_referral_event),
         (MESSAGE_CONSUMER, "message.", on_message_event),
+        (RIGHTS_CONSUMER, "rights.", on_rights_event),
     ):
         if not any(s.consumer == consumer for s in subscriptions()):
             subscribe(consumer, prefix, handler)

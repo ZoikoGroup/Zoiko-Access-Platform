@@ -376,7 +376,7 @@ def resume_proxy_grant(
 
 
 # ------------------------------------------------------------------ patient and clinic site
-SITE_REASONS = frozenset({"booking", "referral", "waitlist", "message", "care", "family"})
+SITE_REASONS = frozenset({"booking", "referral", "waitlist", "message", "care", "family", "rights"})
 
 
 def link_person_to_site(person_public_id: str, organization_ref: str, reason: str) -> None:

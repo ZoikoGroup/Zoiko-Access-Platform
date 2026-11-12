@@ -13,6 +13,7 @@ Rules
 """
 from __future__ import annotations
 
+import re
 import secrets
 from typing import Any
 
@@ -33,6 +34,7 @@ from .services import (
     create_tenant,
     list_tenants,
     register_actor,
+    set_country,
     set_self_registration,
 )
 
@@ -119,3 +121,37 @@ def set_customer_sign_up(
                    object_type="tenant", object_ref=customer_public_id,
                    outcome=AuditOutcome.ALLOWED, details={"enabled": int(enabled)})
     return {"id": customer_public_id, "name": found["name"], "self_registration": enabled}
+
+
+_COUNTRY = re.compile(r"^[A-Z]{2}$")
+
+
+def set_customer_country(
+    *,
+    customer_public_id: str,
+    country: object,
+    actor_public_id: str,
+    platform_organization_public_id: str | None,
+    decision: policy.Decision,
+) -> dict[str, Any]:
+    """Record the country a customer operates in (an ISO code, or "" to clear it). Same shape as
+    the sign-up change: call with the platform tenant bound and NO transaction open. The country
+    only decides which country pack's settings apply; it grants nothing (DEV-133)."""
+    policy.check_receipt(
+        decision, actor_public_id=actor_public_id, operation=WRITE_PLATFORM,
+        organization_public_id=platform_organization_public_id, subject_ref=None)
+    if not isinstance(country, str) or (country and not _COUNTRY.match(country)):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["country"])
+    found = next((t for t in list_tenants() if t["public_id"] == customer_public_id), None)
+    if found is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if found["type"] == TenantType.PLATFORM:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["customer"])
+    if found["country"] != country:
+        with tenant_transaction(context_for(customer_public_id)):
+            set_country(country, by=actor_public_id)
+        with tenant_transaction():
+            record(actor_ref=actor_public_id, action="platform.customer_country",
+                   object_type="tenant", object_ref=customer_public_id,
+                   outcome=AuditOutcome.ALLOWED, details={"set": int(bool(country))})
+    return {"id": customer_public_id, "name": found["name"], "country": country}

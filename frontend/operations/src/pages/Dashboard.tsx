@@ -24,6 +24,7 @@ const ATTENTION: { key: keyof DashboardData["attention"]; text: (n: number) => s
   { key: "bookings_to_confirm", page: "appointments", text: (n) => `${n} appointment${n === 1 ? "" : "s"} waiting for you to confirm` },
   { key: "messages", page: "messages", text: (n) => `${n} conversation${n === 1 ? "" : "s"} with a new message from a patient` },
   { key: "referrals_to_decide", page: "referrals", text: (n) => `${n} referral${n === 1 ? "" : "s"} waiting for a decision` },
+  { key: "data_requests", page: "rights", text: (n) => `${n} data request${n === 1 ? "" : "s"} from patients waiting for the clinic` },
   { key: "family_requests", page: "family", text: (n) => `${n} family request${n === 1 ? "" : "s"} waiting for proof to be checked` },
   { key: "waiting_list", page: "waitlist", text: (n) => `${n} ${n === 1 ? "person" : "people"} on a waiting list` },
 ];

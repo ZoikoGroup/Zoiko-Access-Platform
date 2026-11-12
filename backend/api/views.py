@@ -14,6 +14,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
+from foundation import metrics
 from foundation.cell_context import tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.idempotency import run as run_once
@@ -21,15 +22,22 @@ from foundation.mail import mail_stats
 from foundation.outbox import backlog_stats
 from foundation.timeutil import utc_now
 from modules.ai import api as ai
+from modules.billing import api as billing
 from modules.catalog import api as catalog
 from modules.comms import api as comms
 from modules.coverage import api as coverage
 from modules.evidence import api as evidence
+from modules.integration import api as integration
+from modules.jurisdiction import api as jurisdiction
 from modules.messaging import api as messaging
+from modules.orchestration import api as orchestration
 from modules.policy import api as policy
+from modules.readiness import api as readiness
 from modules.referral import api as referral
+from modules.rights import api as rights
 from modules.safety import api as safety
 from modules.scheduling import api as scheduling
+from modules.traceability import api as traceability
 from modules.trust import api as trust
 from modules.waitlist import api as waitlist
 from modules.workflow import api as workflow
@@ -639,7 +647,8 @@ def login(request: HttpRequest) -> HttpResponse:
     if not isinstance(password, str):
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["password"])
     result = trust.login(
-        tenant_name=text(body, "organization"), login=text(body, "login"), password=password)
+        tenant_name=text(body, "organization"), login=text(body, "login"), password=password,
+        remember=body.get("remember") is True)
     response = JsonResponse(_login_json(result))
     response["Cache-Control"] = "no-store"
     return response
@@ -649,6 +658,7 @@ def _login_json(result: trust.LoginResult) -> dict[str, Any]:
     return {
         "token": result.token,
         "expires_at": result.expires_at.isoformat(),
+        "remembered": result.remembered,
         "home": home_for(result.actor_type, [r for r, _, _ in result.roles], result.tenant_type),
         "actor": {"id": result.actor_public_id, "type": result.actor_type, "login": result.login},
         "tenant": {"id": result.tenant_public_id, "name": result.tenant_name},
@@ -734,6 +744,7 @@ def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
             "referrals_to_decide": 0 if org is None else sum(
                 1 for r in referral.list_referrals(destination_organization_ref=org)
                 if r["state"] == "issued"),
+            "data_requests": 0 if org is None else rights.open_count(org),
         }
         today = (scheduling.today_counts(org) if org else
                  {"confirmed": 0, "waiting": 0, "still_to_come": 0})
@@ -1043,7 +1054,7 @@ def platform_overview(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
             rows.append({
                 "id": t["public_id"], "name": t["name"], "type": t["type"], "status": t["status"],
                 "self_registration": t["self_registration"] == "true",
-                "created_at": t["created_at"],
+                "country": t["country"], "created_at": t["created_at"],
                 "counts": trust.counts(), "services": catalog.service_counts(),
                 "bookings": scheduling.booking_counts(),
                 "audit": evidence.activity_summary(since),
@@ -1082,6 +1093,329 @@ def platform_releases(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
         {"id": r["public_id"], "version": r["version"], "summary": r["summary"],
          "details": r["details"], "released_on": r["released_on"],
          "recorded_by": labels.get(r["recorded_by_ref"], "Zoiko staff")} for r in rows]})
+
+
+# ------------------------------------------------------------------ service levels (DEV-130)
+@endpoint("GET")
+def platform_slo(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """How the service is doing against its two proposed targets, as seen by THIS web process.
+    Route patterns and counts only: no tenant, person or address ever appears."""
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    return JsonResponse({
+        "windows": [metrics.slo(5), metrics.slo(60)],
+        "routes": metrics.routes_summary(),
+        "targets": {"availability": metrics.AVAILABILITY_TARGET,
+                    "latency_seconds": metrics.LATENCY_THRESHOLD,
+                    "latency_share": metrics.LATENCY_TARGET},
+        "limits": ["One web process only; a restart resets the numbers.",
+                   "The longest window is one hour: the 30-day budget needs a metrics store.",
+                   "Counts requests, not whether a booking or handoff was actually correct."],
+    })
+
+
+# ------------------------------------------------------------------ fees and invoices (DEV-139)
+@endpoint("GET", "POST")
+def staff_billing_fees(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: each service and its price today. POST {service, currency, amount_minor, from}."""
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    if request.method == "POST":
+        body = json_body(request)
+        decision = _authorize(auth, "write:billing", organization_public_id=org)
+        with tenant_transaction():
+            made = billing.set_fee(
+                organization_ref=org, service_ref=text(body, "service"),
+                currency=text(body, "currency"), amount_minor=body.get("amount_minor"),
+                effective_from=body.get("effective_from"),
+                actor_public_id=auth.actor_public_id, decision=decision)
+        return JsonResponse({"fee": made}, status=201)
+    _authorize(auth, "read:billing", organization_public_id=org)
+    with tenant_transaction():
+        rows = billing.list_fees(org)
+    return JsonResponse({"fees": rows, "can_set": "R13" in auth.roles})
+
+
+@endpoint("GET", "POST")
+def staff_billing_invoices(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: invoices (?status=). POST {person, lines: [{service, quantity}], due_days, booking}."""
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    if request.method == "POST":
+        body = json_body(request)
+        person = text(body, "person")
+        decision = _authorize(auth, "write:billing", organization_public_id=org,
+                              subject_ref=person)
+        with tenant_transaction():
+            made = billing.create_invoice(
+                organization_ref=org, person_ref=person, lines=body.get("lines"),
+                due_days=body.get("due_days"), booking_ref=text(body, "booking", required=False),
+                actor_public_id=auth.actor_public_id, decision=decision)
+        return JsonResponse({"invoice": made}, status=201)
+    _authorize(auth, "read:billing", organization_public_id=org)
+    with tenant_transaction():
+        rows = billing.list_invoices(org, request.GET.get("status") or None)
+    _add_names(auth, rows, "person_ref")
+    return JsonResponse({"invoices": rows, "can_admin": "R13" in auth.roles})
+
+
+@endpoint("GET")
+def staff_billing_invoice(
+    request: HttpRequest, auth: trust.Authenticated, invoice_id: str
+) -> HttpResponse:
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "read:billing", organization_public_id=org)
+    with tenant_transaction():
+        one = billing.get_invoice(invoice_id, org)
+        labels = trust.actor_labels()
+    _add_names(auth, [one], "person_ref")
+    for h in one["history"]:
+        h["actor"] = labels.get(h["actor"], h["actor"])
+    return JsonResponse({"invoice": one})
+
+
+@endpoint("POST")
+def staff_billing_action(
+    request: HttpRequest, auth: trust.Authenticated, invoice_id: str, action: str
+) -> HttpResponse:
+    """issue | pay {payment_ref} | void {reason} | credit {amount_minor, reason}."""
+    org = _staff_only(auth)
+    if org is None or action not in ("issue", "pay", "void", "credit"):
+        raise ZoikoError(ErrorCode.NOT_FOUND if org else ErrorCode.POLICY_DENIED)
+    body = json_body(request)
+    decision = _authorize(auth, "write:billing", organization_public_id=org)
+    me = auth.actor_public_id
+    with tenant_transaction():
+        if action == "credit":
+            done = billing.credit_note(
+                invoice_ref=invoice_id, organization_ref=org, amount_minor=body.get("amount_minor"),
+                reason=text(body, "reason"), actor_public_id=me, decision=decision)
+        else:
+            done = billing.step(
+                invoice_ref=invoice_id, organization_ref=org, action=action,
+                payment_ref=text(body, "payment_ref", required=False),
+                reason=text(body, "reason", required=False), actor_public_id=me,
+                decision=decision)
+    _add_names(auth, [done], "person_ref")
+    return JsonResponse({"invoice": done})
+
+
+@endpoint("GET")
+def my_invoices(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """A patient's own issued, paid and cancelled invoices (never drafts, never a guardian's)."""
+    org = _catalog_org(auth)
+    with tenant_transaction():
+        person = trust.own_person_of(auth.actor_public_id)
+    if not person or org is None:
+        return JsonResponse({"invoices": []})
+    _authorize(auth, "read:billing", organization_public_id=org, subject_ref=person)
+    with tenant_transaction():
+        rows = billing.patient_invoices(person)
+    return JsonResponse({"invoices": rows})
+
+
+# ------------------------------------------------------------------ requirements matrix (DEV-138)
+@endpoint("GET")
+def platform_traceability(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        out = traceability.list_requirements(
+            request.GET.get("source") or None, request.GET.get("status") or None)
+    return JsonResponse({**out, "can_write": "R11" in auth.roles})
+
+
+@endpoint("POST")
+def platform_traceability_import(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """{rows: [...]} adds or updates requirements; {seed: true} loads the developer's readings."""
+    org = _platform_only(auth)
+    body = json_body(request)
+    decision = _authorize(auth, "write:platform", organization_public_id=org)
+    rows = traceability.seed_rows() if body.get("seed") is True else body.get("rows")
+    with tenant_transaction():
+        counts = traceability.import_rows(
+            rows=rows, actor_public_id=auth.actor_public_id, decision=decision,
+            organization_ref=org)
+    return JsonResponse(counts)
+
+
+@endpoint("POST")
+def platform_traceability_update(
+    request: HttpRequest, auth: trust.Authenticated, requirement_id: str
+) -> HttpResponse:
+    org = _platform_only(auth)
+    body = json_body(request)
+    decision = _authorize(auth, "write:platform", organization_public_id=org)
+    with tenant_transaction():
+        done = traceability.update_requirement(
+            requirement_ref=requirement_id, status=text(body, "status"),
+            evidence=text(body, "evidence", required=False), actor_public_id=auth.actor_public_id,
+            decision=decision, organization_ref=org)
+    return JsonResponse({"requirement": done})
+
+
+# ------------------------------------------------------------------ go-live readiness (DEV-137)
+def _release_json(r: dict[str, Any], labels: dict[str, str]) -> dict[str, Any]:
+    out = dict(r)
+    out["author"] = labels.get(r["author"], "Zoiko staff")
+    out["requirements"] = [
+        {**q, "signer": labels.get(q["signer"], "Zoiko staff") if q["signer"] else ""}
+        for q in r["requirements"]]
+    return out
+
+
+@endpoint("GET", "POST")
+def platform_readiness(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: releases and where each stands. POST {release_ref, build, cell, country, caps}."""
+    org = _platform_only(auth)
+    if request.method == "POST":
+        body = json_body(request)
+        decision = _authorize(auth, "write:platform", organization_public_id=org)
+        with tenant_transaction():
+            made = readiness.create_release(
+                release_ref=text(body, "release_ref"), build=text(body, "build"),
+                cell=text(body, "cell"), country=text(body, "country"),
+                capabilities=body.get("capabilities"), actor_public_id=auth.actor_public_id,
+                decision=decision, organization_ref=org)
+            labels = trust.actor_labels()
+        return JsonResponse({"release": _release_json(made, labels)}, status=201)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        rows = readiness.list_releases()
+        labels = trust.actor_labels()
+    return JsonResponse({"releases": [_release_json(r, labels) for r in rows],
+                         "can_write": "R11" in auth.roles, "can_attest": "R12" in auth.roles})
+
+
+@endpoint("GET")
+def platform_readiness_one(
+    request: HttpRequest, auth: trust.Authenticated, release_id: str
+) -> HttpResponse:
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        one = readiness.get_release(release_id)
+        labels = trust.actor_labels()
+    out = _release_json(one, labels)
+    out["history"] = [{**h, "actor": labels.get(h["actor"], "Zoiko staff")} for h in one["history"]]
+    return JsonResponse({"release": out})
+
+
+@endpoint("POST")
+def platform_readiness_step(
+    request: HttpRequest, auth: trust.Authenticated, release_id: str, step: str
+) -> HttpResponse:
+    """sign {requirement, reference, expires_on, note} | veto {requirement, note} | evaluate."""
+    org = _platform_only(auth)
+    if step not in ("sign", "veto", "evaluate"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    body = json_body(request)
+    safety = "R12" in auth.roles and "R11" not in auth.roles
+    op = "attest:platform" if (step == "sign" or safety) else "write:platform"
+    decision = _authorize(auth, op, organization_public_id=org)
+    me = auth.actor_public_id
+    with tenant_transaction():
+        if step == "sign":
+            done = readiness.sign(
+                release_ref=release_id, requirement=text(body, "requirement"),
+                reference=text(body, "reference"), expires_on=body.get("expires_on"),
+                note=text(body, "note", required=False), actor_public_id=me, decision=decision,
+                organization_ref=org)
+        elif step == "veto":
+            done = readiness.veto(
+                release_ref=release_id, requirement=text(body, "requirement"),
+                note=text(body, "note", required=False), actor_public_id=me, decision=decision,
+                organization_ref=org)
+        else:
+            done = readiness.re_evaluate(
+                release_ref=release_id, actor_public_id=me, decision=decision,
+                organization_ref=org)
+        labels = trust.actor_labels()
+    return JsonResponse({"release": _release_json(done, labels)})
+
+
+# ------------------------------------------------------------------ country packs (DEV-128)
+def _pack_json(p: dict[str, Any], labels: dict[str, str]) -> dict[str, Any]:
+    return {
+        "id": p["public_id"], "pack_ref": p["pack_ref"], "country": p["country"],
+        "service": p["service"], "revision": p["revision"], "status": p["status"],
+        "manifest": p["manifest"], "content_hash": p["content_hash"], "note": p["note"],
+        "author": labels.get(p["author"], "Zoiko staff"), "created_at": p["created_at"],
+        "approvals": {r: {"by": labels.get(a["by"], "Zoiko staff"), "at": a["at"]}
+                      for r, a in p["approvals"].items()},
+        "missing": p["missing"], "expired": p["expired"],
+    }
+
+
+@endpoint("GET", "POST")
+def platform_packs(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: the country packs. POST {pack_ref, country, service, manifest}: a draft (support)."""
+    org = _platform_only(auth)
+    if request.method == "POST":
+        body = json_body(request)
+        decision = _authorize(auth, "write:platform", organization_public_id=org)
+        manifest = body.get("manifest")
+        with tenant_transaction():
+            made = jurisdiction.create_pack(
+                pack_ref=text(body, "pack_ref"), country=text(body, "country"),
+                service=text(body, "service"), manifest=manifest if manifest is not None else {},
+                actor_public_id=auth.actor_public_id, decision=decision, organization_ref=org)
+            labels = trust.actor_labels()
+        return JsonResponse({"pack": _pack_json(made, labels)}, status=201)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        rows = jurisdiction.list_packs()
+        labels = trust.actor_labels()
+    return JsonResponse({"packs": [_pack_json(r, labels) for r in rows],
+                         "can_write": "R11" in auth.roles, "can_attest": "R12" in auth.roles})
+
+
+_PACK_STEPS = ("edit", "validate", "submit", "reject", "approve-legal", "approve-clinical",
+               "suspend", "retire", "revalidate")
+
+
+@endpoint("POST")
+def platform_pack_step(
+    request: HttpRequest, auth: trust.Authenticated, pack_id: str, step: str
+) -> HttpResponse:
+    org = _platform_only(auth)
+    if step not in _PACK_STEPS:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    body = json_body(request)
+    safety = "R12" in auth.roles and "R11" not in auth.roles
+    attesting = step.startswith("approve-") or (step in ("reject", "suspend") and safety)
+    decision = _authorize(auth, "attest:platform" if attesting else "write:platform",
+                          organization_public_id=org)
+    me = auth.actor_public_id
+    note = text(body, "note", required=False)
+    with tenant_transaction():
+        if step == "edit":
+            done = jurisdiction.edit_pack(
+                pack_ref=pack_id, manifest=body.get("manifest"), actor_public_id=me,
+                decision=decision, organization_ref=org)
+        elif step == "reject":
+            done = jurisdiction.reject(
+                pack_ref=pack_id, note=note, actor_public_id=me, decision=decision,
+                organization_ref=org)
+        elif step == "suspend":
+            done = jurisdiction.suspend(
+                pack_ref=pack_id, note=note, actor_public_id=me, decision=decision,
+                organization_ref=org)
+        elif step.startswith("approve-"):
+            done = jurisdiction.approve(
+                pack_ref=pack_id, role=step.removeprefix("approve-"), actor_public_id=me,
+                decision=decision, organization_ref=org)
+        else:
+            action = {"validate": jurisdiction.validate, "submit": jurisdiction.submit,
+                      "retire": jurisdiction.retire, "revalidate": jurisdiction.revalidate}[step]
+            done = action(pack_ref=pack_id, actor_public_id=me, decision=decision,
+                          organization_ref=org)
+        labels = trust.actor_labels()
+    return JsonResponse({"pack": _pack_json(done, labels)})
 
 
 def _incident_json(r: dict[str, Any], labels: dict[str, str]) -> dict[str, Any]:
@@ -1234,6 +1568,21 @@ def platform_customer_sign_up(
     decision = _authorize(auth, "write:platform", organization_public_id=org)
     made = trust.set_customer_sign_up(
         customer_public_id=customer_id, enabled=body.get("enabled"),
+        actor_public_id=auth.actor_public_id, platform_organization_public_id=org,
+        decision=decision)
+    return JsonResponse({"customer": made})
+
+
+@endpoint("POST")
+def platform_customer_country(
+    request: HttpRequest, auth: trust.Authenticated, customer_id: str
+) -> HttpResponse:
+    """Support records the country a customer operates in (`country`: "GB", or "" to clear it)."""
+    org = _platform_only(auth)
+    body = json_body(request)
+    decision = _authorize(auth, "write:platform", organization_public_id=org)
+    made = trust.set_customer_country(
+        customer_public_id=customer_id, country=body.get("country"),
         actor_public_id=auth.actor_public_id, platform_organization_public_id=org,
         decision=decision)
     return JsonResponse({"customer": made})
@@ -2338,6 +2687,423 @@ def clinician_referral_inbox(request: HttpRequest, auth: trust.Authenticated) ->
                if is_allowed(auth, "read:referral", subject_ref=p)}
     return JsonResponse({"referrals": _referrals_out(
         [r for r in rows if r["person_ref"] in allowed], auth)})
+
+
+# ------------------------------------------------------------------ data-rights requests (DEV-126)
+def _rights_json(c: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": c["public_id"], "ref": c["ref_no"], "type": c["request_type"], "state": c["state"],
+        "note": c["note"], "created_at": c["created_at"],
+        "identity_checked_at": c["identity_checked_at"],
+        "decision_note": c["decision_note"], "decided_at": c["decided_at"],
+        "patient": c["person_ref"], "due_at": c["due_at"], "due_basis": c["due_basis"],
+    }
+
+
+def _data_request_deadline(auth: trust.Authenticated) -> tuple[int, str] | None:
+    """The deadline (days, pack) a signed country pack gives this customer's data requests, or None.
+    Packs live in Zoiko's platform tenant, so this reads them there, OUTSIDE the customer's own
+    transaction (switching tenants inside one would lose the first context)."""
+    country = trust.tenant_country(auth.context.tenant_id)
+    platform = next((t for t in trust.list_tenants()
+                     if t["type"] == "platform" and t["status"] == "active"), None)
+    if not country or platform is None:
+        return None
+    with tenant_transaction(trust.context_for(platform["public_id"])):
+        return jurisdiction.data_request_days(country)
+
+
+@endpoint("GET", "POST")
+def rights_requests(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: this patient's own data-rights requests. POST {type, note?}: ask their clinic.
+    Only the patient themselves (a guardian's request needs proof of authority we do not hold)."""
+    org = _catalog_org(auth)
+    with tenant_transaction():
+        person = trust.own_person_of(auth.actor_public_id)
+    if not person or org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    if request.method == "POST":
+        body = json_body(request)
+        decision = _authorize(auth, "write:rights", organization_public_id=org,
+                              subject_ref=person)
+        deadline = _data_request_deadline(auth)
+        with tenant_transaction():
+            made = rights.file_request(
+                person_ref=person, organization_ref=org, request_type=text(body, "type"),
+                note=text(body, "note", required=False), actor_public_id=auth.actor_public_id,
+                decision=decision, deadline=deadline)
+        return JsonResponse({"request": _rights_json(made)}, status=201)
+    _authorize(auth, "read:rights", organization_public_id=org, subject_ref=person)
+    with tenant_transaction():
+        rows = rights.list_cases(person_refs=[person])
+    return JsonResponse({"requests": [_rights_json(c) for c in rows]})
+
+
+@endpoint("POST")
+def rights_withdraw(
+    request: HttpRequest, auth: trust.Authenticated, case_id: str
+) -> HttpResponse:
+    with tenant_transaction():
+        current = rights.get_case(case_id)
+    decision = _authorize(auth, "write:rights",
+                          organization_public_id=current["organization_ref"],
+                          subject_ref=current["person_ref"])
+    with tenant_transaction():
+        done = rights.withdraw(
+            case_ref=case_id, actor_public_id=auth.actor_public_id, decision=decision)
+    return JsonResponse({"request": _rights_json(done)})
+
+
+@endpoint("GET")
+def staff_rights(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Data-rights requests sent to this clinic, newest first. The patient's own words are shown to
+    the clinic staff who must act on them."""
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "read:rights", organization_public_id=org)
+    with tenant_transaction():
+        rows = rights.list_cases(organization_ref=org)
+    out = [_rights_json(c) for c in rows]
+    _add_names(auth, out, "patient")
+    return JsonResponse({"requests": out, "can_close": "R13" in auth.roles})
+
+
+@endpoint("POST")
+def staff_rights_step(
+    request: HttpRequest, auth: trust.Authenticated, case_id: str, step: str
+) -> HttpResponse:
+    """A staff step: start, verify (the identity check), complete or decline (administrator)."""
+    _staff_only(auth)
+    if step not in ("start", "verify", "complete", "decline"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    body = json_body(request)
+    with tenant_transaction():
+        current = rights.get_case(case_id)
+    decision = _authorize(auth, "write:rights",
+                          organization_public_id=current["organization_ref"],
+                          subject_ref=current["person_ref"])
+    me = auth.actor_public_id
+    with tenant_transaction():
+        if step == "start":
+            done = rights.start(case_ref=case_id, actor_public_id=me, decision=decision)
+        elif step == "verify":
+            done = rights.confirm_identity(case_ref=case_id, actor_public_id=me, decision=decision)
+        else:
+            done = rights.close(
+                case_ref=case_id, outcome="completed" if step == "complete" else "declined",
+                note=text(body, "note", required=False), actor_public_id=me, decision=decision)
+    return JsonResponse({"request": _rights_json(done)})
+
+
+# ------------------------------------------------------------------ workflow engine (DEV-132)
+def _owners(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    labels = trust.actor_labels()
+    for r in rows:
+        r["owner_name"] = labels.get(r["owner"], "")
+    return rows
+
+
+@endpoint("GET", "POST")
+def staff_workflow_definitions(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: the workflow definitions. POST {key, journey, path, timer_policies}: a draft (admin)."""
+    org = _staff_only(auth)
+    if request.method == "POST":
+        body = json_body(request)
+        decision = _authorize(auth, "write:workflow", organization_public_id=org)
+        with tenant_transaction():
+            made = orchestration.create_definition(
+                key=text(body, "key"), journey=text(body, "journey"), path=body.get("path"),
+                timer_policies=body.get("timer_policies"), actor_public_id=auth.actor_public_id,
+                decision=decision, organization_ref=org)
+        return JsonResponse({"definition": made}, status=201)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    with tenant_transaction():
+        rows = orchestration.list_definitions()
+    return JsonResponse({"definitions": rows, "can_write": "R13" in auth.roles})
+
+
+@endpoint("POST")
+def staff_workflow_definition_step(
+    request: HttpRequest, auth: trust.Authenticated, definition_id: str, step: str
+) -> HttpResponse:
+    """edit | publish | version | retire."""
+    org = _staff_only(auth)
+    if step not in ("edit", "publish", "version", "retire"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    body = json_body(request)
+    decision = _authorize(auth, "write:workflow", organization_public_id=org)
+    me = auth.actor_public_id
+    with tenant_transaction():
+        if step == "edit":
+            done = orchestration.edit_definition(
+                definition_ref=definition_id, path=body.get("path"),
+                timer_policies=body.get("timer_policies"), actor_public_id=me,
+                decision=decision, organization_ref=org)
+        else:
+            action = {"publish": orchestration.publish_definition,
+                      "version": orchestration.new_version,
+                      "retire": orchestration.retire_definition}[step]
+            done = action(definition_ref=definition_id, actor_public_id=me, decision=decision,
+                          organization_ref=org)
+    return JsonResponse({"definition": done})
+
+
+@endpoint("GET", "POST")
+def staff_workflows(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: running workflows (?view=workbench for the ones needing a person). POST: start one."""
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    if request.method == "POST":
+        body = json_body(request)
+        decision = _authorize(auth, "write:workflow", organization_public_id=org)
+        with tenant_transaction():
+            made = orchestration.start(
+                definition_key=text(body, "definition"), subject_ref=text(body, "subject"),
+                organization_ref=org, owner_ref=text(body, "owner"),
+                evidence=body.get("evidence"), purpose=text(body, "purpose", required=False),
+                actor_public_id=auth.actor_public_id, decision=decision)
+            _owners([made])
+        return JsonResponse({"instance": made}, status=201)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    with tenant_transaction():
+        rows = _owners(orchestration.list_instances(
+            org, workbench=request.GET.get("view") == "workbench",
+            state=request.GET.get("state") or None))
+    return JsonResponse({"instances": rows})
+
+
+@endpoint("GET")
+def staff_workflow_history(
+    request: HttpRequest, auth: trust.Authenticated, instance_id: str
+) -> HttpResponse:
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    with tenant_transaction():
+        out = orchestration.history(instance_id, org)
+        labels = trust.actor_labels()
+    out["instance"]["owner_name"] = labels.get(out["instance"]["owner"], "")
+    for s in out["steps"]:
+        s["actor_name"] = labels.get(s["actor"], s["actor"])
+    return JsonResponse(out)
+
+
+@endpoint("POST")
+def staff_workflow_step(
+    request: HttpRequest, auth: trust.Authenticated, instance_id: str, step: str
+) -> HttpResponse:
+    """advance | resume | overlay | reassign. Every one names the version it expects."""
+    org = _staff_only(auth)
+    if org is None or step not in ("advance", "resume", "overlay", "reassign"):
+        raise ZoikoError(ErrorCode.NOT_FOUND if org else ErrorCode.POLICY_DENIED)
+    body = json_body(request)
+    version = body.get("expected_version")
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["expected_version"])
+    decision = _authorize(auth, "write:workflow", organization_public_id=org)
+    me = auth.actor_public_id
+    note = text(body, "note", required=False)
+    with tenant_transaction():
+        if step == "advance":
+            done = orchestration.advance(
+                instance_ref=instance_id, organization_ref=org, expected_version=version,
+                to_state=text(body, "to_state"), evidence=body.get("evidence"),
+                idempotency_key=text(body, "idempotency_key"),
+                purpose=text(body, "purpose", required=False), note=note, actor_public_id=me,
+                decision=decision, incident_owner_ref=text(body, "incident_owner", required=False))
+        elif step == "resume":
+            done = orchestration.resume(
+                instance_ref=instance_id, organization_ref=org, expected_version=version,
+                evidence=body.get("evidence"), note=note, actor_public_id=me, decision=decision)
+        elif step == "overlay":
+            done = orchestration.set_overlay(
+                instance_ref=instance_id, organization_ref=org, expected_version=version,
+                overlay=text(body, "overlay"), note=note, actor_public_id=me, decision=decision)
+        else:
+            done = orchestration.reassign(
+                instance_ref=instance_id, organization_ref=org, expected_version=version,
+                new_owner_ref=text(body, "owner"), actor_public_id=me, decision=decision)
+        _owners([done])
+    return JsonResponse({"instance": done})
+
+
+@endpoint("GET")
+def staff_workflow_escalations(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    with tenant_transaction():
+        rows = orchestration.list_escalations(org, open_only=request.GET.get("all") != "1")
+    return JsonResponse({"escalations": rows})
+
+
+@endpoint("POST")
+def staff_workflow_escalation_record(
+    request: HttpRequest, auth: trust.Authenticated, escalation_id: str
+) -> HttpResponse:
+    """A person says whether a human was reached. {reached, note, fallback_owner?}"""
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    body = json_body(request)
+    if not isinstance(body.get("reached"), bool):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["reached"])
+    decision = _authorize(auth, "write:workflow", organization_public_id=org)
+    with tenant_transaction():
+        done = orchestration.record_escalation(
+            escalation_ref=escalation_id, organization_ref=org, reached=body["reached"],
+            note=text(body, "note", required=False),
+            fallback_owner_ref=text(body, "fallback_owner", required=False),
+            actor_public_id=auth.actor_public_id, decision=decision)
+    return JsonResponse({"escalation": done})
+
+
+# ------------------------------------------------------------------ outbound webhooks (DEV-127)
+def _manager(auth: trust.Authenticated) -> str | None:
+    """Only a clinic administrator may use these; returns the organization."""
+    org = _staff_only(auth)
+    if "R13" not in auth.roles:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    return org
+
+
+@endpoint("GET", "POST")
+def staff_webhooks(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: the registered addresses. POST {label, url, topics}: add one (secret shown once)."""
+    org = _manager(auth)
+    if request.method == "POST":
+        body = json_body(request)
+        decision = _authorize(auth, "write:integration", organization_public_id=org)
+        topics = body.get("topics")
+        with tenant_transaction():
+            made = integration.create_endpoint(
+                label=text(body, "label"), url=text(body, "url"),
+                topics=topics if isinstance(topics, list) else [], organization_ref=org,
+                actor_public_id=auth.actor_public_id, decision=decision)
+        return JsonResponse({"endpoint": made}, status=201)
+    _authorize(auth, "read:integration", organization_public_id=org)
+    with tenant_transaction():
+        rows = integration.list_endpoints()
+    return JsonResponse({"endpoints": rows})
+
+
+@endpoint("POST")
+def staff_webhook_step(
+    request: HttpRequest, auth: trust.Authenticated, endpoint_id: str, step: str
+) -> HttpResponse:
+    """verify | pause | resume | revoke | rotate-secret."""
+    org = _manager(auth)
+    if step not in ("verify", "pause", "resume", "revoke", "rotate-secret"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    decision = _authorize(auth, "write:integration", organization_public_id=org)
+    me = auth.actor_public_id
+    if step == "verify":
+        # the network call must not hold a database transaction open longer than it has to
+        with tenant_transaction():
+            done = integration.verify_endpoint(
+                endpoint_ref=endpoint_id, actor_public_id=me, decision=decision,
+                organization_ref=org)
+    elif step == "rotate-secret":
+        with tenant_transaction():
+            done = integration.rotate_secret(
+                endpoint_ref=endpoint_id, actor_public_id=me, decision=decision,
+                organization_ref=org)
+    else:
+        with tenant_transaction():
+            done = integration.set_state(
+                endpoint_ref=endpoint_id, step=step, actor_public_id=me, decision=decision,
+                organization_ref=org)
+    return JsonResponse({"endpoint": done})
+
+
+@endpoint("GET")
+def staff_webhook_deliveries(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    org = _manager(auth)
+    _authorize(auth, "read:integration", organization_public_id=org)
+    with tenant_transaction():
+        rows = integration.list_deliveries(request.GET.get("state") or None)
+    return JsonResponse({"deliveries": rows})
+
+
+@endpoint("GET", "POST")
+def staff_partners(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: partners allowed to send to us. POST {label, allowed_types}: add one (secret once)."""
+    org = _manager(auth)
+    if request.method == "POST":
+        body = json_body(request)
+        decision = _authorize(auth, "write:integration", organization_public_id=org)
+        with tenant_transaction():
+            made = integration.create_client(
+                label=text(body, "label"), allowed_types=body.get("allowed_types"),
+                organization_ref=org, actor_public_id=auth.actor_public_id, decision=decision)
+        return JsonResponse({"client": made}, status=201)
+    _authorize(auth, "read:integration", organization_public_id=org)
+    with tenant_transaction():
+        rows = integration.list_clients()
+    return JsonResponse({"clients": rows})
+
+
+@endpoint("POST")
+def staff_partner_step(
+    request: HttpRequest, auth: trust.Authenticated, client_id: str, step: str
+) -> HttpResponse:
+    """suspend | resume | revoke | rotate-secret."""
+    org = _manager(auth)
+    if step not in ("suspend", "resume", "revoke", "rotate-secret"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    decision = _authorize(auth, "write:integration", organization_public_id=org)
+    me = auth.actor_public_id
+    with tenant_transaction():
+        if step == "rotate-secret":
+            done = integration.rotate_client_secret(
+                client_ref=client_id, actor_public_id=me, decision=decision,
+                organization_ref=org)
+        else:
+            done = integration.set_client_state(
+                client_ref=client_id, step=step, actor_public_id=me, decision=decision,
+                organization_ref=org)
+    return JsonResponse({"client": done})
+
+
+@endpoint("GET")
+def staff_inbound_events(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    org = _manager(auth)
+    _authorize(auth, "read:integration", organization_public_id=org)
+    with tenant_transaction():
+        rows = integration.list_events(request.GET.get("state") or None)
+    return JsonResponse({"events": rows})
+
+
+@csrf_exempt
+@require_POST
+def partner_events(request: HttpRequest) -> HttpResponse:
+    """A partner's signed message (GHE-13 WF-08). No sign-in: the signature IS the credential, and
+    it is checked before anything in the body is read. Every identity failure is the same 401."""
+    status, body, headers = integration.receive(
+        raw_body=request.body, signature=request.headers.get("Zoiko-Signature", ""),
+        delivery_id=request.headers.get("Zoiko-Delivery-Id", ""))
+    response = JsonResponse(body, status=status)
+    response["Cache-Control"] = "no-store"
+    for name, value in headers.items():
+        response[name] = value
+    return response
+
+
+@endpoint("POST")
+def staff_webhook_redrive(
+    request: HttpRequest, auth: trust.Authenticated, delivery_id: str
+) -> HttpResponse:
+    org = _manager(auth)
+    decision = _authorize(auth, "write:integration", organization_public_id=org)
+    with tenant_transaction():
+        done = integration.redrive(
+            delivery_ref=delivery_id, actor_public_id=auth.actor_public_id, decision=decision,
+            organization_ref=org)
+    return JsonResponse({"delivery": done})
 
 
 @endpoint("GET", "POST")

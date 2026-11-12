@@ -41,6 +41,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [elsewhere, setElsewhere] = useState<string | null>(null);
+  const [remember, setRemember] = useState(false);
 
   const registering = mode === "register";
 
@@ -64,7 +65,8 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
       setPassword("");
       return;
     }
-    const session = { token: reply.token, tenantName: reply.tenant.name, login: reply.actor.login };
+    const session: Session = { token: reply.token, tenantName: reply.tenant.name, login: reply.actor.login };
+    if (reply.remembered && reply.expires_at) session.expiresAt = reply.expires_at;
     setSession(session);
     onSignedIn(session);
   }
@@ -84,7 +86,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
     try {
       finish(registering
         ? await registerAccount(organization, login, password)
-        : await signIn(organization, login, password));
+        : await signIn(organization, login, password, remember));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setPassword(""); setConfirm("");
@@ -111,7 +113,8 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
             onChange={(e) => setLogin(e.target.value)} autoComplete={registering ? "email" : "username"} required />
           <PasswordField id="password" label="Password" value={password} onChange={setPassword}
             autoComplete={registering ? "new-password" : "current-password"} />
-          {!registering && <RememberRow onForgot={() => switchTo("forgot")} />}
+          {!registering && <RememberRow onForgot={() => switchTo("forgot")} checked={remember} onChange={setRemember} />}
+          {!registering && remember && <p className="fine-print">Only on your own device. Signing out signs you out of every device.</p>}
           {registering && (
             <PasswordField id="confirm" label="Confirm password" value={confirm} onChange={setConfirm}
               autoComplete="new-password" />

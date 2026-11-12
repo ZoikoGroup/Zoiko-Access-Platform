@@ -36,7 +36,7 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }) {
 export function Logo({ size = 38 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
-      <rect width="40" height="40" rx="10" fill="#1f5fe0" />
+      <rect width="40" height="40" rx="10" fill="#5b3be0" />
       <path d="M11 12h18L15 28h14" fill="none" stroke="#fff" strokeWidth="3.4"
         strokeLinecap="round" strokeLinejoin="round" />
     </svg>

@@ -6,13 +6,13 @@ import re
 import pytest
 from django.core import mail
 from django.core.management import call_command
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.test import Client
 
 from foundation import mail as mailer
 from foundation.cell_context import tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
-from foundation.models import MailState, QueuedEmail
+from foundation.models import EmailAttempt, MailState, QueuedEmail
 from foundation.timeutil import FixedClock, utc_now
 from modules.evidence.models import AuditEvent
 from modules.trust import api as trust
@@ -119,7 +119,9 @@ def test_a_failing_mail_server_causes_retries_then_gives_up_with_no_message_kept
         clock = FixedClock(clock.now() + dt.timedelta(hours=2))
     assert mailer.send_due(clock=clock).failed == 1
     row = QueuedEmail.objects.get()
-    assert row.state == MailState.FAILED and mailer.mail_stats() == {"queued": 0, "failed": 1}
+    stats = mailer.mail_stats()
+    assert row.state == MailState.FAILED and (stats["queued"], stats["failed"]) == (0, 1)
+    assert stats["failed_attempts_24h"] == mailer.MAX_ATTEMPTS
     assert mailer.send_due(clock=FixedClock(clock.now() + dt.timedelta(days=1))).failed == 0
 
 
@@ -129,7 +131,8 @@ def test_a_claim_that_was_never_finished_is_picked_up_again(site):
     QueuedEmail.objects.filter(pk=row.pk).update(
         state=MailState.SENDING, locked_until=utc_now() - dt.timedelta(minutes=1))   # crashed
     assert mailer.send_due().sent == 1
-    assert mailer.mail_stats() == {"queued": 0, "failed": 0}
+    stats = mailer.mail_stats()
+    assert (stats["queued"], stats["failed"], stats["accepted_attempts_24h"]) == (0, 0, 1)
 
 
 # ------------------------------------------------------------------ verification
@@ -341,3 +344,71 @@ def test_a_transaction_that_rolls_back_leaves_no_email(site):
         mailer.queue_email(kind="test_mail", to_address="a@b.org", subject="S", body="b")
         raise RuntimeError("the change failed")
     assert QueuedEmail.objects.count() == 0
+
+
+# ------------------------------------------------------------------ every try is kept (DEV-121)
+def _send_that_fails_first(monkeypatch, times):
+    class Boom(ConnectionRefusedError):
+        pass
+
+    left = {"n": times}
+
+    def send(self, fail_silently=False):
+        if left["n"] > 0:
+            left["n"] -= 1
+            raise Boom("could not reach mail server for asha@example.org")
+        return 1
+
+    monkeypatch.setattr("django.core.mail.EmailMessage.send", send)
+
+
+def test_every_attempt_is_kept_even_after_the_email_finally_goes_through(site, monkeypatch):
+    _send_that_fails_first(monkeypatch, 2)
+    with tenant_transaction(site.ctx):
+        queued = mailer.queue_email(kind="test_mail", to_address="asha@example.org",
+                                    subject="S", body="b")
+    clock = FixedClock(utc_now())
+    for _ in range(3):
+        mailer.send_due(clock=clock)
+        clock = FixedClock(clock.now() + dt.timedelta(hours=2))
+    tries = list(EmailAttempt.objects.filter(email_ref=queued.public_id).order_by("attempt_no"))
+    assert [(t.attempt_no, t.outcome, t.error) for t in tries] == [
+        (1, "failed", "Boom"), (2, "failed", "Boom"), (3, "accepted", "")]
+    assert QueuedEmail.objects.get().state == MailState.SENT          # the queue shows only the end
+
+
+def test_the_history_holds_no_address_no_text_and_no_error_message(site, monkeypatch):
+    _send_that_fails_first(monkeypatch, 1)
+    with tenant_transaction(site.ctx):
+        mailer.queue_email(kind="test_mail", to_address="asha@example.org",
+                           subject="Secret subject", body="one-time link SECRET123")
+    mailer.send_due()
+    dump = " ".join(f"{t.email_ref}{t.outcome}{t.error}" for t in EmailAttempt.objects.all())
+    assert dump and "asha" not in dump and "SECRET" not in dump and "Secret" not in dump
+    assert "could not reach" not in dump
+
+
+def test_the_attempt_history_cannot_be_changed_or_removed(site):
+    with tenant_transaction(site.ctx):
+        mailer.queue_email(kind="test_mail", to_address="a@b.org", subject="S", body="b")
+    mailer.send_due()
+    row = EmailAttempt.objects.get()
+    with pytest.raises(DatabaseError), transaction.atomic():
+        EmailAttempt.objects.filter(pk=row.pk).update(outcome="failed")
+    with pytest.raises(DatabaseError), transaction.atomic():
+        row.delete()
+
+
+def test_reporting_the_same_attempt_twice_keeps_one_row(site):
+    mailer._record_attempt("ref0000000000000000a", 1, "failed", "Boom")
+    mailer._record_attempt("ref0000000000000000a", 1, "failed", "Boom")
+    assert EmailAttempt.objects.filter(email_ref="ref0000000000000000a").count() == 1
+
+
+def test_the_stats_count_only_the_last_day_of_attempts(site):
+    EmailAttempt.objects.create(email_ref="old00000000000000001", attempt_no=1, outcome="failed",
+                                created_at=utc_now() - dt.timedelta(days=2))
+    EmailAttempt.objects.create(email_ref="new00000000000000001", attempt_no=1, outcome="failed")
+    EmailAttempt.objects.create(email_ref="new00000000000000002", attempt_no=1, outcome="accepted")
+    stats = mailer.mail_stats()
+    assert (stats["failed_attempts_24h"], stats["accepted_attempts_24h"]) == (1, 1)

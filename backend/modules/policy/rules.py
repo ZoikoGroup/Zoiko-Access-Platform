@@ -47,6 +47,8 @@ RESOURCE_CLASSES = (
     "directory",
     "platform",
     "staff",
+    "rights",
+    "integration",
 )
 
 PURPOSES = (
@@ -112,6 +114,7 @@ def _v(spec: str) -> frozenset[str]:
 
 RULES: dict[str, dict[str, Rule]] = {
     "R01": {
+        "rights": (_v("rw"), "OWN"),
         "person": (_v("rw"), "OWN"),
         "booking": (_v("rw"), "OWN"),
         "referral": (_v("r"), "OWN"),
@@ -149,6 +152,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "catalog": (_v("r"), "ANY"),
     },
     "R04": {
+        "rights": (_v("rw"), "ORG"),
         "person": (_v("rw"), "ORG"),
         "booking": (_v("rw"), "ORG"),
         "referral": (_v("rw"), "ORG"),
@@ -215,7 +219,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "billing": (_v("rw"), "ORG"),
         "directory": (_v("r"), "ORG"),
         "analytics": (_v("r"), "ORG"),
-        "platform": (_v("rw"), "ORG"),  # support may add a customer (DEV-040)
+        "platform": (_v("rwa"), "ORG"),  # add a customer (DEV-040); attest country packs
     },
     "R12": {
         "workflow": (_v("r"), "ORG"),
@@ -225,7 +229,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "catalog": (_v("r"), "ANY"),
         "analytics": (_v("r"), "ORG"),
         "directory": (_v("r"), "ORG"),
-        "platform": (_v("r"), "ORG"),
+        "platform": (_v("ra"), "ORG"),   # safety officers attest country packs (DEV-128)
     },
 }
 
@@ -253,7 +257,7 @@ def _rules_digest() -> str:
 # The organization administrator (R13, DEV-037) does everything clinic operations does, and may
 # also manage the organization's own team. Hard prohibitions are NOT inherited from nowhere: R13
 # has none, and R04's absence of patient-care rights carries over because the rules are copied.
-RULES["R13"] = {**RULES["R04"], "staff": (_v("rw"), "ORG")}
+RULES["R13"] = {**RULES["R04"], "staff": (_v("rw"), "ORG"), "integration": (_v("rw"), "ORG")}
 
 
 # Computed once, after every rule above is final (R13 included).

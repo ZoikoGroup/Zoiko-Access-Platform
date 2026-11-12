@@ -11,6 +11,7 @@ import datetime as dt
 from foundation.cell_context import tenant_transaction
 from modules.messaging import api as messaging
 from modules.referral import api as referral
+from modules.rights import api as rights
 from modules.scheduling import api as scheduling
 from modules.trust import api as trust
 
@@ -39,6 +40,13 @@ def sync_tenant() -> int:
                 open_item(organization_ref=org, kind=Kind.DECIDE_REFERRAL,
                           subject_ref=r["public_id"],
                           due_at=dt.datetime.fromisoformat(r["created_at"]) + target)
+                seen += 1
+        for c in rights.list_cases(organization_ref=org):
+            if c["state"] in ("received", "in_progress"):
+                due = (dt.datetime.fromisoformat(c["due_at"]) if c["due_at"]
+                       else dt.datetime.fromisoformat(c["created_at"]) + target)
+                open_item(organization_ref=org, kind=Kind.ANSWER_DATA_REQUEST,
+                          subject_ref=c["public_id"], due_at=due)
                 seen += 1
     return seen
 
