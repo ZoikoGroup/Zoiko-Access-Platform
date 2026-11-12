@@ -951,6 +951,14 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Not built:** an actual merge or unmerge of records (only the decision is recorded); matching across clinics beyond the shared fingerprints; fingerprint rotation when keys rotate beyond the rebuild command.
 - **Checked:** 86 backend tests (rules and flows, including denials: patients, other clinics, self-confirmation); typecheck and build of the operations and patient apps.
 
+### DEV-130: Billing & Claims overview: insurance only, no money (ADD, TEMPORARY rule)
+
+- **What was done:** the staff **Billing & Claims** page is now real but read only (`api/billing.py`, `GET staff/billing`). For this clinic's own patients it shows counts and a list: insured, insurance ending within 30 days, no insurance in force, and **not shared**. A second list, "Ask before the visit", names patients with a visit still to come (requested or confirmed, not cancelled) whose insurance is missing, ending soon, or not shared. It reads only what exists: the insurance patients recorded (coverage module) and bookings (scheduling module).
+- **Privacy rules kept:** staff see a patient's insurance only when the patient chose to share it (DEV-096, default not shared). For a patient who has not shared, the page says only "has not shared": it is identical whether or not they hold insurance, and tests prove it. Member numbers are never returned (the last four characters only). Only the clinic's own patients appear (`trust.people_at_site`); another clinic's staff see none.
+- **Temporary rules to confirm (add to docs/LEAD-NOTE.md questions):** the page reuses the existing `read:coverage` right at clinic level (clinic administrator R13 and clinic staff with that right). The 30 day "ending soon" window is our choice. The first draft listed every patient of the customer; it now lists only the clinic's own.
+- **Not built:** prices, invoices, payments, entitlements, eligibility checks with an insurer, claims, the ledger, and the patient "Bills & Payments" screen. They wait on DEV-011 (first market) and DEV-012 (Zoiko's legal role per service), and the lead's note puts insurers out of the first release.
+- **Checked:** 15 backend tests (what is shown, what must stay hidden, who may look, who may not); typecheck and build; page load and accessibility robots on the staff console.
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |

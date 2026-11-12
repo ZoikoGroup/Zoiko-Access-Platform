@@ -23,6 +23,7 @@ import { AiPermits } from "./pages/AiPermits";
 import { Exceptions } from "./pages/Exceptions";
 import { Integrations } from "./pages/Integrations";
 import { Journeys } from "./pages/Journeys";
+import { BillingClaims } from "./pages/BillingClaims";
 import { Matches } from "./pages/Matches";
 import { Team } from "./pages/Team";
 import { SignIn } from "./pages/SignIn";
@@ -78,6 +79,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "ai") body = <AiPermits />;
   else if (page === "exceptions") body = <Exceptions />;
   else if (page === "matches") body = <Matches />;
+  else if (page === "billing") body = <BillingClaims />;
   else if (page === "journeys") body = <Journeys />;
   else if (page === "integrations") body = <Integrations />;
   else if (page === "referrals") body = <Referrals />;

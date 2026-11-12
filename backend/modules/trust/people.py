@@ -405,6 +405,17 @@ def person_at_site(person_public_id: str, organization_ref: str) -> bool:
         cell_id=ctx.cell_id, tenant_id=ctx.tenant_id).exists()
 
 
+def people_at_site(person_public_ids: list[str], organization_ref: str) -> set[str]:
+    """Which of these patients are connected to this clinic site (one query, for lists)."""
+    ctx = require_context()
+    if not person_public_ids or not organization_ref:
+        return set()
+    return set(PersonSite.objects.filter(
+        person__public_id__in=person_public_ids, organization_ref=organization_ref,
+        cell_id=ctx.cell_id, tenant_id=ctx.tenant_id,
+    ).values_list("person__public_id", flat=True))
+
+
 # ------------------------------------------------------------------ the question policy asks
 def relationship_verified(
     *, actor_public_id: str, condition: str, subject_ref: str, at: dt.datetime | None = None,

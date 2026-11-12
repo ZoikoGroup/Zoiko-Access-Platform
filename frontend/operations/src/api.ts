@@ -4,7 +4,7 @@ import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
 import type {
-  BookingSystem, DeveloperClient, IdentityData, MatchesData, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
+  BillingData, BookingSystem, DeveloperClient, IdentityData, MatchesData, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
 } from "./consoleTypes";
 import type {
   ClinicSettings, CoverageRow, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
@@ -363,6 +363,7 @@ export const getJourneys = () => v1<JourneysData>("staff/journeys");
 export const getJourneyHistory = async (id: string) =>
   (await v1<{ history: JourneyHistory }>(`staff/journeys/${enc(id)}/history`)).history;
 
+export const getBilling = () => v1<BillingData>("staff/billing");
 export const getMatches = () => v1<MatchesData>("staff/matches");
 export const decideMatch = (id: string, action: string, note = "") =>
   post(`staff/matches/${enc(id)}/decide`, { action, note });

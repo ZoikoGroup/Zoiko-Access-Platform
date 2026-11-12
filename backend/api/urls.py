@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import console, identity, views
+from . import billing, console, identity, views
 
 urlpatterns = [
     path("auth/login", views.login),
@@ -85,6 +85,7 @@ urlpatterns = [
     path("staff/directory", views.staff_directory),
     path("staff/patients", views.staff_patients),
     path("staff/booking-system", console.staff_booking_system),
+    path("staff/billing", billing.staff_billing),
     path("staff/matches", identity.staff_matches),
     path("staff/matches/<str:case_id>/decide", identity.staff_match_decide),
     path("people/<str:person_id>/identity", identity.person_identity),
