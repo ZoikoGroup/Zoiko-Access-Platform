@@ -263,6 +263,33 @@ def test_a_new_workflow_begins_requested_clear_with_its_owner_and_one_step(p):
     assert steps[0]["definition_version"] == 1 and steps[0]["decision"]
 
 
+def outbox_for(p, inst):
+    from foundation.models import OutboxEvent
+    with tenant_transaction(p.clinic.ctx):
+        return list(OutboxEvent.objects.filter(
+            aggregate_type="workflow", aggregate_ref=inst["public_id"]).order_by("seq"))
+
+
+def test_every_step_leaves_one_event_and_it_carries_references_only(p):
+    """GHE-12 WF-T43 (DEV-153): the event is written with the step, never without it."""
+    define(p)
+    inst = started(p)
+    steps = fetch(p, inst)["steps"]
+    events = outbox_for(p, inst)
+    assert len(events) == len(steps) == 1
+    assert events[0].event_type == "workflow.changed.v1"
+    assert set(events[0].payload) == {"instance_ref", "kind", "state", "overlay"}
+    assert events[0].ordering_key == inst["public_id"]
+
+
+def test_a_refused_step_leaves_no_event(p):
+    define(p)
+    inst = started(p)
+    before = len(outbox_for(p, inst))
+    assert move(p, inst, "closed", evidence=[]).status_code >= 400
+    assert len(outbox_for(p, inst)) == before
+
+
 # ------------------------------------------------------------------ moving on evidence
 def test_the_whole_path_closes_with_a_digest_and_an_intact_history(p):
     define(p)
@@ -574,6 +601,31 @@ def test_the_workbench_lists_only_what_needs_a_person(p):
     ids = {i["public_id"] for i in json.loads(r.content)["instances"]}
     assert ids == {risky["public_id"], timed["public_id"]}
     assert calm["public_id"] not in ids and closed["public_id"] not in ids
+
+
+def test_a_workflow_whose_owner_was_deactivated_is_flagged_and_an_administrator_can_reassign(p):
+    """GHE-12 WF-T42 (DEV-154): nothing is silently stuck behind a person who has left."""
+    define(p, key="quiet-flow", timers=[])
+    mine = started(p, key="quiet-flow", subject="subject-0001", owner=p.ops2_id)
+    other = started(p, key="quiet-flow", subject="subject-0002")
+    listed = lambda view="": {i["public_id"]: i for i in json.loads(    # noqa: E731
+        p.get(f"staff/workflows{view}", subject="boss").content)["instances"]}
+    assert not any(i["owner_inactive"] for i in listed().values())
+    assert mine["public_id"] not in listed("?view=workbench")
+
+    with tenant_transaction(p.clinic.ctx):
+        trust.set_actor_status(p.ops2_id, trust.Status.SUSPENDED, by=p.boss_id)
+    bench = listed("?view=workbench")
+    assert set(bench) == {mine["public_id"]} and bench[mine["public_id"]]["owner_inactive"]
+    assert listed()[other["public_id"]]["owner_inactive"] is False
+    attention = json.loads(p.get("staff/dashboard", subject="boss").content)["attention"]
+    assert attention["workflows_without_owner"] == 1
+
+    assert post(p, f"staff/workflows/{mine['public_id']}/reassign", {
+        "expected_version": mine["version"], "owner": p.desk}).status_code == 200
+    assert listed("?view=workbench") == {}
+    attention = json.loads(p.get("staff/dashboard", subject="boss").content)["attention"]
+    assert attention["workflows_without_owner"] == 0
 
 
 def test_a_listing_can_be_filtered_by_state(p):

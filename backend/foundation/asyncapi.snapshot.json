@@ -1,0 +1,888 @@
+{
+ "asyncapi": "3.0.0",
+ "channels": {
+  "access_denied_v1": {
+   "address": "access.denied.v1",
+   "messages": {
+    "access_denied_v1": {
+     "$ref": "#/components/messages/access_denied_v1"
+    }
+   }
+  },
+  "booking_attendance_v1": {
+   "address": "booking.attendance.v1",
+   "messages": {
+    "booking_attendance_v1": {
+     "$ref": "#/components/messages/booking_attendance_v1"
+    }
+   }
+  },
+  "booking_cancelled_v1": {
+   "address": "booking.cancelled.v1",
+   "messages": {
+    "booking_cancelled_v1": {
+     "$ref": "#/components/messages/booking_cancelled_v1"
+    }
+   }
+  },
+  "booking_confirmed_v1": {
+   "address": "booking.confirmed.v1",
+   "messages": {
+    "booking_confirmed_v1": {
+     "$ref": "#/components/messages/booking_confirmed_v1"
+    }
+   }
+  },
+  "booking_reminder_v1": {
+   "address": "booking.reminder.v1",
+   "messages": {
+    "booking_reminder_v1": {
+     "$ref": "#/components/messages/booking_reminder_v1"
+    }
+   }
+  },
+  "booking_requested_v1": {
+   "address": "booking.requested.v1",
+   "messages": {
+    "booking_requested_v1": {
+     "$ref": "#/components/messages/booking_requested_v1"
+    }
+   }
+  },
+  "booking_rescheduled_v1": {
+   "address": "booking.rescheduled.v1",
+   "messages": {
+    "booking_rescheduled_v1": {
+     "$ref": "#/components/messages/booking_rescheduled_v1"
+    }
+   }
+  },
+  "delegation_revoked_v1": {
+   "address": "delegation.revoked.v1",
+   "messages": {
+    "delegation_revoked_v1": {
+     "$ref": "#/components/messages/delegation_revoked_v1"
+    }
+   }
+  },
+  "exchange_reviewed_v1": {
+   "address": "exchange.reviewed.v1",
+   "messages": {
+    "exchange_reviewed_v1": {
+     "$ref": "#/components/messages/exchange_reviewed_v1"
+    }
+   }
+  },
+  "family_decided_v1": {
+   "address": "family.decided.v1",
+   "messages": {
+    "family_decided_v1": {
+     "$ref": "#/components/messages/family_decided_v1"
+    }
+   }
+  },
+  "message_sent_v1": {
+   "address": "message.sent.v1",
+   "messages": {
+    "message_sent_v1": {
+     "$ref": "#/components/messages/message_sent_v1"
+    }
+   }
+  },
+  "professional_privilege_revoked_v1": {
+   "address": "professional.privilege.revoked.v1",
+   "messages": {
+    "professional_privilege_revoked_v1": {
+     "$ref": "#/components/messages/professional_privilege_revoked_v1"
+    }
+   }
+  },
+  "referral_decided_v1": {
+   "address": "referral.decided.v1",
+   "messages": {
+    "referral_decided_v1": {
+     "$ref": "#/components/messages/referral_decided_v1"
+    }
+   }
+  },
+  "referral_issued_v1": {
+   "address": "referral.issued.v1",
+   "messages": {
+    "referral_issued_v1": {
+     "$ref": "#/components/messages/referral_issued_v1"
+    }
+   }
+  },
+  "rights_closed_v1": {
+   "address": "rights.closed.v1",
+   "messages": {
+    "rights_closed_v1": {
+     "$ref": "#/components/messages/rights_closed_v1"
+    }
+   }
+  },
+  "rights_requested_v1": {
+   "address": "rights.requested.v1",
+   "messages": {
+    "rights_requested_v1": {
+     "$ref": "#/components/messages/rights_requested_v1"
+    }
+   }
+  },
+  "rights_withdrawn_v1": {
+   "address": "rights.withdrawn.v1",
+   "messages": {
+    "rights_withdrawn_v1": {
+     "$ref": "#/components/messages/rights_withdrawn_v1"
+    }
+   }
+  },
+  "slot_opened_v1": {
+   "address": "slot.opened.v1",
+   "messages": {
+    "slot_opened_v1": {
+     "$ref": "#/components/messages/slot_opened_v1"
+    }
+   }
+  },
+  "waitlist_offered_v1": {
+   "address": "waitlist.offered.v1",
+   "messages": {
+    "waitlist_offered_v1": {
+     "$ref": "#/components/messages/waitlist_offered_v1"
+    }
+   }
+  },
+  "webhook_ping_v1": {
+   "address": "webhook.ping.v1",
+   "messages": {
+    "webhook_ping_v1": {
+     "$ref": "#/components/messages/webhook_ping_v1"
+    }
+   }
+  },
+  "workflow_changed_v1": {
+   "address": "workflow.changed.v1",
+   "messages": {
+    "workflow_changed_v1": {
+     "$ref": "#/components/messages/workflow_changed_v1"
+    }
+   }
+  }
+ },
+ "components": {
+  "messages": {
+   "access_denied_v1": {
+    "contentType": "application/json",
+    "name": "access.denied.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation": {
+       "type": "string"
+      },
+      "purpose": {
+       "type": "string"
+      },
+      "reason": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation",
+      "purpose",
+      "reason"
+     ],
+     "type": "object",
+     "x-aggregate": "access_decision"
+    },
+    "x-schema-hash": "985fa18f046e5066"
+   },
+   "booking_attendance_v1": {
+    "contentType": "application/json",
+    "name": "booking.attendance.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "attendance": {
+       "type": "string"
+      },
+      "booking_ref": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "booking_ref",
+      "status",
+      "attendance"
+     ],
+     "type": "object",
+     "x-aggregate": "booking"
+    },
+    "x-schema-hash": "4fa58999a55f4a42"
+   },
+   "booking_cancelled_v1": {
+    "contentType": "application/json",
+    "name": "booking.cancelled.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "booking_ref": {
+       "type": "string"
+      },
+      "service_ref": {
+       "type": "string"
+      },
+      "side": {
+       "type": "string"
+      },
+      "slot_ref": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "booking_ref",
+      "slot_ref",
+      "service_ref",
+      "status"
+     ],
+     "type": "object",
+     "x-aggregate": "booking"
+    },
+    "x-schema-hash": "a5084c72721c8718"
+   },
+   "booking_confirmed_v1": {
+    "contentType": "application/json",
+    "name": "booking.confirmed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "booking_ref": {
+       "type": "string"
+      },
+      "service_ref": {
+       "type": "string"
+      },
+      "side": {
+       "type": "string"
+      },
+      "slot_ref": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "booking_ref",
+      "slot_ref",
+      "service_ref",
+      "status"
+     ],
+     "type": "object",
+     "x-aggregate": "booking"
+    },
+    "x-schema-hash": "a5084c72721c8718"
+   },
+   "booking_reminder_v1": {
+    "contentType": "application/json",
+    "name": "booking.reminder.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "booking_ref": {
+       "type": "string"
+      },
+      "service_ref": {
+       "type": "string"
+      },
+      "side": {
+       "type": "string"
+      },
+      "slot_ref": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "booking_ref",
+      "slot_ref",
+      "service_ref",
+      "status"
+     ],
+     "type": "object",
+     "x-aggregate": "booking"
+    },
+    "x-schema-hash": "a5084c72721c8718"
+   },
+   "booking_requested_v1": {
+    "contentType": "application/json",
+    "name": "booking.requested.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "booking_ref": {
+       "type": "string"
+      },
+      "service_ref": {
+       "type": "string"
+      },
+      "side": {
+       "type": "string"
+      },
+      "slot_ref": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "booking_ref",
+      "slot_ref",
+      "service_ref",
+      "status"
+     ],
+     "type": "object",
+     "x-aggregate": "booking"
+    },
+    "x-schema-hash": "a5084c72721c8718"
+   },
+   "booking_rescheduled_v1": {
+    "contentType": "application/json",
+    "name": "booking.rescheduled.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "booking_ref": {
+       "type": "string"
+      },
+      "service_ref": {
+       "type": "string"
+      },
+      "side": {
+       "type": "string"
+      },
+      "slot_ref": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "booking_ref",
+      "slot_ref",
+      "service_ref",
+      "status"
+     ],
+     "type": "object",
+     "x-aggregate": "booking"
+    },
+    "x-schema-hash": "a5084c72721c8718"
+   },
+   "delegation_revoked_v1": {
+    "contentType": "application/json",
+    "name": "delegation.revoked.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "delegate_ref": {
+       "type": "string"
+      },
+      "grant_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "grant_ref",
+      "delegate_ref"
+     ],
+     "type": "object",
+     "x-aggregate": "delegation"
+    },
+    "x-schema-hash": "6d6c86a201375468"
+   },
+   "exchange_reviewed_v1": {
+    "contentType": "application/json",
+    "name": "exchange.reviewed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "kind": {
+       "type": "string"
+      },
+      "person_ref": {
+       "type": "string"
+      },
+      "request_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "request_ref",
+      "person_ref",
+      "kind"
+     ],
+     "type": "object",
+     "x-aggregate": "exchange_request"
+    },
+    "x-schema-hash": "9e057096266b46ef"
+   },
+   "family_decided_v1": {
+    "contentType": "application/json",
+    "name": "family.decided.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "grant_ref": {
+       "type": "string"
+      },
+      "outcome": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "grant_ref",
+      "outcome"
+     ],
+     "type": "object",
+     "x-aggregate": "family"
+    },
+    "x-schema-hash": "5273cb81e0654950"
+   },
+   "message_sent_v1": {
+    "contentType": "application/json",
+    "name": "message.sent.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "side": {
+       "type": "string"
+      },
+      "thread_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "thread_ref",
+      "side"
+     ],
+     "type": "object",
+     "x-aggregate": "thread"
+    },
+    "x-schema-hash": "cb376b563ef8482c"
+   },
+   "professional_privilege_revoked_v1": {
+    "contentType": "application/json",
+    "name": "professional.privilege.revoked.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "assignment_ref": {
+       "type": "string"
+      },
+      "organization_ref": {
+       "type": "string"
+      },
+      "role_code": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "assignment_ref",
+      "actor_ref",
+      "role_code",
+      "organization_ref"
+     ],
+     "type": "object",
+     "x-aggregate": "role_assignment"
+    },
+    "x-schema-hash": "d9435740cdea0053"
+   },
+   "referral_decided_v1": {
+    "contentType": "application/json",
+    "name": "referral.decided.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "referral_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "referral_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "referral"
+    },
+    "x-schema-hash": "ebb00a03a1dd462d"
+   },
+   "referral_issued_v1": {
+    "contentType": "application/json",
+    "name": "referral.issued.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "referral_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "referral_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "referral"
+    },
+    "x-schema-hash": "ebb00a03a1dd462d"
+   },
+   "rights_closed_v1": {
+    "contentType": "application/json",
+    "name": "rights.closed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "case_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "case_ref",
+      "actor_ref"
+     ],
+     "type": "object",
+     "x-aggregate": "rights_case"
+    },
+    "x-schema-hash": "0cd2e92482b5ab8d"
+   },
+   "rights_requested_v1": {
+    "contentType": "application/json",
+    "name": "rights.requested.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "case_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "case_ref"
+     ],
+     "type": "object",
+     "x-aggregate": "rights_case"
+    },
+    "x-schema-hash": "4c2d87069c99682d"
+   },
+   "rights_withdrawn_v1": {
+    "contentType": "application/json",
+    "name": "rights.withdrawn.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "case_ref": {
+       "type": "string"
+      },
+      "side": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "case_ref",
+      "side"
+     ],
+     "type": "object",
+     "x-aggregate": "rights_case"
+    },
+    "x-schema-hash": "06b0a47b646dc236"
+   },
+   "slot_opened_v1": {
+    "contentType": "application/json",
+    "name": "slot.opened.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "service_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "service_ref"
+     ],
+     "type": "object",
+     "x-aggregate": "service"
+    },
+    "x-schema-hash": "9db136fdeeaf4e72"
+   },
+   "waitlist_offered_v1": {
+    "contentType": "application/json",
+    "name": "waitlist.offered.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "entry_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "entry_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "waitlist"
+    },
+    "x-schema-hash": "7ab7c17908cfb1fe"
+   },
+   "webhook_ping_v1": {
+    "contentType": "application/json",
+    "name": "webhook.ping.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "challenge": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "challenge"
+     ],
+     "type": "object",
+     "x-aggregate": "webhook"
+    },
+    "x-schema-hash": "6e11c20b731ab55b"
+   },
+   "workflow_changed_v1": {
+    "contentType": "application/json",
+    "name": "workflow.changed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "instance_ref": {
+       "type": "string"
+      },
+      "kind": {
+       "type": "string"
+      },
+      "overlay": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "instance_ref",
+      "kind",
+      "state",
+      "overlay"
+     ],
+     "type": "object",
+     "x-aggregate": "workflow"
+    },
+    "x-schema-hash": "38b199de86ee9722"
+   }
+  }
+ },
+ "info": {
+  "description": "Events carry references only: never a name, a message or a reason. No examples are included.",
+  "title": "Zoiko Access events",
+  "version": "1.0.0"
+ },
+ "operations": {
+  "publish_access_denied_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/access_denied_v1"
+   },
+   "summary": "Zoiko publishes access.denied.v1"
+  },
+  "publish_booking_attendance_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/booking_attendance_v1"
+   },
+   "summary": "Zoiko publishes booking.attendance.v1"
+  },
+  "publish_booking_cancelled_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/booking_cancelled_v1"
+   },
+   "summary": "Zoiko publishes booking.cancelled.v1"
+  },
+  "publish_booking_confirmed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/booking_confirmed_v1"
+   },
+   "summary": "Zoiko publishes booking.confirmed.v1"
+  },
+  "publish_booking_reminder_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/booking_reminder_v1"
+   },
+   "summary": "Zoiko publishes booking.reminder.v1"
+  },
+  "publish_booking_requested_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/booking_requested_v1"
+   },
+   "summary": "Zoiko publishes booking.requested.v1"
+  },
+  "publish_booking_rescheduled_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/booking_rescheduled_v1"
+   },
+   "summary": "Zoiko publishes booking.rescheduled.v1"
+  },
+  "publish_delegation_revoked_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/delegation_revoked_v1"
+   },
+   "summary": "Zoiko publishes delegation.revoked.v1"
+  },
+  "publish_exchange_reviewed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/exchange_reviewed_v1"
+   },
+   "summary": "Zoiko publishes exchange.reviewed.v1"
+  },
+  "publish_family_decided_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/family_decided_v1"
+   },
+   "summary": "Zoiko publishes family.decided.v1"
+  },
+  "publish_message_sent_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/message_sent_v1"
+   },
+   "summary": "Zoiko publishes message.sent.v1"
+  },
+  "publish_professional_privilege_revoked_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/professional_privilege_revoked_v1"
+   },
+   "summary": "Zoiko publishes professional.privilege.revoked.v1"
+  },
+  "publish_referral_decided_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/referral_decided_v1"
+   },
+   "summary": "Zoiko publishes referral.decided.v1"
+  },
+  "publish_referral_issued_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/referral_issued_v1"
+   },
+   "summary": "Zoiko publishes referral.issued.v1"
+  },
+  "publish_rights_closed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/rights_closed_v1"
+   },
+   "summary": "Zoiko publishes rights.closed.v1"
+  },
+  "publish_rights_requested_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/rights_requested_v1"
+   },
+   "summary": "Zoiko publishes rights.requested.v1"
+  },
+  "publish_rights_withdrawn_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/rights_withdrawn_v1"
+   },
+   "summary": "Zoiko publishes rights.withdrawn.v1"
+  },
+  "publish_slot_opened_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/slot_opened_v1"
+   },
+   "summary": "Zoiko publishes slot.opened.v1"
+  },
+  "publish_waitlist_offered_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/waitlist_offered_v1"
+   },
+   "summary": "Zoiko publishes waitlist.offered.v1"
+  },
+  "publish_webhook_ping_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/webhook_ping_v1"
+   },
+   "summary": "Zoiko publishes webhook.ping.v1"
+  },
+  "publish_workflow_changed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/workflow_changed_v1"
+   },
+   "summary": "Zoiko publishes workflow.changed.v1"
+  }
+ }
+}

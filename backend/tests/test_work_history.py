@@ -437,7 +437,8 @@ def test_an_older_event_naming_nobody_closes_the_work_as_automatic(p, event_type
     booking, item = waiting(p)
     with tenant_transaction(p.clinic.ctx):                 # the format before actors existed
         emit(event_type=event_type, aggregate_type="booking", aggregate_ref=booking,
-             payload={"booking_ref": booking, "status": "confirmed"})
+             payload={"booking_ref": booking, "slot_ref": "sl_x", "service_ref": "sv_x",
+                      "status": "confirmed"})
     deliver()
     last = history(p, item)["events"][-1]
     assert last["event"] == expected and last["who"] == "Automatic"

@@ -559,3 +559,11 @@ export async function setEmail(email: string, currentPassword: string) {
     throw friendlyEmailError(e);
   }
 }
+
+export interface MyRequest {
+  id: string; kind: "lab_order" | "pharmacy_request" | "homecare_referral"; partner: string; label: string;
+  urgency: "routine" | "urgent";
+  state: "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
+  created_at: string; result_at: string | null; reviewed_at: string | null;
+}
+export const getMyRequests = async () => (await request<{ requests: MyRequest[] }>("exchange/mine")).body.requests;

@@ -49,6 +49,7 @@ RESOURCE_CLASSES = (
     "staff",
     "rights",
     "integration",
+    "program",
 )
 
 PURPOSES = (
@@ -167,6 +168,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "directory": (_v("r"), "ORG"),
     },
     "R05": {
+        "staff": (_v("rw"), "ORG"),
         "diagnostic": (_v("rw"), "ORG"),
         "workflow": (_v("r"), "ORG"),
         "comms": (_v("rw"), "ORG"),
@@ -174,6 +176,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "partner": (_v("rw"), "ORG"),
     },
     "R06": {
+        "staff": (_v("rw"), "ORG"),
         "medication": (_v("rw"), "ORG"),
         "billing": (_v("r"), "ORG"),
         "workflow": (_v("r"), "ORG"),
@@ -182,6 +185,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "partner": (_v("rw"), "ORG"),
     },
     "R07": {
+        "staff": (_v("rw"), "ORG"),
         "coverage": (_v("rwa"), "ORG"),
         "billing": (_v("r"), "ORG"),
         "comms": (_v("rw"), "ORG"),
@@ -190,12 +194,15 @@ RULES: dict[str, dict[str, Rule]] = {
         "analytics": (_v("r"), "ORG"),
     },
     "R08": {
+        "staff": (_v("rw"), "ORG"),
+        "program": (_v("rw"), "ORG"),
         "billing": (_v("r"), "ORG"),
         "analytics": (_v("r"), "ORG"),
         "comms": (_v("r"), "ORG"),
         "catalog": (_v("r"), "ANY"),
     },
     "R09": {
+        "staff": (_v("rw"), "ORG"),
         "person": (_v("r"), "REL"),
         "booking": (_v("r"), "ORG"),
         "referral": (_v("r"), "ORG"),
@@ -204,6 +211,8 @@ RULES: dict[str, dict[str, Rule]] = {
         "catalog": (_v("rw"), "ORG"),
     },
     "R10": {
+        "integration": (_v("rw"), "ORG"),
+        "staff": (_v("rw"), "ORG"),
         "partner": (_v("rw"), "ORG"),
         "catalog": (_v("r"), "ANY"),
         "evidence": (_v("r"), "ORG"),
@@ -258,6 +267,14 @@ def _rules_digest() -> str:
 # also manage the organization's own team. Hard prohibitions are NOT inherited from nowhere: R13
 # has none, and R04's absence of patient-care rights carries over because the rules are copied.
 RULES["R13"] = {**RULES["R04"], "staff": (_v("rw"), "ORG"), "integration": (_v("rw"), "ORG")}
+
+
+def role_capabilities(role_code: str) -> list[dict[str, object]]:
+    """What a role may do, from the same table the policy engine decides with: resource class, the
+    verbs and the condition (OWN, ORG, REL, ANY). Used to tell a person what their account can
+    reach (DEV-158)."""
+    return [{"resource": res, "verbs": sorted(verbs), "scope": scope}
+            for res, (verbs, scope) in sorted(RULES.get(role_code, {}).items())]
 
 
 # Computed once, after every rule above is final (R13 included).

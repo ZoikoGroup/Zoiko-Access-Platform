@@ -209,3 +209,6 @@ td.mono, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-siz
 
 /* Every control is at least 24 CSS pixels tall (WCAG 2.2 target size, 2.5.8). */
 select { min-height: 32px; }
+
+/* Present for screen readers, not drawn (live announcements) */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

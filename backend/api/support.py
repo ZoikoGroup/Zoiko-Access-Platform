@@ -32,14 +32,14 @@ PURPOSE_BY_ACTOR_TYPE = {  # fallback only, see purpose_for
 }
 
 # Which app a person belongs in. Decided from the kind of login and the roles they hold.
-OPERATIONS_ROLES = frozenset({"R04", "R10", "R11", "R12", "R13"})
+OPERATIONS_ROLES = frozenset({"R04", "R11", "R12", "R13"})
 
 
 PLATFORM_ROLES = frozenset({"R11", "R12"})
 
 
 def home_for(actor_type: str, role_codes: list[str], tenant_type: str = "") -> str:
-    """patient | platform | operations | clinician | payer | employer | partner | none
+    """patient | platform | operations | clinician | payer | employer | partner | developer | none
 
     "platform" is Zoiko's own staff: R11 or R12 in a tenant of type `platform`. The same roles in
     a customer's tenant belong to the customer's operations area instead."""
@@ -58,6 +58,8 @@ def home_for(actor_type: str, role_codes: list[str], tenant_type: str = "") -> s
         return "employer"
     if roles & {"R05", "R06", "R09"}:
         return "partner"
+    if "R10" in roles:
+        return "developer"      # the partner developer console (DEV-161)
     return "none"
 
 
@@ -89,6 +91,7 @@ def endpoint(*methods: str) -> Callable[[View], Callable[..., HttpResponse]]:
             finally:
                 reset_audit_extra(token)
 
+        run.allowed_methods = methods  # type: ignore[attr-defined]  # read by api/openapi.py
         return run
 
     return wrap

@@ -261,15 +261,15 @@
   "group": "Acceptance",
   "title": "Patient inbox keyboard navigation at 320 CSS px",
   "status": "partly",
-  "evidence": "The accessibility scan passes on the patient inbox (browser robot 10), at desktop width only."
+  "evidence": "The patient inbox passes the accessibility scan at 320 pixels wide with no sideways scrolling, and the menu works from the keyboard (browser robot 17). A person on a real phone must still try it."
  },
  {
   "source": "GHE-16",
   "req_id": "TC34",
   "group": "Acceptance",
   "title": "Screen reader receives new-message status",
-  "status": "not_built",
-  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+  "status": "partly",
+  "evidence": "The patient inbox has a polite live region that says how many new messages there are, so a screen reader reads it when the count changes (browser robot 18). There is no push or other notification channel, and no real screen reader was used."
  },
  {
   "source": "GHE-16",

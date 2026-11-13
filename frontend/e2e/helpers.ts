@@ -6,8 +6,9 @@ export const APPS = {
   patient: process.env.E2E_PATIENT ?? "http://localhost:5174",
   platform: process.env.E2E_PLATFORM ?? "http://localhost:5175",
   doctor: process.env.E2E_DOCTOR ?? "http://localhost:5176",
+  partners: process.env.E2E_PARTNERS ?? "http://localhost:5177",
 };
-// Set E2E_STAFF, E2E_PATIENT, E2E_PLATFORM or E2E_DOCTOR if an app is on another address.
+// Set E2E_STAFF, E2E_PATIENT, E2E_PLATFORM, E2E_DOCTOR or E2E_PARTNERS if an app is on another address.
 // Where the robots reach the API directly. Set E2E_API if the backend is not on port 8000.
 export const API = process.env.E2E_API ?? "http://127.0.0.1:8000/api/v1/";
 export const ORG = "E2E Clinic";
@@ -149,3 +150,13 @@ export async function patientInsurance(request: APIRequestContext) {
 }
 
 export const SAFETY = { first: "iyer@zoiko.example", second: "rao@zoiko.example" };
+
+/** The partner, payer and employer test customers from scripts/seed_partners.py (one login each). */
+export const PARTNER_LOGINS = [
+  { role: "R05", org: "E2E Lab", login: "e2e.lab@example.org", name: "Lab or imaging operator", services: true },
+  { role: "R06", org: "E2E Pharmacy", login: "e2e.pharmacy@example.org", name: "Pharmacy or dispensing partner", services: true },
+  { role: "R09", org: "E2E Homecare", login: "e2e.homecare@example.org", name: "Community or home-care partner", services: true },
+  { role: "R07", org: "E2E Payer", login: "e2e.payer@example.org", name: "Payer, insurer or TPA", services: false },
+  { role: "R08", org: "E2E Employer", login: "e2e.employer@example.org", name: "Employer sponsor", services: false },
+  { role: "R10", org: "E2E Developer", login: "e2e.developer@example.org", name: "Integration partner developer", services: false },
+];

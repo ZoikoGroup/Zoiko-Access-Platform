@@ -5,6 +5,10 @@ import { setSession, signIn, type Session } from "../api";
 
 // Where each kind of person belongs.
 const OTHER_APPS: Record<string, { name: string; url: string }> = {
+  partner: { name: "the partner app", url: "http://localhost:5177/" },
+  payer: { name: "the partner app", url: "http://localhost:5177/" },
+  employer: { name: "the partner app", url: "http://localhost:5177/" },
+  developer: { name: "the partner app", url: "http://localhost:5177/" },
   patient: { name: "the patient app", url: "http://localhost:5174/" },
   operations: { name: "the staff console", url: "http://localhost:5173/" },
   platform: { name: "the platform console", url: "http://localhost:5175/" },

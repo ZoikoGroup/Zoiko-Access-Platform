@@ -5,6 +5,10 @@ import { forgotPassword, registerAccount, setSession, signIn, type LoginReply, t
 
 // Where each kind of person belongs. Only the staff console exists besides this app.
 const OTHER_APPS: Record<string, { name: string; url: string }> = {
+  partner: { name: "the partner app", url: "http://localhost:5177/" },
+  payer: { name: "the partner app", url: "http://localhost:5177/" },
+  employer: { name: "the partner app", url: "http://localhost:5177/" },
+  developer: { name: "the partner app", url: "http://localhost:5177/" },
   operations: { name: "the staff console", url: "http://localhost:5173/" },
   platform: { name: "the platform console", url: "http://localhost:5175/" },
   clinician: { name: "the doctor app", url: "http://localhost:5176/" },

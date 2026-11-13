@@ -46,3 +46,26 @@ export interface Referral {
   escalated?: boolean;                   // nobody answered for too long
   responsible?: { id: string; name: string };
 }
+
+export interface Thread {
+  id: string;
+  subject: string;
+  status: "open" | "closed";
+  patient: string;                       // the patient's id
+  patient_name?: string | null;
+  last_message_at: string;
+  unread: number;
+  unread_for_me?: number;                // what THIS login has not opened
+}
+
+export interface ThreadView extends Thread {
+  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; seen_at?: string | null; from?: string }[];
+}
+
+export interface PartnerRequest {
+  id: string; ref_no: string; kind: "lab_order" | "pharmacy_request" | "homecare_referral";
+  partner: string; token: string; patient: string; patient_name?: string | null; label: string;
+  urgency: "routine" | "urgent";
+  state: "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
+  decision_note: string; result_ref: string; created_at: string; result_at: string | null; reviewed_at: string | null;
+}

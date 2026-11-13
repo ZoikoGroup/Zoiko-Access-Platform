@@ -12,8 +12,8 @@
   "req_id": "AT-02",
   "group": "Verification",
   "title": "Browser locale, VPN geoIP and client-submitted country never override verified contract/site/cell.",
-  "status": "partly",
-  "evidence": "A customer's country is set only by Zoiko support, never by the browser or the client (test_country_deadline.py). No test sends a locale or address."
+  "status": "met",
+  "evidence": "A customer's country is set only by Zoiko support, never by the browser or the client (test_country_deadline.py). A locale, address or country sent by the patient never changes the deadline (test_country_deadline.py)."
  },
  {
   "source": "GHE-04",

@@ -40,7 +40,8 @@ from .models import DeliveryState, EndpointState, WebhookDelivery, WebhookEndpoi
 
 WRITE = "write:integration"
 READ = "read:integration"
-MANAGING_ROLES = frozenset({"R13"})
+# R10: a partner developer manages its own keys and webhooks (DEV-161)
+MANAGING_ROLES = frozenset({"R13", "R10"})
 FAMILIES = ("booking.", "delegation.", "family.", "message.", "professional.", "slot.", "waitlist.")
 MAX_ENDPOINTS = 10
 MAX_TOPICS = 10

@@ -108,6 +108,7 @@ export function Messages({ onChanged }: { onChanged: () => Promise<void> }) {
   useEffect(() => { void load(); }, [load]);
 
   async function sent(id: string) { await load(); setOpen(id); await onChanged(); }
+  const unread = (threads ?? []).reduce((n, t) => n + (t.unread_for_me ?? t.unread ?? 0), 0);
 
   return (
     <>
@@ -115,7 +116,11 @@ export function Messages({ onChanged }: { onChanged: () => Promise<void> }) {
         <h1>Messages</h1>
         <p>Write to your clinic about appointments and everyday questions. Messages are stored encrypted. <b>This is not for emergencies or urgent medical problems: call your local emergency number.</b></p>
       </div></div>
-      {error && <div className="error">{error}</div>}
+      {error && <div className="error" role="alert">{error}</div>}
+      {/* Said aloud by a screen reader whenever the number changes (GHE-16 TC34, DEV-155). */}
+      <div className="sr-only" role="status" aria-live="polite" data-testid="inbox-status">
+        {threads === null ? "" : unread === 0 ? "No new messages." : `You have ${unread} new message${unread === 1 ? "" : "s"}.`}
+      </div>
       <div className="grid">
         <Card title={`Conversations (${threads?.length ?? 0})`}>
           {threads === null ? <div className="empty">Loading…</div> : threads.length === 0

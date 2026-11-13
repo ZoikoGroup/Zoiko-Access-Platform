@@ -1,9 +1,15 @@
-from django.urls import include, path
+from django.urls import include, path, re_path
+
+from foundation.error_views import unsupported_version
 
 urlpatterns = [
     path("", include("foundation.urls")),
     path("api/v1/", include("api.urls")),
 ]
+
+# Any other /api/<version>/ answers safely and says which versions exist (GHE-13 T-05).
+urlpatterns.append(re_path(
+    r"^api/(?P<version>[A-Za-z0-9._-]{1,16})/(?P<rest>.*)$", unsupported_version))
 
 # The hand-operated dev console. Every view refuses (404) unless DEBUG and DEV_AUTH_STUB are on.
 urlpatterns.append(path("", include("devconsole.urls")))

@@ -4,7 +4,7 @@ import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
 import type {
-  ClinicSettings, CoverageRow, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, RightsCase, FeeRow, InvoiceRow, Escalation, WorkflowHistory, WorkflowInstance, InboundEvent, PartnerClient, WebhookDelivery, WebhookEndpoint, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
+  ClinicSettings, CoverageRow, ExchangeRequest, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, RightsCase, FeeRow, InvoiceRow, Escalation, WorkflowHistory, WorkflowInstance, InboundEvent, PartnerClient, WebhookDelivery, WebhookEndpoint, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
   BookingRow, Compliance, Dashboard, Directory, Health, LocationRow, Me, PatientRow, ServiceRow,
 } from "./types";
 
@@ -383,3 +383,12 @@ export async function saveDisplayName(name: string): Promise<string> {
 export async function clearDisplayName(): Promise<void> {
   await v1("auth/display-name", { method: "DELETE" });
 }
+
+export const listExchangePartners = async () =>
+  (await v1<{ partners: { id: string; name: string }[] }>("exchange/partners")).partners;
+export const listExchangeRequests = async () =>
+  (await v1<{ requests: ExchangeRequest[] }>("exchange/requests")).requests;
+export const sendExchangeRequest = async (body: { partner: string; kind: string; label: string; token: string; urgency: string; patient: string }) =>
+  (await post<{ request: ExchangeRequest }>("exchange/requests", body)).request;
+export const cancelExchangeRequest = async (id: string) =>
+  (await post<{ request: ExchangeRequest }>(`exchange/requests/${encodeURIComponent(id)}/cancel`)).request;

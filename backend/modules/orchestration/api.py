@@ -17,6 +17,7 @@ from .engine import (
     history,
     list_escalations,
     list_instances,
+    ownerless_count,
     reassign,
     record_escalation,
     resume,
@@ -27,6 +28,7 @@ from .engine import (
 __all__ = [
     "advance", "create_definition", "edit_definition", "fire_all_tenants", "fire_due_timers",
     "history", "list_definitions", "list_escalations", "list_instances", "new_version",
+    "ownerless_count",
     "publish_definition", "reassign", "record_escalation", "resume", "retire_definition",
     "set_overlay", "start",
 ]

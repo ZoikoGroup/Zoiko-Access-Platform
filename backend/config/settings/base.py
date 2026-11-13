@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     "modules.ai",
     "modules.safety",
     "modules.rights",
+    "modules.sponsor",
     "modules.integration",
     "modules.jurisdiction",
     "modules.orchestration",
@@ -76,6 +77,7 @@ INSTALLED_APPS = [
     "modules.messaging",
     "modules.comms",
     "modules.evidence",
+    "modules.exchange",
 ]
 
 MIDDLEWARE = [
@@ -157,6 +159,7 @@ PATIENT_APP_URL = env("PATIENT_APP_URL", "http://localhost:5174").rstrip("/")
 STAFF_APP_URL = env("STAFF_APP_URL", "http://localhost:5173").rstrip("/")
 CLINICIAN_APP_URL = env("CLINICIAN_APP_URL", "http://localhost:5176").rstrip("/")
 PLATFORM_APP_URL = env("PLATFORM_APP_URL", "http://localhost:5175").rstrip("/")
+PARTNER_APP_URL = env("PARTNER_APP_URL", "http://localhost:5177").rstrip("/")
 
 # --- Passwords ------------------------------------------------------------------------------
 # Minimum length. 10 unless the deployment says otherwise, and never below 8. Only the local

@@ -81,7 +81,11 @@ export function Messages({ staff }: { staff: Staff | null }) {
         <h1>Messages</h1>
         <p>Patients writing to {staff.organizationName}. Messages are stored encrypted. These are for appointments and everyday questions, not clinical advice. {waiting > 0 ? `${waiting} unread.` : ""}</p>
       </div></div>
-      {error && <div className="error">{error}</div>}
+      {error && <div className="error" role="alert">{error}</div>}
+      {/* Said aloud by a screen reader whenever the number changes (GHE-16 TC34, DEV-157). */}
+      <div className="sr-only" role="status" aria-live="polite" data-testid="inbox-status">
+        {threads === null ? "" : waiting === 0 ? "No conversations waiting." : `${waiting} conversation${waiting === 1 ? "" : "s"} with new messages.`}
+      </div>
       <div className="grid">
         <Card title={`Conversations (${threads?.length ?? 0})`}>
           {threads === null ? <div className="empty">Loading…</div> : threads.length === 0

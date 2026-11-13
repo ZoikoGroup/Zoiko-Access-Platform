@@ -32,7 +32,7 @@ from .models import Message, MessageView, Side, Thread, ThreadStatus
 
 WRITE_COMMS = "write:comms"
 PATIENT_ROLES = frozenset({"R01", "R02"})
-STAFF_ROLES = frozenset({"R04", "R13"})
+STAFF_ROLES = frozenset({"R04", "R13", "R03"})      # R03: a doctor answers for the clinic (DEV-162)
 MAX_SUBJECT = 120
 MAX_BODY = 2000
 PER_HOUR = 30

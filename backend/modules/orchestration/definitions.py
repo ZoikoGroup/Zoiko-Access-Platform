@@ -19,6 +19,7 @@ from django.db import transaction
 from foundation.cell_context import require_context
 from foundation.errors import ErrorCode, ZoikoError
 from modules.evidence.api import AuditOutcome, record
+from modules.jurisdiction.api import CAPABILITIES
 from modules.policy import api as policy
 
 from .models import DefinitionStatus, WorkflowDefinition
@@ -78,9 +79,23 @@ def check_timers(policies: Any, path: list[str]) -> list[dict[str, Any]]:
     return sorted(clean, key=lambda t: (ORDER.index(t["state"]), t["kind"]))
 
 
+def check_capabilities(value: Any) -> list[str]:
+    """Which country-pack capabilities a definition needs: a list of known names, each once."""
+    if value is None:
+        return []
+    if (not isinstance(value, list) or len(value) > len(CAPABILITIES)
+            or any(not isinstance(v, str) or v not in CAPABILITIES for v in value)
+            or len(set(value)) != len(value)):
+        raise _bad("required_capabilities")
+    return sorted(value)
+
+
 def fingerprint(key: str, version: int, journey: str, path: list[str],
-                policies: list[dict[str, Any]]) -> str:
-    body = {"key": key, "version": version, "journey": journey, "path": path, "timers": policies}
+                policies: list[dict[str, Any]], capabilities: list[str] | None = None) -> str:
+    body: dict[str, Any] = {"key": key, "version": version, "journey": journey, "path": path,
+                            "timers": policies}
+    if capabilities:               # only when set, so older definitions keep their fingerprint
+        body["capabilities"] = capabilities
     return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
                           ).hexdigest()
 
@@ -89,6 +104,7 @@ def definition_dict(d: WorkflowDefinition) -> dict[str, Any]:
     return {
         "public_id": d.public_id, "key": d.key, "version": d.version, "journey": d.journey,
         "path": list(d.path), "timer_policies": list(d.timer_policies), "status": d.status,
+        "required_capabilities": list(d.required_capabilities),
         "content_hash": d.content_hash, "created_at": d.created_at.isoformat(),
         "clinical": bool(set(d.path) & CLINICAL),
     }
@@ -111,9 +127,10 @@ def _own(ref: str) -> WorkflowDefinition:
 
 def create_definition(
     *, key: str, journey: str, path: Any, timer_policies: Any, actor_public_id: str,
-    decision: policy.Decision, organization_ref: str | None,
+    decision: policy.Decision, organization_ref: str | None, required_capabilities: Any = None,
 ) -> dict[str, Any]:
     _managed(decision, actor_public_id, organization_ref)
+    needs = check_capabilities(required_capabilities)
     if not _KEY.match(key or ""):
         raise _bad("key")
     if not _JOURNEY.match(journey or ""):
@@ -125,8 +142,8 @@ def create_definition(
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         row = WorkflowDefinition(
             key=key, version=1, journey=journey, path=clean_path, timer_policies=policies,
-            created_by_ref=actor_public_id,
-            content_hash=fingerprint(key, 1, journey, clean_path, policies), **_scope())
+            required_capabilities=needs, created_by_ref=actor_public_id,
+            content_hash=fingerprint(key, 1, journey, clean_path, policies, needs), **_scope())
         row.save()
         record(actor_ref=actor_public_id, action="orchestration.definition_created",
                object_type="workflow_definition", object_ref=row.public_id,
@@ -136,21 +153,23 @@ def create_definition(
 
 def edit_definition(
     *, definition_ref: str, path: Any, timer_policies: Any, actor_public_id: str,
-    decision: policy.Decision, organization_ref: str | None,
+    decision: policy.Decision, organization_ref: str | None, required_capabilities: Any = None,
 ) -> dict[str, Any]:
     """Only a draft can change; a published definition is frozen."""
     _managed(decision, actor_public_id, organization_ref)
+    needs = check_capabilities(required_capabilities)
     clean_path = check_path(path)
     policies = check_timers(timer_policies, clean_path)
     with transaction.atomic():
         row = _own(definition_ref)
         if row.status != DefinitionStatus.DRAFT:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
-        row.path, row.timer_policies = clean_path, policies
-        row.content_hash = fingerprint(row.key, row.version, row.journey, clean_path, policies)
+        row.path, row.timer_policies, row.required_capabilities = clean_path, policies, needs
+        row.content_hash = fingerprint(row.key, row.version, row.journey, clean_path, policies,
+                                       needs)
         row.entity_version += 1
-        row.save(update_fields=["path", "timer_policies", "content_hash", "entity_version",
-                                "updated_at"])
+        row.save(update_fields=["path", "timer_policies", "required_capabilities", "content_hash",
+                                "entity_version", "updated_at"])
         record(actor_ref=actor_public_id, action="orchestration.definition_edited",
                object_type="workflow_definition", object_ref=row.public_id,
                outcome=AuditOutcome.ALLOWED)
@@ -196,9 +215,10 @@ def new_version(
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)      # one draft at a time
         row = WorkflowDefinition(
             key=old.key, version=latest.version + 1, journey=old.journey, path=old.path,
-            timer_policies=old.timer_policies, created_by_ref=actor_public_id, **_scope())
+            timer_policies=old.timer_policies, required_capabilities=old.required_capabilities,
+            created_by_ref=actor_public_id, **_scope())
         row.content_hash = fingerprint(row.key, row.version, row.journey, row.path,
-                                       row.timer_policies)
+                                       row.timer_policies, list(row.required_capabilities))
         row.save()
         record(actor_ref=actor_public_id, action="orchestration.definition_versioned",
                object_type="workflow_definition", object_ref=row.public_id,

@@ -328,6 +328,14 @@ def overview() -> dict[str, Any]:
     }
 
 
+def role_info(role_code: str) -> dict[str, Any] | None:
+    """The name, workspace and prohibitions the specification gives a role, or None."""
+    row = next((r for r in DEFAULT_ROLES if r[0] == role_code), None)
+    if row is None:
+        return None
+    return {"code": row[0], "name": row[1], "workspace": row[2], "prohibitions": list(row[3])}
+
+
 def context_for(tenant_public_id: str) -> CellContext:
     """The cell and tenant context for a tenant's public id. For trusted code only (dev
     console, jobs): a real request gets its context from the login token."""

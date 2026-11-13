@@ -54,7 +54,7 @@ export interface Dashboard extends Evidence {
   counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
   late: { hours: number; bookings: number; messages: number; data_requests: number };
   today: { confirmed: number; waiting: number; still_to_come: number };
-  attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number; data_requests: number; webhooks_gave_up: number };
+  attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number; data_requests: number; workflows_without_owner: number; partner_results: number; partner_on_hold: number; partner_held_mine: number; webhooks_gave_up: number };
 }
 
 export interface Directory {
@@ -281,6 +281,7 @@ export interface WorkflowInstance {
   overlay: "clear" | "at_risk" | "exception" | "reconciling";
   owner: string;
   owner_name?: string;
+  owner_inactive?: boolean;
   version: number;
   open_escalations: number;
   timers: { kind: string; due_at: string; watches: string }[];
@@ -436,4 +437,12 @@ export interface ReferralInbox {
   fallback: { id: string; name: string } | null;
   doctors: { id: string; name: string }[];
   can_manage: boolean;
+}
+
+export type ExchangeState = "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
+export interface ExchangeRequest {
+  id: string; ref_no: string; kind: "lab_order" | "pharmacy_request" | "homecare_referral";
+  partner: string; partner_ref: string; token: string; patient: string; patient_name?: string | null;
+  label: string; urgency: "routine" | "urgent"; state: ExchangeState; decision_note: string;
+  result_ref: string; on_hold: boolean; hold_owner_name?: string; hold_mine?: boolean; created_at: string; result_at: string | null; reviewed_at: string | null;
 }

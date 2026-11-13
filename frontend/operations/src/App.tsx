@@ -19,6 +19,7 @@ import { Referrals } from "./pages/Referrals";
 import { Billing } from "./pages/Billing";
 import { Engine } from "./pages/Engine";
 import { Integrations } from "./pages/Integrations";
+import { PartnerRequests } from "./pages/PartnerRequests";
 import { RightsRequests } from "./pages/RightsRequests";
 import { Reports } from "./pages/Reports";
 import { WaitingList } from "./pages/WaitingList";
@@ -78,6 +79,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "ai") body = <AiPermits />;
   else if (page === "referrals") body = <Referrals />;
   else if (page === "rights") body = <RightsRequests />;
+  else if (page === "exchange") body = <PartnerRequests />;
   else if (page === "engine") body = <Engine />;
   else if (page === "billing") body = <Billing />;
   else if (page === "integrations") body = <Integrations />;

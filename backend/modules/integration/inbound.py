@@ -43,7 +43,8 @@ from .delivery import sign
 from .models import ClientState, InboundEvent, InboundState, PartnerClient
 
 WRITE = "write:integration"
-MANAGING_ROLES = frozenset({"R13"})
+# R10: a partner developer manages its own keys and webhooks (DEV-161)
+MANAGING_ROLES = frozenset({"R13", "R10"})
 MAX_BODY = 4096
 MAX_SKEW = dt.timedelta(minutes=5)
 MAX_CLIENTS = 10

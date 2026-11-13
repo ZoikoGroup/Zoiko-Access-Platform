@@ -2,7 +2,7 @@
 
 Written 2026-11-12 by the developer, from the specification's own acceptance cases. Each row is a judgement made by reading the case and the code, not an automatic result; "Met" means one of our own automated tests proves the behaviour. The cases have **not** been run as written. This is the developer's reading and nobody else has reviewed it.
 
-**Totals: 3 met, 26 partly, 35 not built (of 64).**
+**Totals: 3 met, 27 partly, 34 not built (of 64).**
 
 What exists is in-app messaging between a patient and their clinic, email through a development inbox, a daily staff digest, and the evidence rules of the workflow engine. The "not built" rows are the real channels (SMS, push, phone), vendors, message templates and approvals, language and right-to-left support, emergency escalation channels and the FHIR communication mapping, which need a provider, a market decision and clinical sign-off.
 
@@ -40,8 +40,8 @@ What exists is in-app messaging between a patient and their clinic, email throug
 | TC30 | Quiet hours suppress routine reminder | Not built | There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet. |
 | TC31 | Clinician declines handoff | Not built | There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet. |
 | TC32 | Safety plan absent/unapproved | Not built | There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet. |
-| TC33 | Patient inbox keyboard navigation at 320 CSS px | Partly | The accessibility scan passes on the patient inbox (browser robot 10), at desktop width only. |
-| TC34 | Screen reader receives new-message status | Not built | There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet. |
+| TC33 | Patient inbox keyboard navigation at 320 CSS px | Partly | The patient inbox passes the accessibility scan at 320 pixels wide with no sideways scrolling, and the menu works from the keyboard (browser robot 17). A person on a real phone must still try it. |
+| TC34 | Screen reader receives new-message status | Partly | The patient inbox has a polite live region that says how many new messages there are, so a screen reader reads it when the count changes (browser robot 18). There is no push or other notification channel, and no real screen reader was used. |
 | TC35 | User selects right-to-left locale | Not built | There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet. |
 | TC36 | Critical template translation lacks approval | Not built | There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet. |
 | TC37 | User updates preferred channel during pending send | Not built | There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet. |

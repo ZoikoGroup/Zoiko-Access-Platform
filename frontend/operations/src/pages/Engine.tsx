@@ -44,7 +44,7 @@ function InstanceRow({ w }: { w: WorkflowInstance }) {
     <div className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
       <div className="info">
         <b>{w.definition} v{w.definition_version} <Pill kind="info">{STATE_TEXT[w.state]}</Pill> <Pill kind={OVERLAY[w.overlay].kind}>{OVERLAY[w.overlay].text}</Pill></b>
-        <small>Reference {w.subject_ref}. Accountable: {w.owner_name || "unknown"}.{w.open_escalations > 0 ? ` ${w.open_escalations} escalation${w.open_escalations === 1 ? "" : "s"} waiting for a person.` : ""}{w.timers.length > 0 ? ` Next timer: ${w.timers[0].due_at.slice(0, 16).replace("T", " ")}.` : ""}</small>
+        <small>Reference {w.subject_ref}. Accountable: {w.owner_name || "unknown"}{w.owner_inactive ? " (can no longer act: reassign)" : ""}.{w.open_escalations > 0 ? ` ${w.open_escalations} escalation${w.open_escalations === 1 ? "" : "s"} waiting for a person.` : ""}{w.timers.length > 0 ? ` Next timer: ${w.timers[0].due_at.slice(0, 16).replace("T", " ")}.` : ""}</small>
       </div>
       <div className="form-row">
         <button className="btn ghost" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide the history" : "Show the history"}</button>

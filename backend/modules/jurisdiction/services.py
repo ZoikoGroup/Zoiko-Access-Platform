@@ -309,6 +309,20 @@ def pack_covers(
     return None
 
 
+def enabled_capabilities(country: str, clock: Clock | None = None) -> frozenset[str]:
+    """Every capability switched on by at least one SIGNED, unexpired, unsuspended pack for this
+    country (a suspended or draft pack counts for nothing). Call with the platform tenant bound
+    (DEV-156)."""
+    if not country:
+        return frozenset()
+    today = utc_now(clock).date()
+    on: set[str] = set()
+    for p in CountryPack.objects.filter(country=country, status=PackStatus.SIGNED, **_scope()):
+        if not _expired(p, today):
+            on |= {name for name, value in p.manifest["capabilities"].items() if value}
+    return frozenset(on)
+
+
 def list_packs(clock: Clock | None = None) -> list[dict[str, Any]]:
     rows = CountryPack.objects.filter(**_scope()).order_by("country", "pack_ref", "-revision")
     return [pack_dict(r, clock) for r in rows]

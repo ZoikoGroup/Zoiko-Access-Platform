@@ -2,14 +2,14 @@
 
 Written 2026-11-12 by the developer, from the specification's own acceptance cases. Each row is a judgement made by reading the case and the code, not an automatic result; "Met" means one of our own automated tests proves the behaviour. The cases have **not** been run as written. This is the developer's reading and nobody else has reviewed it.
 
-**Totals: 5 met, 18 partly, 13 not built (of 36).**
+**Totals: 6 met, 17 partly, 13 not built (of 36).**
 
 What exists is a recorded, reviewed and approved-on-record country pack with an expiry, a fingerprint and a veto, and one applied setting (the data-request deadline). The "not built" rows are mostly the signed manifest, cell staging, preflight, a run-time resolver and the transfer and market controls, none of which can be built without cells, signing keys and approvers.
 
 | Case | Group | What the specification tests | Status | Why, and where it is tested |
 |---|---|---|---|---|
 | AT-01 | Verification | Unknown country/service returns DENY, not default UK/US allow. | Partly | An unknown country gives no deadline and never an allow (test_country_deadline.py). Nothing else consults packs, so there is no resolver to deny anything. |
-| AT-02 | Verification | Browser locale, VPN geoIP and client-submitted country never override verified contract/site/cell. | Partly | A customer's country is set only by Zoiko support, never by the browser or the client (test_country_deadline.py). No test sends a locale or address. |
+| AT-02 | Verification | Browser locale, VPN geoIP and client-submitted country never override verified contract/site/cell. | Met | A customer's country is set only by Zoiko support; a locale, address or country sent by the patient never changes the deadline (test_country_deadline.py). |
 | AT-03 | Verification | Country and subnational conflicts resolve to the stricter eligible authorization. | Partly | For the deadline, the strictest signed pack wins (test_country_deadline.py). Subnational rules are not modelled. |
 | AT-04 | Verification | Missing licensing/legal entity blocks regulated service regardless of approved billing. | Not built | No licensing or legal-entity check exists; the pack only records an evidence status. |
 | AT-05 | Verification | Provider license expired or scoped to wrong subregion blocks clinical handoff. | Not built | Provider licences are not modelled. |

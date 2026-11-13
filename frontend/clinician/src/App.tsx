@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { dropDevLogin } from "@shared/devLogin";
-import { changePassword, clearDisplayName, getDisplayName, getNameCheck, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, getPurpose, loadSession, setPurpose, setSession, signOutEverywhere, type Purpose, type Session } from "./api";
+import { changePassword, clearDisplayName, getDisplayName, getNameCheck, getPartnerRequests, getThreads, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, getPurpose, loadSession, setPurpose, setSession, signOutEverywhere, type Purpose, type Session } from "./api";
 import { NAV, type PageId } from "./nav";
 import { Account } from "./Account";
 import { Patients } from "./pages/Patients";
 import { Planned } from "./pages/Planned";
+import { Messages } from "./pages/Messages";
+import { PartnerResults } from "./pages/PartnerResults";
 import { Referrals } from "./pages/Referrals";
 import { clearLink, LinkPage, readLinkAction } from "./pages/LinkActions";
 import { Schedule } from "./pages/Schedule";
@@ -41,6 +43,12 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   const [patientQuery, setPatientQuery] = useState("");      // set by the top-bar search
   const [health, setHealth] = useState<{ api: Health; database: Health }>({ api: "checking", database: "checking" });
   const me = useLoad(getMe, 120_000);
+  const threads = useLoad(getThreads, 60_000);
+  const partnerRequests = useLoad(getPartnerRequests, 60_000);
+  const badges = {
+    messages: (threads.data ?? []).filter((t) => (t.unread_for_me ?? t.unread) > 0).length,
+    results: (partnerRequests.data ?? []).filter((r) => r.state === "result_available").length,
+  };
   const [why, setWhy] = useState<Purpose>(getPurpose());         // the reason sent with every request
 
   const poll = useCallback(async () => setHealth(await checkHealth()), []);
@@ -59,6 +67,8 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
   else if (page === "patients") body = <Patients key={patientQuery} initialSearch={patientQuery} />;
   else if (page === "referrals") body = <Referrals />;
+  else if (page === "messages") body = <Messages />;
+  else if (page === "results") body = <PartnerResults />;
   else body = <Schedule />;
 
   return (
@@ -67,7 +77,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
       <Topbar displayName={shownName} tenantName={session.tenantName} login={session.login}
         roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
         onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} />
-      <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} />
+      <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} badges={badges} />
       <main className="content" id="main" tabIndex={0}>
         <div className="notice" role="group" aria-label="Why you are working" style={{ marginBottom: 12 }}>
           <label>Why are you opening patient records?{" "}

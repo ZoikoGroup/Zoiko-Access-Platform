@@ -5,6 +5,7 @@ APPROVES it; the person who asked can only cancel their own request. A suspended
 sign in and its open sessions stop working (the sign-in and token checks already require an active
 customer). The platform's own tenant can never be suspended.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -15,6 +16,7 @@ from foundation.cell_context import require_context, tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
+from modules.exchange import api as exchange
 from modules.policy import api as policy
 
 from .models import (
@@ -32,15 +34,22 @@ WRITE_PLATFORM = "write:platform"
 MAX_LIST = 100
 _NEEDS = {SuspensionKind.SUSPEND: Status.ACTIVE, SuspensionKind.REINSTATE: Status.SUSPENDED}
 _BECOMES = {SuspensionKind.SUSPEND: Status.SUSPENDED, SuspensionKind.REINSTATE: Status.ACTIVE}
-_CUSTOMER_ACTION = {SuspensionKind.SUSPEND: "tenant.suspended",
-                    SuspensionKind.REINSTATE: "tenant.reinstated"}
+_CUSTOMER_ACTION = {
+    SuspensionKind.SUSPEND: "tenant.suspended",
+    SuspensionKind.REINSTATE: "tenant.reinstated",
+}
 
 
 def suspension_dict(row: Suspension) -> dict[str, Any]:
     return {
-        "public_id": row.public_id, "customer_ref": row.customer_ref, "kind": row.kind,
-        "reason": row.reason, "status": row.status, "requested_by_ref": row.requested_by_ref,
-        "decided_by_ref": row.decided_by_ref, "decision_note": row.decision_note,
+        "public_id": row.public_id,
+        "customer_ref": row.customer_ref,
+        "kind": row.kind,
+        "reason": row.reason,
+        "status": row.status,
+        "requested_by_ref": row.requested_by_ref,
+        "decided_by_ref": row.decided_by_ref,
+        "decision_note": row.decision_note,
         "decided_at": row.decided_at.isoformat() if row.decided_at else None,
         "created_at": row.created_at.isoformat(),
     }
@@ -48,8 +57,12 @@ def suspension_dict(row: Suspension) -> dict[str, Any]:
 
 def _receipt(decision: policy.Decision, actor: str, org: str | None) -> None:
     policy.check_receipt(
-        decision, actor_public_id=actor, operation=WRITE_PLATFORM,
-        organization_public_id=org, subject_ref=None)
+        decision,
+        actor_public_id=actor,
+        operation=WRITE_PLATFORM,
+        organization_public_id=org,
+        subject_ref=None,
+    )
 
 
 def _customer(customer_public_id: str) -> dict[str, str]:
@@ -63,8 +76,11 @@ def _customer(customer_public_id: str) -> dict[str, str]:
 
 def _own(request_ref: str) -> Suspension:
     ctx = require_context()
-    row = Suspension.objects.select_for_update().filter(
-        public_id=request_ref, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id).first()
+    row = (
+        Suspension.objects.select_for_update()
+        .filter(public_id=request_ref, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id)
+        .first()
+    )
     if row is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     return row
@@ -91,11 +107,19 @@ def request_change(
     try:
         with tenant_transaction(), transaction.atomic():
             row = Suspension.objects.create(
-                customer_ref=customer_public_id, kind=kind, reason=clean_reason,
-                requested_by_ref=actor_public_id)
-            record(actor_ref=actor_public_id, action="platform.suspension_request",
-                   object_type="tenant", object_ref=customer_public_id,
-                   outcome=AuditOutcome.ALLOWED, details={"kind": kind})
+                customer_ref=customer_public_id,
+                kind=kind,
+                reason=clean_reason,
+                requested_by_ref=actor_public_id,
+            )
+            record(
+                actor_ref=actor_public_id,
+                action="platform.suspension_request",
+                object_type="tenant",
+                object_ref=customer_public_id,
+                outcome=AuditOutcome.ALLOWED,
+                details={"kind": kind},
+            )
     except IntegrityError:
         raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None
     return suspension_dict(row)
@@ -128,22 +152,43 @@ def decide_change(
             if current["status"] != _NEEDS[kind]:
                 raise ZoikoError(ErrorCode.CONFLICT_VERSION)
             Tenant.objects.filter(public_id=row.customer_ref).update(status=_BECOMES[kind])
+            # Requests still open with this customer wait on a person at the other side (DEV-169).
+            if kind == SuspensionKind.SUSPEND:
+                exchange.hold_open_for(row.customer_ref, actor_ref=actor_public_id)
+            else:
+                exchange.release_open_for(row.customer_ref, actor_ref=actor_public_id)
         row.status = SuspensionStatus.APPLIED if approve else SuspensionStatus.REJECTED
         row.decided_by_ref, row.decision_note = actor_public_id, clean_note
         row.decided_at = utc_now(clock)
         row.entity_version += 1
-        row.save(update_fields=[
-            "status", "decided_by_ref", "decision_note", "decided_at", "entity_version",
-            "updated_at"])
-        record(actor_ref=actor_public_id,
-               action="platform.suspension_approve" if approve else "platform.suspension_reject",
-               object_type="tenant", object_ref=row.customer_ref, outcome=AuditOutcome.ALLOWED,
-               details={"kind": row.kind})
+        row.save(
+            update_fields=[
+                "status",
+                "decided_by_ref",
+                "decision_note",
+                "decided_at",
+                "entity_version",
+                "updated_at",
+            ]
+        )
+        record(
+            actor_ref=actor_public_id,
+            action="platform.suspension_approve" if approve else "platform.suspension_reject",
+            object_type="tenant",
+            object_ref=row.customer_ref,
+            outcome=AuditOutcome.ALLOWED,
+            details={"kind": row.kind},
+        )
         done = suspension_dict(row)
-    if approve:             # the customer's own chain records it too (who did it, no more)
+    if approve:  # the customer's own chain records it too (who did it, no more)
         with tenant_transaction(context_for(done["customer_ref"])):
-            record(actor_ref=actor_public_id, action=_CUSTOMER_ACTION[kind], object_type="tenant",
-                   object_ref=done["customer_ref"], outcome=AuditOutcome.ALLOWED)
+            record(
+                actor_ref=actor_public_id,
+                action=_CUSTOMER_ACTION[kind],
+                object_type="tenant",
+                object_ref=done["customer_ref"],
+                outcome=AuditOutcome.ALLOWED,
+            )
     return done
 
 
@@ -166,11 +211,17 @@ def cancel_change(
         row.status, row.decided_by_ref = SuspensionStatus.CANCELLED, actor_public_id
         row.decided_at = utc_now(clock)
         row.entity_version += 1
-        row.save(update_fields=["status", "decided_by_ref", "decided_at", "entity_version",
-                                "updated_at"])
-        record(actor_ref=actor_public_id, action="platform.suspension_cancel",
-               object_type="tenant", object_ref=row.customer_ref, outcome=AuditOutcome.ALLOWED,
-               details={"kind": row.kind})
+        row.save(
+            update_fields=["status", "decided_by_ref", "decided_at", "entity_version", "updated_at"]
+        )
+        record(
+            actor_ref=actor_public_id,
+            action="platform.suspension_cancel",
+            object_type="tenant",
+            object_ref=row.customer_ref,
+            outcome=AuditOutcome.ALLOWED,
+            details={"kind": row.kind},
+        )
         return suspension_dict(row)
 
 

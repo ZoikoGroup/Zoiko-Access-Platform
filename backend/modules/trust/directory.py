@@ -45,6 +45,12 @@ def actor_labels() -> dict[str, str]:
     return {pid: names.get(pid) or label_for(kind, subject, pid) for pid, kind, subject in rows}
 
 
+def inactive_actors() -> set[str]:
+    """public ids of this tenant's logins that are no longer active (suspended or closed)."""
+    return set(Actor.objects.filter(**_scope()).exclude(status=Status.ACTIVE)
+               .values_list("public_id", flat=True))
+
+
 def staff_directory() -> dict[str, Any]:
     """Organizations and STAFF logins with the roles they hold."""
     scope = _scope()

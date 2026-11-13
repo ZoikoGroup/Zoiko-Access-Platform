@@ -17,13 +17,14 @@ import { Privacy } from "./pages/Privacy";
 import { Profile } from "./pages/Profile";
 import { Help } from "./pages/Help";
 import { Referrals } from "./pages/Referrals";
+import { MyRequests } from "./pages/MyRequests";
 import { SignIn } from "./pages/SignIn";
 import { QuickSearch } from "./QuickSearch";
 import { Icon, Logo } from "./ui";
 
 export type PageId =
   | "dashboard" | "find" | "appointments" | "referrals" | "records" | "careteam" | "family"
-  | "bills" | "insurance" | "messages" | "notifications" | "privacy" | "profile" | "help";
+  | "bills" | "insurance" | "messages" | "notifications" | "privacy" | "profile" | "help" | "requests";
 
 interface NavItem { id: PageId; label: string; icon: string; waitsFor?: string }
 
@@ -32,6 +33,7 @@ const NAV: NavItem[] = [
   { id: "find", label: "Find Healthcare", icon: "search" },
   { id: "appointments", label: "Appointments", icon: "appointments" },
   { id: "referrals", label: "My Referrals", icon: "referrals" },
+  { id: "requests", label: "My Tests & Requests", icon: "services" },
   { id: "records", label: "My Health Records", icon: "services", waitsFor: "Health records need the clinical record service, a later phase." },
   { id: "careteam", label: "My Care Team", icon: "providers" },
   { id: "family", label: "Family Members", icon: "patients" },
@@ -43,7 +45,7 @@ const NAV: NavItem[] = [
   { id: "profile", label: "My Profile", icon: "settings" },
   { id: "help", label: "Help & Support", icon: "integrations" },
 ];
-const LIVE: PageId[] = ["dashboard", "find", "appointments", "referrals", "notifications", "profile", "insurance", "careteam", "privacy", "family", "messages", "help", "bills"];
+const LIVE: PageId[] = ["dashboard", "find", "appointments", "referrals", "notifications", "profile", "insurance", "careteam", "privacy", "family", "messages", "help", "bills", "requests"];
 
 function startPage(): PageId {
   const wanted = new URLSearchParams(window.location.search).get("page");
@@ -137,6 +139,7 @@ export default function App() {
   else if (page === "insurance") body = <Insurance coverage={coverage} hasPatient={me.persons.length > 0} onChanged={refresh} />;
   else if (page === "profile") body = <Profile key={profiles.map((x) => x.name).join("|")} profiles={profiles} onSaved={refresh} />;
   else if (page === "referrals") body = <Referrals referrals={referrals} />;
+  else if (page === "requests") body = <MyRequests />;
   else if (page === "notifications") body = <Notifications notices={notices} unread={unread} onChanged={refresh} goToProfile={() => setPage("profile")} />;
   else body = <Dashboard name={name} me={me} bookings={bookings} notices={notices} referrals={referrals} goTo={setPage} />;
 

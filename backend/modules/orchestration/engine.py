@@ -31,6 +31,7 @@ from django.db.models import Q
 from foundation.cell_context import require_context, tenant_transaction
 from foundation.chain import GENESIS, chain_digest, verify_chain
 from foundation.errors import ErrorCode, ZoikoError
+from foundation.outbox import emit
 from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
@@ -151,6 +152,12 @@ def _append(
             row.save()
     except IntegrityError:
         raise _conflict() from None
+    # In the same transaction as the step, so a step that commits always has its event and one that
+    # rolls back never does (GHE-12 WF-T43, DEV-153). References only.
+    emit(event_type="workflow.changed.v1", aggregate_type="workflow", aggregate_ref=inst.public_id,
+         payload={"instance_ref": inst.public_id, "kind": kind, "state": inst.state,
+                  "overlay": inst.overlay},
+         ordering_key=inst.public_id)
     return row
 
 
@@ -272,7 +279,8 @@ def _start_timers(inst: WorkflowInstance, now: dt.datetime) -> None:
 def start(
     *, definition_key: str, subject_ref: str, organization_ref: str, owner_ref: str,
     evidence: Any, purpose: str, actor_public_id: str, decision: policy.Decision,
-    idempotency_key: str = "", clock: Clock | None = None,
+    idempotency_key: str = "", enabled_capabilities: frozenset[str] | None = None,
+    clock: Clock | None = None,
 ) -> dict[str, Any]:
     """NONE -> REQUESTED. Needs a staff actor, the request origin as evidence, a named owner.
 
@@ -301,6 +309,10 @@ def start(
             .order_by("-version").first())
         if definition is None:
             raise ZoikoError(ErrorCode.NOT_FOUND)
+        # GHE-12 WF-T01 (DEV-156): a definition that needs country-pack capabilities starts only
+        # where a signed, current pack switches every one of them on. No answer means no.
+        if set(definition.required_capabilities) - (enabled_capabilities or frozenset()):
+            raise ZoikoError(ErrorCode.JURISDICTION_INACTIVE)
         inst = WorkflowInstance(
             definition=definition, definition_key=definition.key,
             definition_version=definition.version, journey=definition.journey,
@@ -351,9 +363,14 @@ def _closure_digest(inst: WorkflowInstance) -> str:
 def advance(
     *, instance_ref: str, organization_ref: str, expected_version: int, to_state: str,
     evidence: Any, idempotency_key: str, purpose: str, note: str, actor_public_id: str,
-    decision: policy.Decision, incident_owner_ref: str = "", clock: Clock | None = None,
+    decision: policy.Decision, incident_owner_ref: str = "",
+    enabled_capabilities: frozenset[str] | None = None, clock: Clock | None = None,
 ) -> dict[str, Any]:
-    """Move to the next state (or cancel, block or close) on typed evidence, once, safely."""
+    """Move to the next state (or cancel, block or close) on typed evidence, once, safely.
+
+    A workflow whose definition needs country-pack capabilities stops moving forward when a signed
+    current pack no longer switches them on (suspended, expired, withdrawn): GHE-13 T-62, DEV-160.
+    Cancelling and blocking stay possible, so a person can always close it down safely."""
     _receipt(decision, actor_public_id, organization_ref)
     if to_state not in State.values:
         raise _bad("to_state")
@@ -369,6 +386,10 @@ def advance(
             return instance_dict(inst)
         _may_commit(inst, actor_public_id, decision)
         _hold_if_broken(inst)
+        if (to_state not in ("cancelled", "blocked")
+                and set(inst.definition.required_capabilities) - (enabled_capabilities
+                                                                  or frozenset())):
+            raise ZoikoError(ErrorCode.JURISDICTION_INACTIVE)
         if to_state in OWNER_ONLY_TARGETS and actor_public_id != inst.owner_ref:
             raise ZoikoError(ErrorCode.POLICY_DENIED)  # not on the responsible person's behalf
         if inst.entity_version != expected_version:
@@ -617,12 +638,28 @@ def list_instances(organization_ref: str, *, workbench: bool = False, state: str
         if state not in State.values:
             raise _bad("state")
         rows = rows.filter(state=state)
+    gone = trust.inactive_actors()
     if workbench:        # the exception workbench: anything that needs a person (WF-15)
         waiting = Escalation.objects.filter(
             status=EscalationStatus.OPEN, **_scope()).values_list("instance_id", flat=True)
         rows = rows.exclude(state__in=list(TERMINAL)).filter(
-            ~Q(overlay=Overlay.CLEAR) | Q(state=State.BLOCKED) | Q(id__in=waiting))
-    return [instance_dict(r) for r in rows.order_by("-created_at")[: min(limit, 200)]]
+            ~Q(overlay=Overlay.CLEAR) | Q(state=State.BLOCKED) | Q(id__in=waiting)
+            | Q(owner_ref__in=gone))
+    out = [instance_dict(r) for r in rows.order_by("-created_at")[: min(limit, 200)]]
+    for item in out:      # WF-T42: a live workflow whose owner can no longer act says so
+        item["owner_inactive"] = item["owner"] in gone and item["state"] not in TERMINAL
+    return out
+
+
+def ownerless_count(organization_ref: str) -> int:
+    """Live workflows whose accountable owner has been deactivated and so cannot move them (GHE-12
+    WF-T42, DEV-154). An administrator can still reassign them."""
+    gone = trust.inactive_actors()
+    if not gone:
+        return 0
+    return WorkflowInstance.objects.filter(
+        organization_ref=organization_ref, owner_ref__in=gone, **_scope()
+    ).exclude(state__in=list(TERMINAL)).count()
 
 
 def list_escalations(organization_ref: str, open_only: bool = True) -> list[dict[str, Any]]:

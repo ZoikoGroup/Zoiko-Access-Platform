@@ -50,6 +50,9 @@ class WorkflowDefinition(CellScopedModel):
     journey = models.CharField(max_length=64)
     path = models.JSONField(default=list)                     # the states it goes through
     timer_policies = models.JSONField(default=list)           # [{state, kind, after_minutes}]
+    # Country-pack capabilities the customer's country must have switched on before this starts
+    # (TEMPORARY proposal, DEV-156). Empty means no pack is needed.
+    required_capabilities = models.JSONField(default=list)
     status = models.CharField(max_length=10, choices=DefinitionStatus.choices,
                               default=DefinitionStatus.DRAFT)
     content_hash = models.CharField(max_length=64)

@@ -1108,6 +1108,193 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Checked:** `test_message_idempotency.py` (9 tests) and browser robot 17, which opens every page of the four apps at 320 pixels and checks for sideways scrolling and the automated accessibility rules; a person on a real phone or magnified screen must still try it.
 - **Not built:** keys are not shared across devices; the robot finds mechanical failures only.
 
+### DEV-149: an unsupported API version gets a safe, guiding answer (GHE-13 T-05)
+
+- **What was done:** any request under `/api/<version>/` that no route answers now returns the standard not-found body; for an unknown major version it also carries `X-Supported-Api-Versions: v1` and a `successor-version` link to `/api/v1/`. Nothing is echoed back, nothing redirects, and a known version with an unknown path stays an ordinary not-found.
+- **Effect on the comparison:** T-05 moves from not built to **partly**; external API now 11 met, 18 partly, 35 not built (of 64).
+- **Not built:** deprecation and sunset headers and a published version policy (only v1 exists).
+- **Checked:** `test_api_versions.py` (5 tests).
+
+### DEV-150: an OpenAPI 3.1 description of the live API, with a drift check (GHE-13 T-01, T-04, T-08)
+
+- **What was done:** `api/openapi.py` builds the document from the real routes (so it cannot list one that does not exist) and `GET /api/v1/openapi.json` serves it without a login. `endpoint` now records its methods for this. A checked-in snapshot (`api/openapi.snapshot.json`) and a test fail when the API changes without the snapshot being refreshed (`ZOIKO_WRITE_OPENAPI=1`).
+- **Effect on the comparison:** T-01 and T-04 move from not built to **partly**, T-08 to **met**; external API now 12 met, 20 partly, 32 not built (of 64).
+- **Not built:** field-by-field request and response schemas (the views read plain JSON), examples, an external OpenAPI validator, telling a breaking change from an additive one, blocking a release.
+- **Checked:** `test_openapi.py` (7 tests), ruff and mypy.
+
+### DEV-151: a catalogue of published events and an AsyncAPI document (GHE-13 T-02)
+
+- **What was done:** `foundation/event_catalog.py` lists the 18 events the product publishes (plus the verification ping sent straight to a partner), what each is about and which reference fields it carries, with a schema hash each. `GET /api/v1/asyncapi.json` serves the AsyncAPI 3.0 document built from it, with no login. A test reads the source and fails if code publishes an event that is not listed or the list names one nobody publishes; a checked-in snapshot shows any change (refresh with `ZOIKO_WRITE_OPENAPI=1`, which now refreshes both documents).
+- **Effect on the comparison:** T-02 moves from not built to **partly**; external API now 12 met, 21 partly, 31 not built (of 64).
+- **Not built:** an approved topic review, an external AsyncAPI validator, field types beyond "string", examples, and a check of the real payload against the listed fields at publish time.
+- **Checked:** `test_event_catalog.py` (6 tests), ruff and mypy.
+
+### DEV-152: a published event is checked against its catalogue entry (GHE-13 T-02, T-04 groundwork)
+
+- **What was done:** `emit()` now refuses (OutboxError) an event whose subject, required fields or extra fields differ from its entry in `foundation/event_catalog.py`, so the AsyncAPI document cannot disagree with what is really sent. An event type the catalogue does not know is still allowed here; the source scan in `test_event_catalog.py` finds those.
+- **Effect on the comparison:** none on the counts; it closes the "payload not checked at publish time" gap listed in DEV-151.
+- **Checked:** the 15 suites that publish events (291 tests, run with `--ds=config.settings.test`) all pass, plus 2 new tests of the check itself.
+
+### DEV-153: each workflow step publishes an event in its own transaction (GHE-12 WF-T43)
+
+- **What was done:** every step of the workflow engine (move, overlay, owner, review, handoff, timers) now emits `workflow.changed.v1` through the outbox inside the same transaction, carrying only the instance reference, the kind of step, the state and the overlay, ordered per instance. The event is in the catalogue (DEV-151) and in the AsyncAPI snapshot.
+- **Effect on the comparison:** WF-T43 moves from not built to **met**; the workflow engine stands at **23 met, 14 partly, 23 not built** (of 60).
+- **Not built:** nothing consumes the event yet; partners cannot subscribe to it (it is not in a webhook family).
+- **Checked:** 2 new tests in `test_orchestration.py` (one event per step with references only; a refused step leaves none), the whole of `test_orchestration.py` (117 with the catalogue tests) passes, ruff and mypy clean.
+
+### DEV-154: a workflow whose owner has left is flagged, not silently stuck (GHE-12 WF-T42)
+
+- **What was done:** `trust.inactive_actors()` lists a customer's suspended or ended logins. The workflow list marks a live workflow whose owner is one of them (`owner_inactive`), the exception workbench includes it, and the staff dashboard counts it (`workflows_without_owner`, with a line on the dashboard and a note on the workflow card). An administrator reassigns it with the existing reassign step.
+- **Effect on the comparison:** WF-T42 moves from not built to **partly**; the workflow engine stands at **23 met, 15 partly, 22 not built** (of 60).
+- **Not built:** automatic reassignment, an on-call rota, and a safety-relevant flag on a workflow (the specification names a designated on-call owner).
+- **Checked:** 1 new test in `test_orchestration.py` (flag, workbench, dashboard count, reassign clears it), the two whole-dashboard comparisons in `test_attention.py` updated for the new number, both files pass, ruff, mypy and the operations type-check clean.
+
+### DEV-155: the patient inbox announces new messages to a screen reader (GHE-16 TC33, TC34)
+
+- **What was done:** the patient Messages page has a visually hidden polite live region ("You have 2 new messages." / "No new messages.") that follows the unread count, and its error line is now an alert. Browser robot 18 checks the region; robot 17 (DEV-148) already covers the inbox at 320 pixels and the keyboard menu.
+- **Effect on the comparison:** TC33 stays **partly** (its proof is a browser robot and the matrix accepts Met only with a named backend test), its evidence now says robot 17 covers the inbox at 320 pixels; TC34 moves from not built to **partly**; secure communications now 3 met, 27 partly, 34 not built (of 64).
+- **Not built:** a push or other notification channel, a real screen-reader test, and the same announcement in the staff and doctor inboxes.
+- **Checked:** robot 18 passes; the patient type-check is clean.
+
+### DEV-156: a workflow definition can require country-pack capabilities (TEMPORARY, GHE-12 WF-T01, WF-T03)
+
+- **What was done:** a definition has `required_capabilities` (known country-pack capability names, each once; part of its fingerprint only when set; carried into a new version; changeable while a draft). Starting a workflow on such a definition needs every one of them switched on by a signed, unexpired, unsuspended pack for the customer's country (`jurisdiction.enabled_capabilities`, read in the platform tenant outside the customer's transaction, like the data-request deadline); otherwise the start is refused with 403 JURISDICTION_INACTIVE and no workflow is made. No answer means no. Running workflows are not stopped. A country in the request body is ignored. Migration `orchestration/0003_definition_capabilities`.
+- **TEMPORARY:** the specification says a definition is bound to a country pack, but not how. This proposal (a list of required capabilities, a union over the signed packs of the country) is ours, for the lead to confirm: whether several packs add up or the strictest wins, and whether a running workflow should be paused when its pack is suspended (we leave it running).
+- **Effect on the comparison:** WF-T01 and WF-T03 move to **met**; the workflow engine stands at **25 met, 15 partly, 20 not built** (of 60).
+- **Not built:** pausing running workflows when a pack is suspended, a per-definition pack revision pin, and gating the other engine steps (only the start is gated).
+- **Checked:** `test_workflow_packs.py` (17 tests), ruff, mypy, import-linter and `makemigrations --check` clean; the neighbouring suites (orchestration, OpenAPI, catalogue, packs, readiness) are rerun once.
+
+### DEV-157: the staff inbox announces waiting conversations to a screen reader (GHE-16 TC34)
+
+- **What was done:** the staff Messages page has the same hidden polite live region as the patient inbox (DEV-155) ("2 conversations with new messages." / "No conversations waiting."), and its error line is an alert. Robot 18 now checks both inboxes.
+- **Effect on the comparison:** none on the counts (TC34 was already partly); it closes the "not in the staff inbox" gap named in DEV-155. The doctor app has no inbox yet.
+- **Checked:** robot 18 (2 tests) passes; the operations type-check is clean.
+
+### DEV-158: a partner app for the lab, pharmacy, home-care, payer and employer roles (TEMPORARY)
+
+- **What was done:** the specification names 13 roles; R05, R06, R07, R08 and R09 had rules in the policy table but nowhere to sign in. A new app, `frontend/partners` (port 5177), serves them: sign-in (anyone whose account belongs elsewhere is pointed to their own app and given no session), an **Overview** that names the role, lists what it may reach (read from the same rules table the server enforces, `policy.role_capabilities`, never a second copy), what it never does (the specification's prohibitions), what is connected today and what waits for a decision; and, for R05, R06 and R09, **My services** (add a service, ask for a listing). R07 (payer) and R08 (employer) get the overview only. Behind it: `GET /api/v1/portal/overview`; Zoiko support can now onboard a customer of each kind (`kind`: provider, lab, pharmacy, homecare, payer, employer, developer), whose first user holds the one role of that kind and gets an invitation that opens the right app (`PARTNER_APP_URL`); the platform app's add-customer form has the choice; `scripts/seed_partners.py` makes one test customer per role. R10 (partner developer) already signs in to the staff console, where Integrations is the developer console: onboarding as `developer` gives that role.
+- **TEMPORARY:** the specification names the portals but not how a partner, payer or employer is admitted, or who reviews a partner's service listing. We let R05, R06 and R09 ask for a listing; reviewing and publishing still need an organisation administrator, and a partner organisation has none, so its listing waits (the screen says so). The lead decides who reviews (Zoiko support, a second partner user, or an administrator role for partners). Update: DEV-159 lets a colleague of the same kind review it.
+- **Not built:** anything that needs data that has no model yet: referrals, orders and results for labs and pharmacies (clinical record and exchange services), entitlement checks and claims for payers, programme counts for employers (no cohort or enrolment model; whatever is built must show counts only, GHE-17), team invitations for partner organisations, and the wider partner workspace in GHE-15.
+- **Corrected earlier statement:** R10 can sign in (to the staff console); the earlier answer that it cannot was wrong. Seven roles had a place to sign in before this; now twelve do (R01 to R13), with R10 inside the staff console.
+- **Checked:** `test_partner_portal.py` (25 tests: onboarding each kind, invitation to the right app and first sign-in, the overview from the real rules, partner services, payer and employer refused), `test_listing_states.py` still passes, ruff, mypy and import-linter clean; browser robot 19 (8 tests) and robot 17 now covers the partner app at 320 pixels; all five apps type-check.
+
+### DEV-159: partner teams, employer programme counts, payer plans and cover checks (TEMPORARY)
+
+- **What was done:** three of the four gaps left by DEV-158 are now real, on temporary proposals.
+  - **Team.** A partner, payer or employer user adds colleagues of their own kind to their own organisation, suspends and reinstates them (never themselves) and sends an invitation again (`/portal/team`; `trust.invite_colleague`). The five roles now hold the `staff` right on their own organisation. A colleague of the same kind can review and publish a partner's service listing, never their own request, which also settles the open "who reviews a partner's listing" question for now.
+  - **Employer programme.** A new module `modules/sponsor` holds the employer's enrolled people by an opaque reference (3 to 40 plain characters, never a name), added or withdrawn in batches of up to 200. The employer only ever reads counts, and a count of 1 up to one less than `SPONSOR_MIN_GROUP` (default 10) is hidden, so a small group cannot point at a person; zero is shown as zero. There is no endpoint that returns the references. A new policy resource class `program` is held only by the employer role; the specification's prohibitions on person, booking, referral and the rest still stand.
+  - **Payer.** The same module holds plans (code, name, covered service categories, the patient's share) and members (the payer's own member number, shown shortened, with optional dates). A cover check answers covered, with the patient's share, or exactly why not: no such member, membership ended, outside the dates, plan switched off, or the kind of service is not in the plan. Each check is audited against the member record, without the member number.
+  - **Screens** in the partner app: My team (everyone), Programme (employer), Plans and members with a Check cover form (payer). The overview now lists what is connected and says plainly what still is not. Migration `sponsor/0001_initial` (row-level security on all three tables).
+- **TEMPORARY:** the specification names these portals but not their data or rules. The reference format, the minimum group size of 10, the plan shape (categories plus a share) and the check outcomes are ours, for the lead and for payer and employer owners to confirm. Counts are about enrolment only.
+- **Not built, and why:** (1) **Labs and pharmacies: referrals, orders and results.** These must pass between two separate customers (a clinic and a lab) and no exchange between customers exists; the clinical record and partner-exchange services (GHE-07, GHE-22) are the specification's answer and need the lead's design before anything is built. (2) **Payer claims and a clinic asking the payer.** Same missing exchange. (3) **Employer counts about use of care** (visits, bookings): the same missing link between an employer's programme and clinics, and it must stay counts only.
+- **Checked:** `test_sponsor.py` (41 tests: team, counts and suppression, plan and member rules, every check outcome, audit, isolation between customers), `test_partner_portal.py` updated, ruff, mypy, import-linter, `makemigrations --check`; browser robot 19 now has 11 tests, and the partner app type-checks. The dev database needed `manage.py migrate` and a backend restart.
+
+### DEV-160: a running workflow stops when the pack that allowed it lapses (TEMPORARY, GHE-13 T-62)
+
+- **What was done:** DEV-156 gated the start of a workflow on country-pack capabilities. The same check now applies to every forward step: if a signed, current pack no longer switches the definition's capabilities on (suspended, expired, withdrawn, or the customer's country changed), the step is refused with 403 JURISDICTION_INACTIVE and nothing moves. Cancelling and blocking stay possible, so a person can always close the work down safely, and a workflow that needs no pack is never touched. Overlay changes, reassignment, escalations and reading it are unaffected.
+- **TEMPORARY:** the specification says suspension "stops new operations and invokes configured human fallback" but not which steps count as new or what the fallback is. Ours: forward steps stop, cancel and block remain, and the fallback is the existing cancel, block and escalation steps; nothing is reassigned or paused automatically.
+- **Effect on the comparison:** T-62 moves from not built to **partly**; external API now 12 met, 22 partly, 30 not built (of 64).
+- **Not built:** automatically assigning stopped work to a named person, and marking a stopped workflow as stopped in the list (a person finds out when a step is refused).
+- **Checked:** 3 new tests in `test_workflow_packs.py` (suspended pack stops a step and nothing moves; cancel still works; a workflow with no pack need is untouched), the whole file (20 tests) passes, ruff and mypy clean.
+
+### DEV-161: a home screen with real numbers for every role, and a real developer console for R10 (TEMPORARY)
+
+- **What the check found:** going role by role through what each login sees first: the clinic roles (R01 to R04, R13), the platform roles (R11, R12) and the doctor already had working home screens. The partner-app roles (R05 to R09) only had a description of their role, with no numbers. R10 was worse: it signed in to the clinic staff console, where the dashboard and every integration page refused it (403), because the rules gave it only a `partner` right and the integration screens asked for `integration` and for the administrator role. DEV-158 said the Integrations page was R10's developer console; in practice it was not usable. That statement was wrong.
+- **What was done:**
+  - **Numbers.** `GET /portal/dashboard` returns numbers only for each kind of login, shown as cards at the top of the partner app's Overview: partners (services listed, waiting for a review and how many are for you to review, not yet listed, team), payers (plans on, members enrolled and ended), employers (people enrolled and withdrawn, small groups hidden), developers (API keys, webhooks, deliveries that gave up, delivered and retrying), and the team size for all.
+  - **Developer console.** R10 now has its own area, `developer` (R10 is no longer in the clinic-console role set; a person who also holds R13 keeps the clinic console). R10 holds the `integration` and `staff` rights on its own organisation and may manage its own keys and webhooks (`MANAGING_ROLES` in the integration module); the integration endpoints accept the developer area. The partner app has API keys (add, suspend, resume, rotate the secret, revoke; the secret is shown once), Webhooks (add, verify, pause, resume, rotate, revoke, and the delivery log), API documents (links to the OpenAPI and AsyncAPI documents), My team, and the Overview. Onboarding as `developer` and the invitation now lead to the partner app.
+  - **Fixes found on the way.** The team list and count are now limited to the organisation (they listed every login in the customer); partner event types must start with `partner.`, which the key form now says.
+- **TEMPORARY:** what a partner developer may manage on its own, and the choice to give R10 the same key and webhook powers as an administrator, are ours for the lead to confirm.
+- **Not built:** a sandbox with synthetic patients, partner certification, and onboarding checks for partners (GHE-13), so R10's console is a working key and webhook console, not the full certification journey.
+- **Checked:** `test_partner_portal.py` 32 tests (dashboards for each kind, R10's area and rights, closed to other kinds), the suites that mention R10 or integrations (platform, team, suspensions, releases, incidents, customer sign-up, webhooks, partner events: 282 tests) all pass, ruff, mypy and import-linter clean; browser robot 19 has 20 tests (real numbers for each of the six kinds, the developer's key and secret, documents, webhooks) and robot 17 still passes for the partner app. The test developer login is created by `scripts/seed_partners.py`.
+
+### DEV-162: a doctor reads and answers messages from their own patients (TEMPORARY, GHE-16)
+
+- **What was done:** the doctor app's Messages screen was a "soon" placeholder. Now a doctor sees the conversations of patients they have an active care relationship with, in their own clinic only (`GET /clinician/messages`; each patient is checked by the policy engine, and a colleague with no relationship sees nothing), opens a thread and replies, with an Idempotency-Key so a double tap posts once and a polite live region that tells a screen reader how many conversations have new messages. R03 now counts as the clinic's side of a conversation (`messaging.STAFF_ROLES`), so a patient sees a doctor's reply as the clinic answering; the existing thread and reply endpoints serve doctors with the same per-patient check as before. A doctor cannot reply while following up read only (continuity of care), cannot open or answer a patient they do not care for, and cannot close a conversation (staff only).
+- **TEMPORARY:** the specification gives clinicians secure messaging with patients but not whether a doctor answers as themselves or as the clinic, or how unread counts are shared. Ours: a doctor's reply is the clinic's side of the thread (the patient is shown "the clinic"), it clears the clinic's shared unread count like any staff reply, and a doctor's own "new" badge clears when they open the thread. Notes, orders and results stay not built.
+- **Found on the way:** the first version listed a doctor's conversations through the patient helper (own record plus guardian grants), so a doctor saw none; fixed by using care relationships (`trust.care_patients`).
+- **Also fixed (full-suite run):** 15 tests failed in the first full run, 14 because they sent real event names such as `booking.confirmed.v1` with made-up payloads that the publish-time catalogue check (DEV-152) rightly refuses (`test_dispatch`, `test_notifications`, `test_work_history`: now valid payloads) and 2 (`test_late`) because the "late" numbers gained a data-request count earlier today; the OpenAPI snapshot was refreshed for the new route. The product code needed no change for these.
+- **Checked:** `test_doctor_messages.py` (10 tests), the messaging suites, OpenAPI and catalogue tests; the full backend suite before this change: 2,175 passed, 16 failed (explained above), now fixed; ruff, mypy and import-linter clean; browser robot 20 (a patient writes, the doctor reads and answers, the patient sees the clinic's reply) and robot 17 for the doctor app; the doctor app type-checks.
+
+### DEV-163: a status exchange between a clinic and its partners, references only (TEMPORARY, GHE-13 T-57)
+
+- **What was done:** customers are kept strictly apart, so a clinic could not send anything to a lab, pharmacy or home-care partner. A new module `modules/exchange` holds the one place they meet, in Zoiko's own platform space: one row per request with who it is from and to, the kind (laboratory or imaging order, pharmacy request, home-care referral), an opaque order number the clinic chooses, a short plain-words description, the urgency and its state. No patient name, no clinical text and no result is stored: a result stays with the partner and only its reference and the fact that it is ready travel. The clinic keeps its own patient link on the row for its own checks and it is never shown to the partner (the partner's view has no patient field). Each side reads only the rows that name it; anything else is "not found".
+  - **Steps:** requested, accepted or declined (with a reason), in progress, result available (the partner gives its own reference), then reviewed by a clinician. The clinic may cancel until the result arrives. Repeating a step is harmless; skipping ahead is a conflict. **Delivery is never review:** only a doctor with a care relationship to that patient can mark a result reviewed (clinic staff and administrators cannot, the policy check is `attest:referral` for that patient). Only the partner role that handles the kind (R05 laboratory, R06 pharmacy, R09 home care) may answer it; a payer, an employer or a developer in the same customer may not.
+  - **Screens:** the staff console has Partner requests (send, track, cancel); the partner app has Incoming requests (accept, decline with a reason, start, mark the result available) and a New requests number on its home; the doctor app has Partner results (a doctor reviews a ready result for their own patients). Each step is audited in the caller's own space and in the platform's.
+  - **Also:** `GET /exchange/partners`, `/exchange/requests`, `/exchange/requests/<id>/<step>`, `/exchange/requests/<id>/history`, `/exchange/incoming` and its steps. Migration `exchange/0001_initial` (row-level security).
+- **TEMPORARY:** the specification names partner exchange (GHE-07, GHE-22) but gives no design. This proposal (a broker holding references and status in the platform space, filtered by the caller's own customer) is ours. Your lead decides whether Zoiko may hold even this much about a clinic's requests, how a lab learns who a patient is, and what the patient agrees to share (consent, GHE-05). Nothing here lets a partner learn who a patient is.
+- **Not built:** passing patient identity or any clinical content (needed for a lab to do real work), the patient's consent to share, a patient-facing status, payer claims and employer usage counts (they need the same exchange with their own rules), partner certification, and notifications when a step happens.
+- **Checked:** `test_exchange.py` (28 tests: who may send, validation, each side sees only its own rows, the partner never gets the patient reference, nothing clinical is stored, ordered steps, role matches kind, only a doctor reviews, history, home numbers), ruff, mypy, import-linter, `makemigrations --check`; browser robot 21 (the whole journey through the staff console, partner app and doctor app) and robot 17 for the three apps with new pages; the three apps type-check. The dev database needed `manage.py migrate`.
+
+### DEV-164: the patient sees where a request made for them stands (TEMPORARY, GHE-13 T-57)
+
+- **What was done:** DEV-163 let the clinic, a doctor and the partner see a request's status; the patient could not. The patient app has **My Tests & Requests** (`GET /exchange/mine`): for the patient, or a guardian for the person they act for, what was asked, of whom and how far it has got (sent, accepted, in progress, result ready, reviewed by your doctor, not possible, cancelled). The words never overstate: a ready result is "ready, your doctor has not reviewed it yet, so please do not take it as medical advice", and only a doctor's review changes it to "reviewed". A patient is shown no order number, no partner reference and no reason text, and no result; staff, doctors and partners calling it get nothing back. Each request is shown only when the role table lets that patient read that kind of thing (laboratory orders as diagnostics, pharmacy requests as medication, home care as referral).
+- **TEMPORARY:** what a patient may be told, and the wording, are ours for the lead and clinical safety to confirm (including whether a declined request should give any reason).
+- **Effect on the comparison:** T-57 stays **partly** (the clinical hand-off acknowledgement is not built); its evidence now includes the patient-facing status.
+- **Not built:** a notification to the patient when a request moves, showing the result itself, and the patient's consent to share.
+- **Checked:** 4 new tests in `test_exchange.py` (the patient sees progress, never an order number, reference or reason, nobody else sees it, another clinic's patient sees nothing); the whole exchange file passes; ruff, mypy and import-linter clean; browser robot 21 now includes the patient seeing "Result ready" then "Reviewed by your doctor"; the patient app type-checks and passes the 320 pixel check.
+
+### DEV-165: the clinic's dashboard counts partner results waiting for a doctor (TEMPORARY)
+
+- **What was done:** a result a partner has marked available, and no doctor has reviewed yet, used to sit unnoticed until someone opened Partner requests. The staff dashboard now has an attention line, "N results from a partner waiting for a doctor to review" (`partner_results`), that links to Partner requests and goes back to zero when a doctor reviews. It reads the count from the exchange outside the clinic's own transaction and shows zero when there is no platform space.
+- **TEMPORARY:** that clinic staff (not only doctors) see the count, and that it counts every waiting result in the clinic rather than a doctor's own patients, are our choices for the lead.
+- **Not built:** the same number in the doctor app's menu or an email or push notice.
+- **Checked:** 1 new test in `test_exchange.py` (0, still 0 until delivered, 1 when ready, 0 after review), the four whole-dashboard expectations in `test_attention.py` updated for the new number, both files pass; ruff, mypy and import-linter clean; the staff console type-checks; browser robot 21 still passes.
+
+### DEV-166: the patient is told when a doctor has reviewed a result (TEMPORARY, GHE-13 T-57, GHE-16)
+
+- **What was done:** a patient used to find out only by opening My Tests & Requests. When a doctor marks a partner's result as reviewed, the clinic's own space now publishes `exchange.reviewed.v1` (request, patient and kind references only, now in the event catalogue and the AsyncAPI snapshot) and the patient gets an in-app notification, "Your doctor reviewed a result", plus the usual email headline when they have turned email notices on ("Your doctor reviewed a result.", no detail). The wording comes from the event alone, so it says nothing about what the result was, and repeating the review never tells them twice. Nothing is announced when the review is refused, and a result merely being ready tells the patient nothing: delivery is not review.
+- **TEMPORARY:** that only the review, not the result being ready, notifies the patient, and the wording, are ours for the lead and clinical safety to confirm.
+- **Not built:** notifying the patient when a request is declined or cancelled, and a push or text notice.
+- **Checked:** 2 new tests in `test_exchange.py` (told once on review, not before, not on a refused review, no label or order number in the notice), the exchange, event-catalogue and notification suites pass together (52 tests, plus the refreshed snapshot); ruff, mypy and import-linter clean; browser robot 21 now ends with the patient seeing the notification.
+
+### DEV-167: every login opens on its own home screen, with one-click links and doctor menu counts (TEMPORARY)
+
+- **What was done:** a check across all logins found each kind lands on a working home screen. Robot 22 signs in as 12 logins (patient, doctor, receptionist, clinic administrator, regional support, safety officer, lab, pharmacy, home care, payer, employer, developer) and fails if a home screen is missing or shows an error; it keeps a picture of each in `frontend/e2e/screens/` (not committed). `docs/LOGIN-LINKS.md` lists one-click sign-in links for the same 12 (test accounts only; the apps already accept `dev_org`, `dev_login` and `dev_pw` in development and clean the address at once), each checked to work. A receptionist test login (R04, `e2e.reception@example.org`) was missing and is now made by `scripts/seed_e2e.py`. The doctor app's menu now shows how many conversations have new messages and how many partner results are ready for review beside Messages and Partner results.
+- **Not covered:** R02 (guardian), which needs a guardian login a clinic has approved for a patient, so it has no ready-made link.
+- **Checked:** robot 22 (12 logins) passes; all 12 links signed in; the doctor app type-checks.
+
+### DEV-168: a contract check between the five apps and the API (TEMPORARY, GHE-13 T-03)
+
+- **What was done:** `scripts/consumer_contract.py` reads the five front-end apps' own source and lists every API call each makes (method and route) in `backend/api/consumer_contract.json`. `test_consumer_contract.py` fails if the API stops serving any of them, passes when routes are only added, and fails if the contract file is out of date with the apps (skipped where the front-end source is not visible, such as inside the container).
+- **TEMPORARY:** the specification asks for consumer-driven contract tests but not their form. Ours covers our own apps, routes and methods only; which outside partners' contracts to include is for the lead.
+- **Effect on the comparison:** T-03 moves from not built to **partly** (now 12 met, 24 partly, 28 not built).
+- **Not built:** response field checks (the OpenAPI document does not describe bodies), calls built from a variable path, and partner contracts.
+- **Checked:** the new test file (2 passed, 1 skipped in the container; the freshness check passes on the host), ruff clean; the full backend suite before this change passed (2236 passed, 1 skipped).
+
+### DEV-169: open partner requests are held when a customer is suspended (TEMPORARY, GHE-13 T-39)
+
+- **What was done:** when support approves suspending a customer, every request still open (sent, accepted or in progress) between it and another customer is put on hold, inside the same step. The other side sees it: the clinic gets an "on hold" tag, an explanation and a number on its home screen (staff dashboard `partner_on_hold`); the partner sees "on hold" and its Accept/Start/Result buttons go away, and the server refuses them. The clinic can cancel a held request; reinstating the customer releases the hold. Delivered, declined and cancelled requests are left alone. Each hold and release is on the request's history and in the audit chain. The wording never tells the other side that a suspension happened.
+- **TEMPORARY:** the specification wants a person assigned to reconcile (T-39, T-55); here the clinic's staff see the count and decide. Whether a named owner, a time limit or an automatic cancel is wanted is for your lead. A held request that is already delivered still waits for a doctor's review as before.
+- **Effect on the comparison:** T-39 moves from not built to **partly** (now 12 met, 25 partly, 27 not built).
+- **Not built:** a named owner for each held request, disconnecting one connector (only whole customers can be suspended), and the same for webhooks and orders.
+- **Checked:** 6 new tests in `test_exchange.py` (partner suspended, clinic suspended, cancel, reinstate, partner cannot move a held one, only open ones held and not twice); ruff, import-linter, `makemigrations` (new `exchange/0002_request_on_hold`); the staff and partner apps type-check.
+
+### DEV-170: a held partner request has a named owner (TEMPORARY, GHE-13 T-39, T-55)
+
+- **What was done:** DEV-169 held open requests when a customer is suspended but nobody was named. Now, when the partner is the one suspended, each held request is assigned to the person at the clinic who sent it. The request list shows "This one is yours to decide" or "<name> sent it and decides"; the staff home screen has a separate "yours to decide" number beside the clinic-wide one. Releasing the hold clears the owner. When the clinic itself is suspended there is no owner (nobody there can sign in).
+- **TEMPORARY:** that the sender is the owner is ours; your lead may want a role (such as the administrator) or a rota instead, a time limit, or an escalation if the sender has left. T-39 stays **partly**.
+- **Not built:** reassigning an owner, escalation, and a limit on how long a hold may wait.
+- **Checked:** 1 new test in `test_exchange.py` (owner, colleague view, counts, release); with `test_attention.py` 47 passed; ruff clean; the staff app type-checks; new migration `exchange/0003_request_hold_owner`.
+
+### DEV-171: cursor paging that re-checks rights on every page (TEMPORARY, GHE-13 T-07)
+
+- **What was done:** a small helper (`foundation/pagination.py`) pages any list newest first with a signed cursor. The cursor is only a position (time and public id of the last row); it is signed so it cannot be forged or edited, tied to the login it was given to and to one list, and expires after 15 minutes. It carries no permission: each page is read afresh with the caller's rights checked then, so if a doctor's care link ends between two pages the next page comes back empty. Used first by the clinic's partner-request list: `GET /exchange/requests?limit=&cursor=` (limit 1 to 100) returns `requests` and `next_cursor`; with neither parameter the list behaves as before.
+- **TEMPORARY:** the page size, the 15 minute life and the choice of lists are ours. T-07 moves from not built to **partly** (now 12 met, 26 partly, 26 not built).
+- **Not built:** the other lists (they are still capped at a fixed number), paging in the front-end screens, and a stable result if rows are added during paging beyond newest-first order.
+- **Checked:** `test_pagination.py` (6 tests: every row once in order, old shape unchanged, bad limit or forged cursor refused, another login's cursor refused, expiry, right taken away between pages); the OpenAPI snapshot is unchanged; ruff, mypy and import-linter clean.
+
+### DEV-172: the partner's request list pages too (TEMPORARY, GHE-13 T-07)
+
+- **What was done:** `GET /exchange/incoming?limit=&cursor=` now pages the partner's list the same way as DEV-171, with its own cursor (a cursor from the clinic's list is refused here). Without the parameters it behaves as before. T-07 stays **partly**: the other lists are still capped.
+- **Checked:** one new test in `test_pagination.py` (7 in all) plus the OpenAPI test; 14 passed; ruff and mypy clean.
+
+### DEV-173: a test that public ids never carry a patient identifier (GHE-13 T-06)
+
+- **What was done:** no product change, a proof. `test_public_ids.py` checks that every public id column (more than 50 tables) uses only the random generator and cannot be edited, that the generator gives distinct, unrelated 22-character ids, and that after creating a patient with a distinctive identifier and login, no stored public id of that customer contains any part of it. T-06 moves from partly to **met** (now 13 met, 25 partly, 26 not built).
+- **Limit:** it scans one customer's rows and the id columns; the order number a clinic types for a partner request is the clinic's own choice, not an id we generate.
+- **Checked:** 3 tests passed; ruff clean.
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |

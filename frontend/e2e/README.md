@@ -5,9 +5,9 @@ These tests open the real apps in a headless browser and click like a person. De
 ## Before you run them
 
 1. The stack is up: `docker compose up -d` (API on 8000). If the API is on another port, start the apps with `BACKEND_URL=http://127.0.0.1:<port>` and run the robots with `E2E_API=http://127.0.0.1:<port>/api/v1/`.
-2. The four apps are running, each on its own port (start each with `npm run dev -- --strictPort --port <n>`):
-   staff 5173, patient 5174, platform 5175, doctor 5176.
-3. The test clinic exists: `python scripts/seed_e2e.py` (once). The platform robot also needs the
+2. The five apps are running, each on its own port (start each with `npm run dev -- --strictPort --port <n>`):
+   staff 5173, patient 5174, platform 5175, doctor 5176, partners 5177.
+3. The test clinic exists: `python scripts/seed_e2e.py` (once). Robots 17 and 19 also need the partner test customers: `python scripts/seed_partners.py` (once). The platform robot also needs the
    support logins: `python scripts/seed_platform_tenant.py` (once).
 
 If an app is not on its usual port (for example another project holds 5173), start it elsewhere and tell the robots with `E2E_STAFF`, `E2E_PATIENT`, `E2E_PLATFORM` or `E2E_DOCTOR` (for example `E2E_STAFF=http://localhost:5183`).
@@ -45,6 +45,11 @@ A failed robot leaves a screenshot and a trace under `test-results/` (not commit
 | 15 | The patient and platform apps, when a refresh fails after a good load, keep the old page and say "The information below is old: it was last updated at <time>". |
 | 16 | The clinic administrator sets a price, staff make, issue and mark an invoice as paid with a payment reference, and the patient sees it as paid in their own app (invoices from earlier runs stay in the list). |
 | 17 | Every page of the staff, patient, doctor and platform apps at 320 pixels: no sideways scrolling, automated accessibility rules pass, patient menu works from the keyboard. |
+| 18 | The patient and staff inboxes each have a polite live region that states how many new messages are waiting, for screen readers. |
+| 19 | The partner app: a lab, pharmacy, home-care partner, payer and employer each sign in and see their own role and what it may reach; a lab adds a service and asks for a listing and adds a colleague; an employer enrols people and sees only counts; every kind of login sees real numbers on its home screen; a partner developer makes a key and finds the documents; a payer sets up a plan and a member and checks cover; a clinic administrator is pointed to the staff console. |
+| 20 | A patient writes to the clinic; the doctor who cares for them reads it in the doctor app and answers; the patient sees the clinic's reply. |
+| 21 | A clinic sends a lab order, the lab accepts, starts and delivers a result, a doctor marks it reviewed, and the clinic sees every step; the patient sees it is ready (not yet reviewed) and then reviewed; the lab's home screen counts its requests. |
+| 22 | Every kind of login (patient, doctor, receptionist, clinic administrator, regional support, safety officer, lab, pharmacy, home care, payer, employer, developer) signs in and lands on its own home screen with no error; a picture of each is kept in `screens/` (not committed). The one-click links for the same logins are in `docs/LOGIN-LINKS.md`. |
 
 ## Good to know
 

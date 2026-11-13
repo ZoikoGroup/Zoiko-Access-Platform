@@ -37,8 +37,12 @@ def world():
 
 def send(world, event_type="booking.confirmed.v1", ref="bk_1", payload=None):
     with tenant_transaction(world.ctx):
+        # a real event type must carry its catalogue fields (DEV-152)
+        full = {"booking_ref": ref, "slot_ref": "sl_1", "service_ref": "sv_1",
+                "status": "confirmed"}
         return emit(event_type=event_type, aggregate_type="booking", aggregate_ref=ref,
-                    payload=payload or {"booking_ref": ref})
+                    payload=payload or (full if event_type.startswith("booking.") else
+                                        {"booking_ref": ref}))
 
 
 def later(minutes=5):
@@ -162,7 +166,8 @@ def test_a_subscriber_that_already_succeeded_is_not_run_again_on_the_retry(world
 
 # ------------------------------------------------------------------ the worker command
 def test_the_command_drains_the_backlog_and_prints_counts_only(world):
-    send(world, payload={"booking_ref": "bk_SECRETVALUE1"})
+    send(world, payload={"booking_ref": "bk_SECRETVALUE1", "slot_ref": "sl_1",
+                         "service_ref": "sv_1", "status": "confirmed"})
     assert backlog_stats()["pending"] == 1
     out = io.StringIO()
     call_command("relay_outbox", "--once", stdout=out)

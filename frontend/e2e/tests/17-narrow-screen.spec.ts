@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { LOGINS, PLATFORM, signIn } from "../helpers";
+import { LOGINS, PARTNER_LOGINS, PLATFORM, signIn } from "../helpers";
 
 // Robot 17: each app on a 320 pixel wide screen (WCAG 2.2 reflow, GHE-15 and GHE-16 TC33). On every
 // page nothing may force sideways scrolling and the automated accessibility rules must still pass;
@@ -13,6 +13,8 @@ const APPS = [
   { name: "patient app", app: "patient" as const, login: LOGINS.patient },
   { name: "doctor app", app: "doctor" as const, login: LOGINS.doctor },
   { name: "platform app", app: "platform" as const, login: PLATFORM.asker, org: PLATFORM.org, password: PLATFORM.password },
+  ...PARTNER_LOGINS.map((p) => ({
+    name: `partner app as ${p.role}`, app: "partners" as const, login: p.login, org: p.org })),
 ];
 
 for (const a of APPS) {

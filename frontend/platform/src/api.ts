@@ -101,8 +101,8 @@ async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 /** Each call is recorded in the platform tenant's own audit chain, so the page does not poll. */
 /** Support adds a customer; its first administrator is emailed an invitation. */
-export const addCustomer = (body: { customer: string; site: string; admin_email: string }) =>
-  v1<{ customer: { id: string; name: string; site: string } }>("platform/customers", {
+export const addCustomer = (body: { customer: string; site: string; admin_email: string; kind?: string }) =>
+  v1<{ customer: { id: string; name: string; site: string; kind: string } }>("platform/customers", {
     method: "POST", body: JSON.stringify(body),
   });
 
