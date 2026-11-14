@@ -312,6 +312,15 @@ def list_locations(*, organization_ref: str = "") -> list[dict[str, Any]]:
     return [location_dict(r) for r in rows.order_by("name")]
 
 
+def organization_zone(organization_ref: str) -> dict[str, str]:
+    """The clinic's own clock: the time zone its places share. When they use different zones, or it
+    has no place yet, there is no single clock and the answer is UTC (`source` says which)."""
+    zones = {loc["time_zone"] for loc in list_locations(organization_ref=organization_ref)}
+    if len(zones) == 1:
+        return {"zone": next(iter(zones)), "source": "places"}
+    return {"zone": "UTC", "source": "mixed" if zones else "none"}
+
+
 def service_counts() -> dict[str, int]:
     ctx = require_context()
     rows = Service.objects.filter(cell_id=ctx.cell_id, tenant_id=ctx.tenant_id)

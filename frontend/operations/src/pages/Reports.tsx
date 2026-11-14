@@ -47,7 +47,7 @@ function View({ r, days, onDays }: { r: ReportsData; days: number; onDays: (n: n
       <div className="hero">
         <div>
           <h1>Reports</h1>
-          <p>Numbers for {r.from} to {r.to}. Counts only: no patient or message is identified here. Days run from midnight to midnight UTC, except the day-of-week table, which uses each clinic's own clock.</p>
+          <p>Numbers for {r.from} to {r.to}. Counts only: no patient or message is identified here. {clockNote(r.zone, r.zone_source)}</p>
         </div>
         <span className="spacer" />
         <button className="btn ghost" onClick={() => saveText(`zoiko-report-${r.from}-to-${r.to}.csv`, reportCsv(r))}>Download CSV</button>
@@ -72,7 +72,7 @@ function View({ r, days, onDays }: { r: ReportsData; days: number; onDays: (n: n
       </div>
 
       <div className="grid cols-2">
-        <Card title="Bookings made each day" sub="Each bar is one day, midnight to midnight UTC (hover for the date)"><Bars days={r.bookings.per_day} /></Card>
+        <Card title="Bookings made each day" sub={`Each bar is one day, midnight to midnight ${r.zone} (hover for the date)`}><Bars days={r.bookings.per_day} /></Card>
         <Card title="Where bookings stand now">
           <Donut centerLabel="bookings" slices={[
             { label: "Confirmed", value: r.bookings.status.confirmed, color: "#138a4d" },
@@ -145,6 +145,13 @@ function View({ r, days, onDays }: { r: ReportsData; days: number; onDays: (n: n
 }
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function clockNote(zone: string, source: string): string {
+  if (source === "places") return `Days run from midnight to midnight on this clinic's own clock (${zone}).`;
+  return source === "mixed"
+    ? "Days run from midnight to midnight UTC, because this clinic's places use different time zones."
+    : "Days run from midnight to midnight UTC, because this clinic has no place with a time zone yet.";
+}
 
 export function Reports({ staff }: { staff: Staff | null }) {
   const [days, setDays] = useState(30);

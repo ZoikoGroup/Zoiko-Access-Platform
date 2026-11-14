@@ -975,6 +975,14 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Not built:** a per-clinic waiting deadline; showing the journey step to the patient.
 - **Checked:** new tests in `tests/test_waitlist_journey.py` (join, offer, return and re-offer, booked, left by the patient or by staff, repeats and replays, an ended journey, no journey for an old request, the system refused for a person's step, timers raising exceptions without changing the request, another customer seeing nothing, the staff list); typecheck and build of the operations app.
 
+### DEV-133: report days on the clinic's own clock (FIX, closes the UTC note of DEV-091)
+
+- **What was done:** the staff **Reports** page now counts days from midnight to midnight on the clinic's own clock instead of UTC. The clock is the time zone the clinic's places share (`catalog.organization_zone`); when its places use different zones, or it has none yet, there is no single clock and the report uses UTC and says why (`zone`, `zone_source`: places, mixed or none). "Bookings made each day" groups by that clock, the period is whole local days ending with the clinic's today, and the other blocks (referrals, waiting list, messages, attendance) use the same period. Week-day tables already used each booking's own clock and are unchanged.
+- **Choice (differs from the plan we first wrote down):** no new setting and no migration. We first planned a time zone setting per clinic; the clinic's places already carry a zone, so we use that. A clinic that wants a different clock changes its place's zone. This also means there is nothing for the lead to configure.
+- **Temporary rule to confirm (add to docs/LEAD-NOTE.md questions):** a clinic whose places are in different zones reports in UTC. If the lead wants a single reporting zone chosen by the clinic (or one report per place), that needs a setting after all.
+- **Not built:** a per-clinic reporting zone setting; a report per place.
+- **Checked:** new tests in `tests/test_reports_zone.py` (the zone and its source, the period is whole local days, a booking just after and just before the clinic's midnight lands on the right day, nothing older than the period, same-zone places, mixed zones and no places fall back to UTC, a UTC clinic as before, the other blocks still present, who may read, bad day counts); the existing report tests; typecheck of the operations app.
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |

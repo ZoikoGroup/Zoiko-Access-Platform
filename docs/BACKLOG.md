@@ -76,7 +76,7 @@ Nothing further in this list can be built without decisions or people: parts 01 
 | `workflow.workflow_transition` (history of each work item) | built as DEV-082 |
 | Move the booking history onto the shared chain helper (`foundation/chain.py`) | built as DEV-086, with a digest version on each row so old rows still check out |
 | Database login that cannot skip row-level security: start-up guard (DEV-083), rights list, setup script and guide (DEV-084) | built |
-| Reports: count "bookings made each day" by the clinic's own day instead of UTC (needs a clinic time zone per customer and a matching period window) | not built; the page says it is UTC (DEV-091) |
+| Reports: count "bookings made each day" by the clinic's own day instead of UTC | built as DEV-133, using the time zone of the clinic's places (UTC when they differ or there are none) |
 | Production setup beyond the database (servers, TLS, secrets, backups, mail provider) | not built; waits on decisions DEV-013 and DEV-016 |
 | Suspension with two-person approval (design: tenant-level actions need two people) | built as DEV-080 |
 | Next candidates from the first-phase list that need no decision: `workflow` instance, transition and timer rows (only if a workflow engine is adopted: ADR-08 is still open); a separate booking intent and partner booking; `trust.facility` (our organization and location already cover it) | not built |

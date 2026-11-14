@@ -19,7 +19,7 @@ from foundation.errors import ErrorCode, ZoikoError
 from foundation.idempotency import run as run_once
 from foundation.mail import mail_stats
 from foundation.outbox import backlog_stats
-from foundation.timeutil import utc_now
+from foundation.timeutil import get_zone, utc_now
 from modules.ai import api as ai
 from modules.bookingflow import api as bookingflow
 from modules.catalog import api as catalog
@@ -993,16 +993,23 @@ def staff_reports(request: HttpRequest, auth: trust.Authenticated) -> HttpRespon
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["days"]) from None
     if not 7 <= days <= 90:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["days"])
-    until = utc_now()
-    since = (until - dt.timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    until = (until + dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     with tenant_transaction():
-        bookings = scheduling.report(org, since, until)
+        clock = catalog.organization_zone(org)
+    # Days run midnight to midnight on the clinic's own clock (UTC when it has no single one).
+    zone = get_zone(clock["zone"])
+    today = utc_now().astimezone(zone).date()
+    midnight = dt.time.min
+    since = dt.datetime.combine(today - dt.timedelta(days=days - 1), midnight, tzinfo=zone)
+    until = dt.datetime.combine(today + dt.timedelta(days=1), midnight, tzinfo=zone)
+    since, until = since.astimezone(dt.UTC), until.astimezone(dt.UTC)
+    with tenant_transaction():
+        bookings = scheduling.report(org, since, until, clock["zone"])
         people = trust.actor_labels()
         names = {s["public_id"]: s["name"] for s in catalog.list_services(active_only=False)}
         out = {
-            "days": days, "from": since.date().isoformat(),
-            "to": (until - dt.timedelta(seconds=1)).date().isoformat(),
+            "days": days, "from": since.astimezone(zone).date().isoformat(),
+            "to": (until - dt.timedelta(seconds=1)).astimezone(zone).date().isoformat(),
+            "zone": clock["zone"], "zone_source": clock["source"],
             "bookings": {**bookings, "busiest_services": [
                 {"name": names.get(b["service_ref"], "A service"), "count": b["count"]}
                 for b in bookings["busiest_services"]],

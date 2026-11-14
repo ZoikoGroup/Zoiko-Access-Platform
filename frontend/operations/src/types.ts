@@ -167,6 +167,9 @@ export interface Reports {
   days: number;
   from: string;
   to: string;
+  /** The clock the days run on: the time zone this clinic's places share, else UTC (see zone_source). */
+  zone: string;
+  zone_source: "places" | "mixed" | "none";
   bookings: {
     per_day: { date: string; count: number }[];
     total: number;

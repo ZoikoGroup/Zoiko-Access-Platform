@@ -870,22 +870,25 @@ def _rate(missed: int, attended: int) -> float | None:
 
 
 def report(
-    organization_ref: str, since: dt.datetime, until: dt.datetime
+    organization_ref: str, since: dt.datetime, until: dt.datetime, zone: str = "UTC"
 ) -> dict[str, Any]:
-    """Counts only, for one organization over a period: bookings made per day (UTC dates), their
+    """Counts only, for one organization over a period: bookings made per day (dates on the
+    clinic's own clock, `zone`; the period's ends are instants on that clock's midnights), their
     status now, how many past confirmed appointments were attended, missed or not yet recorded,
     and the busiest services. No patient is identified anywhere in the result."""
     scope = _scope()
     made = Booking.objects.filter(
         slot__organization_ref=organization_ref, created_at__gte=since, created_at__lt=until,
         **scope)
+    clock_zone = get_zone(zone)
     per_day = {
         row["day"]: row["n"]
-        for row in made.annotate(day=TruncDate("created_at")).values("day").annotate(n=Count("id"))
+        for row in made.annotate(day=TruncDate("created_at", tzinfo=clock_zone))
+        .values("day").annotate(n=Count("id"))
     }
     days: list[dict[str, Any]] = []
-    cursor = since.date()
-    while cursor <= (until - dt.timedelta(seconds=1)).date():
+    cursor = since.astimezone(clock_zone).date()
+    while cursor <= (until - dt.timedelta(seconds=1)).astimezone(clock_zone).date():
         days.append({"date": cursor.isoformat(), "count": per_day.get(cursor, 0)})
         cursor += dt.timedelta(days=1)
     status = {row["status"]: row["n"] for row in made.values("status").annotate(n=Count("id"))}
