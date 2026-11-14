@@ -90,7 +90,7 @@ def test_the_bundled_definition_publishes_once_and_is_idempotent(defs):
     again = workflow.load_bundled_definitions()
     assert again[0]["public_id"] == defs[0]["public_id"]
     assert sorted(d["key"] for d in workflow.list_definitions()) == [
-        "J1.booking", "J1.partner_booking"]
+        "J1.booking", "J1.partner_booking", "J2.referral"]
 
 
 def test_a_released_version_cannot_be_republished_with_different_content(defs):

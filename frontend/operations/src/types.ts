@@ -293,6 +293,8 @@ export interface IncomingReferral {
   escalated: boolean;                    // no answer for too long: it goes to the fallback
   owner: { id: string; name: string } | null;
   responsible: { id: string; name: string };
+  /** Where it stands in its journey (J2.referral); null for a referral sent before journeys. */
+  journey?: "sent" | "acknowledged" | "needs_info" | "accepted" | "declined" | null;
 }
 
 export interface ReferralInbox {

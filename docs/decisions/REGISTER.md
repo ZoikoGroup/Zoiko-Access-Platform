@@ -959,6 +959,14 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Not built:** prices, invoices, payments, entitlements, eligibility checks with an insurer, claims, the ledger, and the patient "Bills & Payments" screen. They wait on DEV-011 (first market) and DEV-012 (Zoiko's legal role per service), and the lead's note puts insurers out of the first release.
 - **Checked:** 15 backend tests (what is shown, what must stay hidden, who may look, who may not); typecheck and build; page load and accessibility robots on the staff console.
 
+### DEV-131: referral journey on the workflow engine (ADD, GHE-12 / GHE-14 WF-16, WF-17)
+
+- **What was done:** a released journey `J2.referral` (`modules/workflow/bundled/j2_referral.v1.json`) follows every new referral: **sent**, **acknowledged** (staff marked it received), **needs information** (waiting for the sender), then **accepted** or **declined**. It is kept beside the referral from the referral events (`modules/workflow/referral_journey.py`, started in `workflow/subscribers.py`); marking a referral received now also emits `referral.acknowledged.v1`. Timers only raise exceptions (never decide): not seen in 1 day, seen but not decided in 3 days, waiting for information 7 days. The staff **Referrals** screen shows each referral's journey step, and the **Journeys** and **Exceptions** screens list them like any other journey.
+- **Rules kept:** the referral module still decides who may answer; the journey records afterwards. "Seen" is not "accepted": only a doctor's decision accepts or declines, and the journey records it with a clinician's acknowledgment as evidence. The journey itself refuses a step by the system or a partner. A referral sent before this change has no journey and none is invented for it. The referral and the patient's own views are unchanged.
+- **Temporary rules to confirm (add to docs/LEAD-NOTE.md questions):** the three deadlines are our choice and are fixed in the released definition; the clinic's own response target (DEV-120) still drives the existing "not answered" flag and the two are not joined yet. It is on for every clinic (it only records, so there is no setting).
+- **Not built:** a per-clinic response deadline in the journey; moving a referral between clinics as a journey step; carrying a referral over a partner connector.
+- **Checked:** new tests in `tests/test_referral_journey.py` (the path through each outcome, repeats, refused decisions, a journey that has ended, no journey for an old referral, timers raising exceptions without closing, another clinic seeing nothing); typecheck and build of the operations app.
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |

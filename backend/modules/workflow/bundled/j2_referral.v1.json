@@ -1,0 +1,36 @@
+{
+  "key": "J2.referral",
+  "version": 1,
+  "initial": "sent",
+  "states": {
+    "sent": {"owner": "clinic"},
+    "acknowledged": {"owner": "clinic"},
+    "needs_info": {"owner": "referrer"},
+    "accepted": {"owner": "clinic"},
+    "declined": {"owner": "clinic"}
+  },
+  "terminal": {"accepted": "completed", "declined": "cancelled"},
+  "transitions": {
+    "acknowledge": {
+      "from": ["sent"], "to": "acknowledged",
+      "guards": ["human_actor"]
+    },
+    "request_info": {
+      "from": ["sent", "acknowledged", "needs_info"], "to": "needs_info",
+      "guards": ["human_actor"]
+    },
+    "accept": {
+      "from": ["sent", "acknowledged", "needs_info"], "to": "accepted",
+      "guards": ["human_actor"], "requires_evidence": ["professional_acknowledgment"]
+    },
+    "decline": {
+      "from": ["sent", "acknowledged", "needs_info"], "to": "declined",
+      "guards": ["human_actor"], "requires_evidence": ["professional_acknowledgment"]
+    }
+  },
+  "timers": {
+    "acknowledge_by": {"state": "sent", "after_minutes": 1440},
+    "decide_by": {"state": "acknowledged", "after_minutes": 4320},
+    "info_by": {"state": "needs_info", "after_minutes": 10080}
+  }
+}

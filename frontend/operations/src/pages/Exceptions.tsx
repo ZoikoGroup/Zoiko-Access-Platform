@@ -19,6 +19,9 @@ const STATE: Record<OperationState, { word: string; kind: PillKind }> = {
 const DEADLINE: Record<string, string> = {
   confirm_by: "Not confirmed in time",
   attendance_by: "No attendance recorded in time",
+  acknowledge_by: "Referral not seen by the clinic in time",
+  decide_by: "Referral not decided in time",
+  info_by: "More information for a referral not received in time",
 };
 
 const EVENT: Record<string, string> = {

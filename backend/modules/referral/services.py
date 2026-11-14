@@ -213,6 +213,7 @@ def acknowledge(
                                      "entity_version", "updated_at"])
         record(actor_ref=actor_public_id, action="referral.acknowledge", object_type="referral",
                object_ref=referral.public_id, outcome=AuditOutcome.ALLOWED)
+        _event("referral.acknowledged.v1", referral, actor_ref=actor_public_id)
         return referral_dict(referral)
 
 

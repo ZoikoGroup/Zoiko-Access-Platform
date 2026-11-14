@@ -220,7 +220,7 @@ def test_journeys_show_the_released_definitions_and_only_this_clinics_journeys(c
     other = late_journey(c, org=c.other_org)
     body = c.json(c.get("staff/journeys", "desk"))
     definitions = {d["key"]: d for d in body["definitions"]}
-    assert sorted(definitions) == ["J1.booking", "J1.partner_booking"]
+    assert sorted(definitions) == ["J1.booking", "J1.partner_booking", "J2.referral"]
     definition = definitions["J1.booking"]
     assert (definition["key"], definition["version"], definition["state"]) == (
         "J1.booking", 1, "released")

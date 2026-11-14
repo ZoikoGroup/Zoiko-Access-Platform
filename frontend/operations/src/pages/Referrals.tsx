@@ -82,6 +82,11 @@ function WhoAnswers({ onChanged }: { onChanged: () => void }) {
   );
 }
 
+const JOURNEY: Record<string, string> = {
+  sent: "sent, waiting for the clinic", acknowledged: "seen by staff, waiting for the doctor",
+  needs_info: "waiting for more information from the sender", accepted: "accepted", declined: "declined",
+};
+
 export function Referrals() {
   const [rows, setRows] = useState<IncomingReferral[] | null>(null);
   const [error, setError] = useState("");
@@ -119,7 +124,8 @@ export function Referrals() {
                 r.reason,
                 <span key="s"><Pill kind={STATE[r.state].kind}>{STATE[r.state].text}</Pill>
                   {r.escalated && <small style={{ display: "block", color: "var(--bad)" }}>Not answered for over 24 hours: with the fallback doctor.</small>}
-                  {r.state === "declined" && <small style={{ display: "block" }}>Stays with {r.responsible.name || "the sending doctor"}.</small>}</span>,
+                  {r.state === "declined" && <small style={{ display: "block" }}>Stays with {r.responsible.name || "the sending doctor"}.</small>}
+                  {r.journey && <small style={{ display: "block" }}>Journey step: {JOURNEY[r.journey]}.</small>}</span>,
                 r.owner ? (r.owner.name || r.owner.id) : <Pill key="o" kind="warn">Nobody named</Pill>,
                 <Receipt key="d" r={r} onDone={load} />,
               ])} />

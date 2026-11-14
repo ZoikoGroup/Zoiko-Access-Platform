@@ -17,12 +17,14 @@ from modules.referral import api as referral
 from modules.scheduling import api as scheduling
 from modules.trust import api as trust
 
+from . import referral_journey
 from .models import Kind, Status
 from .services import close_item, open_item
 
 BOOKING_CONSUMER = "workflow.booking_queue"
 REFERRAL_CONSUMER = "workflow.referral_queue"
 MESSAGE_CONSUMER = "workflow.message_queue"
+REFERRAL_JOURNEY_CONSUMER = "workflow.referral_journey"
 
 
 def _due(organization_ref: str) -> dt.datetime:
@@ -77,6 +79,20 @@ def on_referral_event(event: PublishedEvent) -> None:
         _gone(exc)
 
 
+def on_referral_journey_event(event: PublishedEvent) -> None:
+    """Keep the referral's journey (J2.referral) beside the referral itself."""
+    ref = str(event.payload.get("referral_ref", ""))
+    if not ref:
+        return
+    actor = str(event.payload.get("actor_ref", ""))
+    if event.event_type == "referral.issued.v1":
+        referral_journey.on_issued(ref)
+    elif event.event_type == "referral.acknowledged.v1":
+        referral_journey.on_acknowledged(ref, actor)
+    elif event.event_type == "referral.decided.v1":
+        referral_journey.on_decided(ref, str(event.payload.get("state", "")), actor)
+
+
 def on_message_event(event: PublishedEvent) -> None:
     if event.event_type != "message.sent.v1":
         return
@@ -98,6 +114,7 @@ def register_subscribers() -> None:
     for consumer, prefix, handler in (
         (BOOKING_CONSUMER, "booking.", on_booking_event),
         (REFERRAL_CONSUMER, "referral.", on_referral_event),
+        (REFERRAL_JOURNEY_CONSUMER, "referral.", on_referral_journey_event),
         (MESSAGE_CONSUMER, "message.", on_message_event),
     ):
         if not any(s.consumer == consumer for s in subscriptions()):

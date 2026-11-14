@@ -2316,7 +2316,12 @@ def referrals_incoming(request: HttpRequest, auth: trust.Authenticated) -> HttpR
             with tenant_transaction():
                 for r in referral.list_referrals(destination_organization_ref=org):
                     seen[r["public_id"]] = r
-    return JsonResponse({"referrals": _referrals_out(list(seen.values()), auth)})
+    rows = _referrals_out(list(seen.values()), auth)
+    with tenant_transaction():
+        journeys = workflow.instances_for([r["id"] for r in rows], "J2.referral")
+    for row in rows:                  # where each one stands in its journey (none before journeys)
+        row["journey"] = journeys[row["id"]]["state"] if row["id"] in journeys else None
+    return JsonResponse({"referrals": rows})
 
 
 @endpoint("POST")
