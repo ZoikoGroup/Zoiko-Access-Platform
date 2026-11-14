@@ -5,6 +5,11 @@ import { Card, Patient, Pill, Table } from "../ui";
 import { NoStaff } from "./Appointments";
 
 /** Who is waiting for each service, longest first. Patients appear as ids (names are not stored). */
+const JOURNEY: Record<string, string> = {
+  waiting: "waiting for a free time", offered: "told a time opened, waiting for the patient",
+  booked: "booked", left: "left the list",
+};
+
 export function WaitingList({ staff }: { staff: Staff | null }) {
   const [rows, setRows] = useState<WaitingRow[] | null>(null);
   const [asking, setAsking] = useState("");
@@ -48,9 +53,12 @@ export function WaitingList({ staff }: { staff: Staff | null }) {
                 e.service.name, `#${e.place}`,
                 <Patient key="p" name={e.patient_name} id={e.patient} />,
                 e.joined_at.slice(0, 10),
-                e.state === "offered"
-                  ? <Pill key="s" kind="ok">Told a time opened</Pill>
-                  : <Pill key="s" kind="warn">Waiting</Pill>,
+                <span key="s">
+                  {e.state === "offered"
+                    ? <Pill kind="ok">Told a time opened</Pill>
+                    : <Pill kind="warn">Waiting</Pill>}
+                  {e.journey && <small style={{ display: "block" }}>Journey step: {JOURNEY[e.journey]}.</small>}
+                </span>,
                 <span key="a">
                   {asking !== e.id && (
                     <button className="btn ghost" onClick={() => setAsking(e.id)}>Remove</button>

@@ -235,6 +235,8 @@ export interface WaitingRow {
   state: "waiting" | "offered";
   patient_name?: string | null;
   place: number;                         // 1 = waiting longest for that service
+  /** Where it stands in its journey (J3.waitlist); null for a request that joined before journeys. */
+  journey?: "waiting" | "offered" | "booked" | "left" | null;
   joined_at: string;
   offered_at: string | null;
   service: { id: string; name: string };

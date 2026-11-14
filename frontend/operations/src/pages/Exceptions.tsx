@@ -22,6 +22,8 @@ const DEADLINE: Record<string, string> = {
   acknowledge_by: "Referral not seen by the clinic in time",
   decide_by: "Referral not decided in time",
   info_by: "More information for a referral not received in time",
+  wait_by: "Waiting a very long time with no free time to offer",
+  offer_by: "Offered a time but neither booked nor returned in time",
 };
 
 const EVENT: Record<string, string> = {

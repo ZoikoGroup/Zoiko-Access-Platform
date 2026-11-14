@@ -49,6 +49,15 @@ def entry_dict(e: WaitEntry) -> dict[str, Any]:
     }
 
 
+def _event(event_type: str, e: WaitEntry, *, actor_ref: str = "") -> None:
+    """Which entry changed and where it now stands: nothing about the patient or the service."""
+    payload = {"entry_ref": e.public_id, "state": e.state}
+    if actor_ref:
+        payload["actor_ref"] = actor_ref
+    emit(event_type=event_type, aggregate_type="waitlist", aggregate_ref=e.public_id,
+         payload=payload)
+
+
 def _own(entry_ref: str) -> WaitEntry:
     found = WaitEntry.objects.filter(public_id=entry_ref, **_scope()).first()
     if found is None:
@@ -77,6 +86,7 @@ def join(
                 **_scope())
             trust.link_person_to_site(person_ref, service["organization_ref"], "waitlist")
             _audit(actor_public_id, "waitlist.join", entry.public_id)
+            _event("waitlist.joined.v1", entry, actor_ref=actor_public_id)
             return entry_dict(entry)
     except IntegrityError:
         raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None            # already on the list
@@ -97,6 +107,7 @@ def leave(
         entry.entity_version += 1
         entry.save(update_fields=["state", "closed_reason", "entity_version", "updated_at"])
         _audit(actor_public_id, "waitlist.leave", entry.public_id)
+        _event("waitlist.left.v1", entry, actor_ref=actor_public_id)
         return entry_dict(entry)
 
 
@@ -153,9 +164,7 @@ def offer_open_times(service_ref: str, *, clock: Clock | None = None) -> int:
             entry.entity_version += 1
             entry.save(update_fields=["state", "offered_at", "entity_version", "updated_at"])
             _audit("system", "waitlist.offer", entry.public_id)
-            emit(event_type="waitlist.offered.v1", aggregate_type="waitlist",
-                 aggregate_ref=entry.public_id,
-                 payload={"entry_ref": entry.public_id, "state": entry.state})
+            _event("waitlist.offered.v1", entry)
         return len(queue)
 
 
@@ -170,6 +179,7 @@ def close_for_booking(person_ref: str, service_ref: str) -> int:
             entry.entity_version += 1
             entry.save(update_fields=["state", "closed_reason", "entity_version", "updated_at"])
             _audit("system", "waitlist.booked", entry.public_id)
+            _event("waitlist.booked.v1", entry)
         return len(entries)
 
 
@@ -187,6 +197,7 @@ def expire_old_offers(*, older_than: dt.timedelta | None = None, clock: Clock | 
             entry.offered_at = None
             entry.entity_version += 1
             entry.save(update_fields=["state", "offered_at", "entity_version", "updated_at"])
+            _event("waitlist.returned.v1", entry)
         return len(stale)
 
 

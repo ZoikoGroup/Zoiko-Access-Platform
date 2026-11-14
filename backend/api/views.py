@@ -2225,9 +2225,13 @@ def staff_waitlist(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
     rows.sort(key=lambda e: e["created_at"])                     # longest waiting first
     place: dict[str, int] = {}
     entries = _waitlist_json(rows, auth)
+    with tenant_transaction():
+        journeys = workflow.instances_for([e["id"] for e in entries], "J3.waitlist")
     for item in entries:
         place[item["service"]["id"]] = place.get(item["service"]["id"], 0) + 1
         item["place"] = place[item["service"]["id"]]
+        # Where it stands in its journey (none for a request that joined before journeys).
+        item["journey"] = journeys[item["id"]]["state"] if item["id"] in journeys else None
     return JsonResponse({"entries": entries})
 
 

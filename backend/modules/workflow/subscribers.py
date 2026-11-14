@@ -17,7 +17,7 @@ from modules.referral import api as referral
 from modules.scheduling import api as scheduling
 from modules.trust import api as trust
 
-from . import referral_journey
+from . import referral_journey, waitlist_journey
 from .models import Kind, Status
 from .services import close_item, open_item
 
@@ -25,6 +25,7 @@ BOOKING_CONSUMER = "workflow.booking_queue"
 REFERRAL_CONSUMER = "workflow.referral_queue"
 MESSAGE_CONSUMER = "workflow.message_queue"
 REFERRAL_JOURNEY_CONSUMER = "workflow.referral_journey"
+WAITLIST_JOURNEY_CONSUMER = "workflow.waitlist_journey"
 
 
 def _due(organization_ref: str) -> dt.datetime:
@@ -93,6 +94,23 @@ def on_referral_journey_event(event: PublishedEvent) -> None:
         referral_journey.on_decided(ref, str(event.payload.get("state", "")), actor)
 
 
+def on_waitlist_journey_event(event: PublishedEvent) -> None:
+    """Keep each waiting-list request's journey (J3.waitlist) beside the request itself."""
+    ref = str(event.payload.get("entry_ref", ""))
+    if not ref:
+        return
+    if event.event_type == "waitlist.joined.v1":
+        waitlist_journey.on_joined(ref)
+    elif event.event_type == "waitlist.offered.v1":
+        waitlist_journey.on_offered(ref)
+    elif event.event_type == "waitlist.returned.v1":
+        waitlist_journey.on_returned(ref)
+    elif event.event_type == "waitlist.booked.v1":
+        waitlist_journey.on_booked(ref)
+    elif event.event_type == "waitlist.left.v1":
+        waitlist_journey.on_left(ref, str(event.payload.get("actor_ref", "")))
+
+
 def on_message_event(event: PublishedEvent) -> None:
     if event.event_type != "message.sent.v1":
         return
@@ -115,6 +133,7 @@ def register_subscribers() -> None:
         (BOOKING_CONSUMER, "booking.", on_booking_event),
         (REFERRAL_CONSUMER, "referral.", on_referral_event),
         (REFERRAL_JOURNEY_CONSUMER, "referral.", on_referral_journey_event),
+        (WAITLIST_JOURNEY_CONSUMER, "waitlist.", on_waitlist_journey_event),
         (MESSAGE_CONSUMER, "message.", on_message_event),
     ):
         if not any(s.consumer == consumer for s in subscriptions()):

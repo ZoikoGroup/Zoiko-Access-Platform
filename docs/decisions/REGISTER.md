@@ -967,6 +967,14 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Not built:** a per-clinic response deadline in the journey; moving a referral between clinics as a journey step; carrying a referral over a partner connector.
 - **Checked:** new tests in `tests/test_referral_journey.py` (the path through each outcome, repeats, refused decisions, a journey that has ended, no journey for an old referral, timers raising exceptions without closing, another clinic seeing nothing); typecheck and build of the operations app.
 
+### DEV-132: waiting-list journey on the workflow engine (ADD, GHE-12 / GHE-14)
+
+- **What was done:** a released journey `J3.waitlist` (`modules/workflow/bundled/j3_waitlist.v1.json`) follows every new waiting-list request: **waiting**, **offered** a time, then **booked** or **left** (an unused offer goes back to waiting and can be offered again). It is kept beside the request from the waitlist events (`modules/workflow/waitlist_journey.py`, started in `workflow/subscribers.py`). The waitlist module now also emits `waitlist.joined.v1`, `waitlist.left.v1`, `waitlist.booked.v1` and `waitlist.returned.v1` (flat ids and the new state, with the login that acted for joining and leaving), beside the existing `waitlist.offered.v1`. Timers only raise exceptions (never offer or close): waiting 14 days, and offered but neither booked nor returned within 3 days. The staff **Waiting list** screen shows each request's journey step; **Journeys** and **Exceptions** list them like any other journey.
+- **Rules kept:** the waitlist module still decides who is offered which time and when an offer goes back. An offer and a return are recorded as the product's own steps (the system); booking and leaving are a person's steps, and the journey itself refuses the system or a partner for them. A request that joined before this change has no journey and none is invented for it. The patient's own view of the list is unchanged.
+- **Temporary rules to confirm (add to docs/LEAD-NOTE.md questions):** the 14 day and 3 day deadlines are our choice and fixed in the released definition. It is on for every clinic (it only records, so there is no setting).
+- **Not built:** a per-clinic waiting deadline; showing the journey step to the patient.
+- **Checked:** new tests in `tests/test_waitlist_journey.py` (join, offer, return and re-offer, booked, left by the patient or by staff, repeats and replays, an ended journey, no journey for an old request, the system refused for a person's step, timers raising exceptions without changing the request, another customer seeing nothing, the staff list); typecheck and build of the operations app.
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |
