@@ -56,7 +56,8 @@ export interface Dashboard {
 
 export interface PartnerKey {
   public_id: string; label: string; key_id: string; allowed_types: string[];
-  state: "active" | "suspended" | "revoked"; rate_per_minute: number; created_at: string;
+  state: "pending" | "active" | "suspended" | "revoked"; rate_per_minute: number; created_at: string;
+  checks: { identity: boolean; legal: boolean; security: boolean };
   last_used_at: string | null; secret?: string;
 }
 export interface Hook {

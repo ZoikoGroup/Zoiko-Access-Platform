@@ -4534,15 +4534,19 @@ def staff_partners(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
 def staff_partner_step(
     request: HttpRequest, auth: trust.Authenticated, client_id: str, step: str
 ) -> HttpResponse:
-    """suspend | resume | revoke | rotate-secret."""
+    """suspend | resume | revoke | rotate-secret | issue-secret (after Zoiko's three checks)."""
     org = _manager(auth)
-    if step not in ("suspend", "resume", "revoke", "rotate-secret"):
+    if step not in ("suspend", "resume", "revoke", "rotate-secret", "issue-secret"):
         raise ZoikoError(ErrorCode.NOT_FOUND)
     decision = _authorize(auth, "write:integration", organization_public_id=org)
     me = auth.actor_public_id
     with tenant_transaction():
         if step == "rotate-secret":
             done = integration.rotate_client_secret(
+                client_ref=client_id, actor_public_id=me, decision=decision, organization_ref=org
+            )
+        elif step == "issue-secret":
+            done = integration.issue_client_secret(
                 client_ref=client_id, actor_public_id=me, decision=decision, organization_ref=org
             )
         else:
@@ -4553,6 +4557,34 @@ def staff_partner_step(
                 decision=decision,
                 organization_ref=org,
             )
+    return JsonResponse({"client": done})
+
+
+@endpoint("GET")
+def platform_partner_checks(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Partners of customers that still wait for Zoiko's identity, legal and security checks."""
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    return JsonResponse({"partners": integration.pending_for_platform()})
+
+
+@endpoint("POST")
+def platform_partner_check(
+    request: HttpRequest, auth: trust.Authenticated, customer_id: str, client_id: str, check: str
+) -> HttpResponse:
+    """A support person records one check (identity | legal | security) with a note."""
+    org = _platform_only(auth)
+    body = json_body(request)
+    decision = _authorize(auth, "write:platform", organization_public_id=org)
+    done = integration.record_check(
+        customer_ref=customer_id,
+        client_ref=client_id,
+        check=check,
+        note=body.get("note"),
+        actor_public_id=auth.actor_public_id,
+        decision=decision,
+        platform_organization_ref=org,
+    )
     return JsonResponse({"client": done})
 
 

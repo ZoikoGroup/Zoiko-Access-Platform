@@ -10,6 +10,8 @@ test("a data request goes from the patient to the clinic and back", async ({ pag
   const patient = await (await browser.newContext()).newPage();
   await signIn(patient, "patient", LOGINS.patient);
   await patient.getByRole("button", { name: /Privacy & Consent/ }).first().click();
+  await patient.getByText("Your data rights").waitFor();
+  await patient.waitForLoadState("networkidle");                    // let the request list load before counting
   const withdraw = patient.getByRole("button", { name: "Withdraw" });
   if (await withdraw.count()) {                                     // clear a leftover from a failed run
     await withdraw.first().click();

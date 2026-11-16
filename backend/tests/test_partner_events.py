@@ -15,7 +15,8 @@ from modules.integration.delivery import sign, signature_header
 from modules.integration.inbound import _SIGNATURE
 from modules.integration.models import InboundEvent, PartnerClient
 from modules.trust import api as trust
-from tests.test_api import Web
+from tests.partner_support import issue
+from tests.test_api import API, Web
 from tests.test_clinician import Practice
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
@@ -41,9 +42,10 @@ def add(p, label="Lab network", types=("partner.lab.",), subject="boss"):
 
 
 def partner(p, **kw):
+    """A partner that is already live: added, checked by Zoiko, and its secret issued (T-43)."""
     r = add(p, **kw)
     assert r.status_code == 201, r.content
-    return json.loads(r.content)["client"]
+    return issue(p, json.loads(r.content)["client"], subject=kw.get("subject", "boss"))
 
 
 def body_of(kind="partner.lab.result_ready.v1", **data):
@@ -305,7 +307,9 @@ def test_changes_are_audited_without_the_secret(p):
     with tenant_transaction(p.clinic.ctx):
         found = list(AuditEvent.objects.filter(object_ref=c["public_id"]).order_by("chain_seq"))
     assert [e.action for e in found] == [
-        "integration.partner_created", "integration.partner_suspend",
+        "integration.partner_created", "integration.partner_check_identity",
+        "integration.partner_check_legal", "integration.partner_check_security",
+        "integration.partner_secret_issued", "integration.partner_suspend",
         "integration.partner_resume", "integration.partner_secret_rotated"]
     dump = json.dumps([e.details for e in found])
     assert c["secret"] not in dump and rotated["secret"] not in dump
@@ -342,3 +346,79 @@ def test_values_inside_the_data_never_move_a_message_to_another_customer(p):
     assert len(events(p)) == 1
     assert json.loads(other.get("staff/integrations/inbound", subject="admin2").content
                       )["events"] == []
+
+
+# ------------------------------------------------------------------ T-43: checks before a secret
+def test_a_new_partner_has_no_secret_and_cannot_send_until_zoiko_has_checked_it(p):
+    made = json.loads(add(p).content)["client"]
+    assert made["state"] == "pending" and "secret" not in made
+    assert made["checks"] == {"identity": False, "legal": False, "security": False}
+    with tenant_transaction(p.clinic.ctx):
+        assert PartnerClient.objects.get(public_id=made["public_id"]).secret_enc == ""
+    r = p.post(f"staff/integrations/partners/{made['public_id']}/issue-secret", subject="boss")
+    assert r.status_code == 403                                         # nothing checked yet
+
+
+def test_all_three_checks_are_needed_before_a_secret_is_issued(p):
+    from tests.partner_support import check
+    made = json.loads(add(p).content)["client"]
+    url = f"staff/integrations/partners/{made['public_id']}/issue-secret"
+    for which in ("identity", "legal"):
+        assert check(p, made["public_id"], which).status_code == 200
+        assert p.post(url, subject="boss").status_code == 403           # still one missing
+    assert check(p, made["public_id"], "security").status_code == 200
+    r = p.post(url, subject="boss")
+    got = json.loads(r.content)["client"]
+    assert r.status_code == 200 and got["state"] == "active" and got["secret"].startswith("pcsec_")
+    assert send(got).status_code == 202
+    assert p.post(url, subject="boss").status_code == 409               # only ever issued once
+
+
+def test_a_pending_partner_cannot_be_resumed_rotated_or_suspended_into_life(p):
+    made = json.loads(add(p).content)["client"]
+    step = f"staff/integrations/partners/{made['public_id']}"
+    for name in ("resume", "suspend", "rotate-secret"):
+        assert p.post(f"{step}/{name}", subject="boss").status_code == 409
+    assert clients(p)[0]["state"] == "pending"
+    assert p.post(f"{step}/revoke", subject="boss").status_code == 200   # but it can be refused
+
+
+def test_only_zoiko_support_records_a_check_and_it_needs_a_note(p):
+    from tests.partner_support import check, zoiko
+    made = json.loads(add(p).content)["client"]
+    # the clinic's own administrator cannot vouch for its own partner
+    r = p.post(f"platform/partner-checks/{p.clinic.tenant_public_id}/{made['public_id']}/identity",
+               {"note": "I trust them"}, subject="boss")
+    assert r.status_code == 403
+    assert check(p, made["public_id"], "identity", note="").status_code == 422
+    assert check(p, made["public_id"], "identity", note="ab").status_code == 422
+    assert check(p, made["public_id"], "nonsense").status_code == 404
+    assert check(p, made["public_id"], "identity", customer="no-such-customer").status_code == 404
+    assert check(p, made["public_id"], "identity", customer=zoiko(p).tenant_public_id
+                 ).status_code == 404                                    # not Zoiko's own tenant
+    assert check(p, "no-such-partner", "identity").status_code == 404
+    assert check(p, made["public_id"], "identity").status_code == 200
+    assert clients(p)[0]["checks"] == {"identity": True, "legal": False, "security": False}
+
+
+def test_support_sees_waiting_partners_without_notes_or_secrets_and_a_clinic_does_not(p):
+    from tests.partner_support import check, zoiko
+    made = json.loads(add(p).content)["client"]
+    check(p, made["public_id"], "legal", note="Contract reference LAB-77")
+    z = zoiko(p)
+    r = z.client.get(API + "platform/partner-checks", **z.header(z.tenant_public_id, "zsam"))
+    assert r.status_code == 200
+    [row] = [x for x in json.loads(r.content)["partners"] if x["public_id"] == made["public_id"]]
+    assert row["customer_ref"] == p.clinic.tenant_public_id and row["checks"]["legal"] is True
+    assert "LAB-77" not in r.content.decode() and "secret" not in row
+    assert p.get("platform/partner-checks", subject="boss").status_code == 403
+
+
+def test_a_check_cannot_be_added_once_the_partner_is_live_and_is_audited(p):
+    from tests.partner_support import check
+    c = partner(p)                                                      # checked and live
+    assert check(p, c["public_id"], "identity").status_code == 409
+    with tenant_transaction(p.clinic.ctx):
+        actions = set(AuditEvent.objects.values_list("action", flat=True))
+    assert {"integration.partner_check_identity", "integration.partner_check_legal",
+            "integration.partner_check_security", "integration.partner_secret_issued"} <= actions

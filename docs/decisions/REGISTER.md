@@ -1295,6 +1295,13 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Limit:** it scans one customer's rows and the id columns; the order number a clinic types for a partner request is the clinic's own choice, not an id we generate.
 - **Checked:** 3 tests passed; ruff clean.
 
+### DEV-174: a partner has no secret until Zoiko has recorded three checks (TEMPORARY, GHE-13 T-43)
+
+- **What was done:** a partner added by a clinic administrator or partner developer now starts **pending** with no secret. A Zoiko support person (R11) records an identity check, a legal check and a security check, each with a note of 3 to 300 characters (new platform page "Partner checks"). Only when all three are in can the clinic issue the secret (`issue-secret`), which is shown once and makes the partner active. A pending partner cannot be resumed, suspended into life or given a new secret; it can only be revoked. Support's checks are recorded in the customer's own tenant and audit chain (`integration.partner_check_*`, `integration.partner_secret_issued`). Partners that already existed keep the state they had.
+- **TEMPORARY (please confirm):** that one support person may record each check, that the three checks are these three, and that the note is free text. Whether two people must agree (as for suspension, DEV-080) and what proof counts are open.
+- **Not built:** no proof is attached or verified, no expiry or re-check on a change of profile (T-48), and no sandbox, certified or live stages (T-41, T-47).
+- **Checked:** 6 new tests in `test_partner_events.py` (80 in that file and the portal tests passed with the helper that now issues a secret), neighbouring openapi, exchange, sponsor, suspension and contract tests pass (141 passed, 1 skipped), ruff, mypy, import rules and migrations clean, three apps type-check, robot 19 now goes through the checks, robots 6 and 10 pass with the new page. T-43 moves from not built to **partly** (now 13 met, 26 partly, 25 not built).
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |

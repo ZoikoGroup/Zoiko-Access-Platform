@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { LOGINS, PARTNER_LOGINS, signIn } from "../helpers";
+import { LOGINS, PARTNER_LOGINS, PLATFORM, signIn } from "../helpers";
 
 // Robot 19: the partner app (GHE-15 roles R05 to R09). Each kind of login signs in, sees its own role
 // named with what it may reach and what is not connected yet, passes the accessibility scan, and a
@@ -119,6 +119,24 @@ test("a partner developer makes a key, sees its secret once, and finds the docum
   const name = `Robot ERP ${Date.now()}`;
   await page.getByLabel("Name").fill(name);
   await page.getByRole("button", { name: "Add key" }).click();
+  // A new key has no secret until Zoiko support has recorded three checks (T-43).
+  await expect(page.getByTestId("secret-note")).toContainText(`${name} was added. It has no secret yet`);
+  const row = page.locator(".appt", { hasText: name });
+  await expect(row.getByText("waiting for Zoiko's checks").first()).toBeVisible();
+  await expect(row.getByRole("button", { name: "Get the secret" })).toBeDisabled();
+
+  const support = await (await page.context().browser()!.newContext()).newPage();
+  await signIn(support, "platform", "vikram@zoiko.example", PLATFORM.org, PLATFORM.password);
+  await support.locator(".nav-item", { hasText: "Partner checks" }).click();
+  for (const check of ["identity", "legal", "security"]) {
+    await support.getByLabel(`${check[0].toUpperCase()}${check.slice(1)} check note for ${name}`).fill("Robot looked at it");
+    await support.locator(".appt", { hasText: name }).getByRole("button", { name: `Record ${check} check` }).click();
+  }
+  await expect(support.locator(".appt", { hasText: name }).getByText("Recorded")).toHaveCount(3);   // all three are in
+
+  await page.reload();
+  await page.locator(".nav-item", { hasText: "API keys" }).click();
+  await page.locator(".appt", { hasText: name }).getByRole("button", { name: "Get the secret" }).click();
   await expect(page.getByTestId("secret-note")).toContainText(`Secret for ${name}, shown once:`);
   await expect(page.locator(".appt", { hasText: name }).getByText("active")).toBeVisible();
   await page.locator(".nav-item", { hasText: "API documents" }).click();

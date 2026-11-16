@@ -1,5 +1,5 @@
 // The platform console menu. `live` screens show real backend data; the rest say what they wait for.
-export type PageId = "overview" | "customers" | "incidents" | "hazards" | "releases" | "packs" | "levels" | "readiness" | "matrix" | "settings" | "account";
+export type PageId = "overview" | "customers" | "partnerchecks" | "incidents" | "hazards" | "releases" | "packs" | "levels" | "readiness" | "matrix" | "settings" | "account";
 
 export interface NavItem {
   id: PageId;
@@ -12,6 +12,7 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { id: "overview", label: "Overview", icon: "dashboard", live: true },
   { id: "customers", label: "Customers", icon: "organizations", live: true },
+  { id: "partnerchecks", label: "Partner checks", icon: "integrations", live: true },
   { id: "incidents", label: "Incidents", icon: "shield", live: true },
   { id: "hazards", label: "Hazards", icon: "shield", live: true },
   { id: "releases", label: "Releases", icon: "integrations", live: true },

@@ -368,3 +368,15 @@ export const reviewHazard = (id: string, verdict: "verified" | "rejected", note:
   hazardPost(id, "review", { verdict, note });
 export const acceptHazard = (id: string, note: string) => hazardPost(id, "accept", { note });
 export const retireHazard = (id: string, reason: string) => hazardPost(id, "retire", { reason });
+
+/** A customer's partner waits for three checks by Zoiko support before it can have a secret. */
+export type PartnerCheckName = "identity" | "legal" | "security";
+export interface PartnerCheckRow {
+  public_id: string; customer_ref: string; customer_name: string; label: string; key_id: string;
+  allowed_types: string[]; checks: Record<PartnerCheckName, boolean>; created_at: string;
+}
+export const getPartnerChecks = async () => (await v1<{ partners: PartnerCheckRow[] }>("platform/partner-checks")).partners;
+export const recordPartnerCheck = (customer: string, client: string, check: PartnerCheckName, note: string) =>
+  v1<{ client: unknown }>(`platform/partner-checks/${encodeURIComponent(customer)}/${encodeURIComponent(client)}/${check}`, {
+    method: "POST", body: JSON.stringify({ note }),
+  });

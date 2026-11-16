@@ -229,6 +229,9 @@ def test_a_developer_dashboard_counts_keys_webhooks_and_deliveries(clinic):
     made = clinic.post("staff/integrations/partners",
                        {"label": "ERP", "allowed_types": ["partner.booking."]}, subject="dev")
     assert made.status_code == 201
+    assert numbers(clinic, "dev")["keys"] == {"active": 0, "total": 1}      # no secret yet (T-43)
+    from tests.partner_support import issue
+    issue(clinic, json.loads(made.content)["client"], subject="dev")
     assert numbers(clinic, "dev")["keys"] == {"active": 1, "total": 1}
 
 

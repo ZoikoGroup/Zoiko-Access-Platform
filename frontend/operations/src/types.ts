@@ -347,11 +347,12 @@ export interface PartnerClient {
   label: string;
   key_id: string;
   allowed_types: string[];
-  state: "active" | "suspended" | "revoked";
+  state: "pending" | "active" | "suspended" | "revoked";
   rate_per_minute: number;
   created_at: string;
+  checks: { identity: boolean; legal: boolean; security: boolean };    // what Zoiko has recorded so far
   last_used_at: string | null;
-  secret?: string;                  // only in the answer to "add" and "new secret"
+  secret?: string;                  // only in the answer to "issue the secret" and "new secret"
 }
 
 export interface InboundEvent {

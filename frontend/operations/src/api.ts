@@ -288,7 +288,7 @@ export const listPartners = async () =>
   (await v1<{ clients: PartnerClient[] }>("staff/integrations/partners")).clients;
 export const addPartner = async (label: string, allowed_types: string[]) =>
   (await post<{ client: PartnerClient }>("staff/integrations/partners", { label, allowed_types })).client;
-export const partnerStep = async (id: string, step: "suspend" | "resume" | "revoke" | "rotate-secret") =>
+export const partnerStep = async (id: string, step: "suspend" | "resume" | "revoke" | "rotate-secret" | "issue-secret") =>
   (await post<{ client: PartnerClient }>(`staff/integrations/partners/${encodeURIComponent(id)}/${step}`)).client;
 export const listInboundEvents = async () =>
   (await v1<{ events: InboundEvent[] }>("staff/integrations/inbound")).events;

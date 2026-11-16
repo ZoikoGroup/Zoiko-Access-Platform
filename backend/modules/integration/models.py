@@ -80,6 +80,7 @@ class WebhookDelivery(CellScopedModel):
 
 # ---------------------------------------------------------------- inbound (GHE-13 WF-04, WF-08)
 class ClientState(models.TextChoices):
+    PENDING = "pending", "Waiting for Zoiko's checks"     # no secret exists yet (T-43)
     ACTIVE = "active", "Active"
     SUSPENDED = "suspended", "Suspended"
     REVOKED = "revoked", "Revoked"
@@ -98,7 +99,10 @@ class PartnerClient(CellScopedModel):
     key_id = models.CharField(max_length=80)
     secret_enc = models.TextField()                           # sealed signing secret
     allowed_types = models.JSONField(default=list)            # event types it may send (prefixes)
-    state = models.CharField(max_length=12, choices=ClientState.choices, default=ClientState.ACTIVE)
+    state = models.CharField(max_length=12, choices=ClientState.choices,
+                             default=ClientState.PENDING)
+    # {"identity"|"legal"|"security": {"by": actor ref, "note": str, "at": iso time}} (T-43)
+    validation = models.JSONField(default=dict, blank=True)
     rate_per_minute = models.PositiveSmallIntegerField(default=60)
     created_by_ref = models.CharField(max_length=22)
     last_used_at = models.DateTimeField(null=True, blank=True)

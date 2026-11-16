@@ -4053,6 +4053,120 @@
     "summary": "platform pack step"
    }
   },
+  "/platform/partner-checks": {
+   "get": {
+    "operationId": "get_platform_partner_checks",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Partners of customers that still wait for Zoiko's identity, legal and security checks."
+   }
+  },
+  "/platform/partner-checks/{customer_id}/{client_id}/{check}": {
+   "post": {
+    "operationId": "post_platform_partner_check",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "customer_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "check",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A support person records one check (identity | legal | security) with a note."
+   }
+  },
   "/platform/readiness": {
    "get": {
     "operationId": "get_platform_readiness",
@@ -7591,7 +7705,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "suspend | resume | revoke | rotate-secret."
+    "summary": "suspend | resume | revoke | rotate-secret | issue-secret (after Zoiko's three checks)."
    }
   },
   "/staff/integrations/webhooks": {

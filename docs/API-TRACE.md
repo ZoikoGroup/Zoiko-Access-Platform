@@ -2,7 +2,7 @@
 
 Written 2026-11-11 by the developer, from GHE-13 section 15. Each row is a judgement made by reading the case and the code, not an automatic result; "Met" means one of our own automated tests proves the behaviour. The specification's cases have **not** been run as written (they need partners, certificates, sandboxes and regions that do not exist). This is the developer's reading and nobody else has reviewed it.
 
-**Totals: 13 met, 25 partly, 26 not built (of 64).**
+**Totals: 13 met, 26 partly, 25 not built (of 64).**
 
 What exists is outbound signed webhooks (DEV-127), partner credentials and signed inbound messages (DEV-131), request measurements (DEV-130) and country packs (DEV-128). The "not built" rows are mostly healthcare interoperability (FHIR, HL7, imaging), the published API documents and SDKs, OAuth, and the whole partner onboarding, sandbox and certification lifecycle, none of which can be built without a partner, a standards decision and an approver.
 
@@ -50,7 +50,7 @@ What exists is outbound signed webhooks (DEV-127), partner credentials and signe
 | T-40 | Idempotency and consistency | Regional cell failure recovers inbox/outbox and events without unauthorized cross-region copying. | Not built | One region; no cell failure handling. |
 | T-41 | Sandbox and certification | Sandbox exercises synthetic patients only and cannot reach production sources or tokens. | Not built | No sandbox. |
 | T-42 | Sandbox and certification | Mock server produces reproducible signature/timeout/duplicate/mismatch cases. | Partly | test_webhooks.py, test_partner_events.py: the tests use a fake partner that produces signature, timeout, duplicate and mismatch cases repeatably. No mock server is shipped. |
-| T-43 | Sandbox and certification | Partner onboarding blocks client credential issuance before identity/legal/security validation. | Not built | A clinic administrator can issue a credential at once; there is no identity, legal or security validation first. |
+| T-43 | Sandbox and certification | Partner onboarding blocks client credential issuance before identity/legal/security validation. | Partly | A new partner has no secret. A Zoiko support person records identity, legal and security checks with notes, and only then can the clinic issue the secret (DEV-174, test_partner_events.py, robot 19). One person may record each check, and nothing is proved or verified. |
 | T-44 | Sandbox and certification | Certification matrix binds partner, region, use case, version and approved contract. | Not built | No certification matrix. |
 | T-45 | Sandbox and certification | Missing or failed clinical hazard test blocks activation for affected feature. | Not built | No hazard tests gate activation. |
 | T-46 | Sandbox and certification | Failed privacy/DPIA/country pack check blocks production enablement. | Not built | No privacy or country-pack check gates enabling a connector. |

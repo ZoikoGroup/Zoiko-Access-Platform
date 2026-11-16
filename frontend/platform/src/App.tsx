@@ -17,6 +17,7 @@ import { Matrix } from "./pages/Matrix";
 import { Packs } from "./pages/Packs";
 import { Readiness } from "./pages/Readiness";
 import { ServiceLevels } from "./pages/ServiceLevels";
+import { PartnerChecks } from "./pages/PartnerChecks";
 import { Releases } from "./pages/Releases";
 import { Settings } from "./pages/Settings";
 import { SignIn } from "./pages/SignIn";
@@ -80,6 +81,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
   else if (page === "hazards") body = <Hazards />;
+  else if (page === "partnerchecks") body = <PartnerChecks canWrite={session.roles.some((r) => r.role === "R11")} />;
   else if (page === "incidents") body = <Incidents canWrite={session.roles.some((r) => r.role === "R11")} />;
   else if (page === "matrix") body = <Matrix canWrite={session.roles.some((r) => r.role === "R11")} />;
   else if (page === "readiness") body = <Readiness canWrite={session.roles.some((r) => r.role === "R11")} canAttest={session.roles.some((r) => r.role === "R12")} />;

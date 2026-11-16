@@ -4,16 +4,17 @@ import type { PartnerKey } from "../types";
 import { Card, Pill } from "../ui";
 import { Gate, useLoad } from "../useLoad";
 
-const STATE: Record<string, string> = { active: "active", suspended: "suspended", revoked: "revoked" };
+const STATE: Record<string, string> = { pending: "waiting for Zoiko's checks", active: "active", suspended: "suspended", revoked: "revoked" };
+const CHECK_NAME = { identity: "Identity", legal: "Legal", security: "Security" } as const;
 
 function Row({ k, onChanged }: { k: PartnerKey; onChanged: (secret?: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function run(step: "suspend" | "resume" | "revoke" | "rotate-secret") {
+  async function run(step: "suspend" | "resume" | "revoke" | "rotate-secret" | "issue-secret") {
     setBusy(true); setError("");
     try {
       const done = await keyStep(k.public_id, step);
-      onChanged(done.secret ? `New secret for ${k.label}: ${done.secret}` : undefined);
+      onChanged(done.secret ? `${step === "issue-secret" ? "Secret" : "New secret"} for ${k.label}, shown once: ${done.secret}` : undefined);
     } catch (err) { setError(err instanceof Error ? err.message : "That did not work"); }
     finally { setBusy(false); }
   }
@@ -21,10 +22,19 @@ function Row({ k, onChanged }: { k: PartnerKey; onChanged: (secret?: string) => 
     <div className="appt">
       <div className="info">
         <b>{k.label} <Pill kind={k.state === "active" ? "ok" : "warn"}>{STATE[k.state] ?? k.state}</Pill></b>
+        {k.state === "pending" && (
+          <small data-testid="checks">Zoiko records three checks before a secret exists: {(Object.keys(CHECK_NAME) as (keyof typeof CHECK_NAME)[]).map((c) => `${CHECK_NAME[c]} ${k.checks[c] ? "done" : "waiting"}`).join(", ")}.</small>
+        )}
         <small>Key id {k.key_id} · may send {k.allowed_types.join(", ") || "nothing"} · {k.rate_per_minute} a minute{k.last_used_at ? ` · last used ${k.last_used_at.slice(0, 16).replace("T", " ")}` : " · never used"}</small>
         {error && <div className="error" role="alert">{error}</div>}
       </div>
-      {k.state !== "revoked" && (
+      {k.state === "pending" && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className="btn" disabled={busy || !k.checks.identity || !k.checks.legal || !k.checks.security} onClick={() => void run("issue-secret")}>Get the secret</button>
+          <button className="btn ghost" disabled={busy} onClick={() => void run("revoke")}>Revoke</button>
+        </div>
+      )}
+      {k.state !== "revoked" && k.state !== "pending" && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {k.state === "active"
             ? <button className="btn ghost" disabled={busy} onClick={() => void run("suspend")}>Suspend</button>
@@ -48,7 +58,7 @@ function Add({ onDone }: { onDone: (secret?: string) => void }) {
     try {
       const made = await addKey(label, types.split(/[\s,;]+/).filter(Boolean));
       setLabel("");
-      onDone(`Secret for ${made.label}, shown once: ${made.secret}`);
+      onDone(`${made.label} was added. It has no secret yet: Zoiko checks who you are first, then you can get the secret here.`);
     } catch (err) {
       setError((err as { code?: string }).code === "VALIDATION_FAILED" ? "Check the name and the event types (they start with partner., like partner.booking.)." : err instanceof Error ? err.message : "Could not add the key");
     } finally { setBusy(false); }
@@ -75,7 +85,7 @@ function KeysInner({ onChanged, said }: { onChanged: (said?: string) => void; sa
     <>
       <div className="hero"><div>
         <h1>API keys</h1>
-        <p>The keys your systems use to send messages to Zoiko Access. A secret is shown once, when you make or renew it: copy it then.</p>
+        <p>The keys your systems use to send messages to Zoiko Access. Zoiko checks a new key (identity, legal, security) before any secret exists. The secret is then shown once: copy it then.</p>
       </div></div>
       {said && <div className="notice" role="status" data-testid="secret-note">{said}</div>}
       <div className="grid">

@@ -43,6 +43,8 @@ from .delivery import sign
 from .models import ClientState, InboundEvent, InboundState, PartnerClient
 
 WRITE = "write:integration"
+WRITE_PLATFORM = "write:platform"
+CHECKS = ("identity", "legal", "security")       # T-43: what Zoiko records before a secret exists
 # R10: a partner developer manages its own keys and webhooks (DEV-161)
 MANAGING_ROLES = frozenset({"R13", "R10"})
 MAX_BODY = 4096
@@ -70,6 +72,7 @@ def client_dict(c: PartnerClient) -> dict[str, Any]:
         "public_id": c.public_id, "label": c.label, "key_id": c.key_id,
         "allowed_types": list(c.allowed_types), "state": c.state,
         "rate_per_minute": c.rate_per_minute, "created_at": c.created_at.isoformat(),
+        "checks": {name: name in (c.validation or {}) for name in CHECKS},
         "last_used_at": c.last_used_at.isoformat() if c.last_used_at else None,
     }
 
@@ -110,7 +113,8 @@ def create_client(
     *, label: str, allowed_types: Any, organization_ref: str | None, actor_public_id: str,
     decision: policy.Decision,
 ) -> dict[str, Any]:
-    """Register a partner. The signing secret is shown ONCE here and stored sealed."""
+    """Register a partner. It has NO secret yet (T-43): a Zoiko support person records the
+    identity, legal and security checks first, then `issue_client_secret` shows the secret once."""
     _managed(decision, actor_public_id, organization_ref)
     name = " ".join((label or "").split())
     if not 2 <= len(name) <= 80 or any(ord(ch) < 32 for ch in name):
@@ -122,17 +126,14 @@ def create_client(
         live = PartnerClient.objects.filter(**_scope()).exclude(state=ClientState.REVOKED)
         if live.count() >= MAX_CLIENTS:
             raise ZoikoError(ErrorCode.RATE_LIMITED)
-        secret = f"pcsec_{secrets.token_urlsafe(32)}"
         row = PartnerClient(label=name, key_id=f"pc.{tenant_public}.{secrets.token_hex(4)}",
                             secret_enc="", allowed_types=chosen, created_by_ref=actor_public_id,
-                            **_scope())
-        row.secret_enc = encrypt(secret, tenant_id=row.tenant_id,
-                                 context=_secret_context(row.public_id))
+                            state=ClientState.PENDING, **_scope())
         row.save()
         record(actor_ref=actor_public_id, action="integration.partner_created",
                object_type="partner_client", object_ref=row.public_id,
                outcome=AuditOutcome.ALLOWED)
-        return {**client_dict(row), "secret": secret}
+        return client_dict(row)
 
 
 def set_client_state(
@@ -149,6 +150,8 @@ def set_client_state(
         row = _own(client_ref)
         if row.state == ClientState.REVOKED:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        if row.state == ClientState.PENDING and step != "revoke":
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)     # only issuing the secret activates
         if row.state != targets[step]:
             row.state = targets[step]
             row.entity_version += 1
@@ -167,7 +170,7 @@ def rotate_client_secret(
     _managed(decision, actor_public_id, organization_ref)
     with transaction.atomic():
         row = _own(client_ref)
-        if row.state == ClientState.REVOKED:
+        if row.state in (ClientState.REVOKED, ClientState.PENDING):
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         secret = f"pcsec_{secrets.token_urlsafe(32)}"
         row.secret_enc = encrypt(secret, tenant_id=row.tenant_id,
@@ -175,6 +178,75 @@ def rotate_client_secret(
         row.entity_version += 1
         row.save(update_fields=["secret_enc", "entity_version", "updated_at"])
         record(actor_ref=actor_public_id, action="integration.partner_secret_rotated",
+               object_type="partner_client", object_ref=row.public_id,
+               outcome=AuditOutcome.ALLOWED)
+        return {**client_dict(row), "secret": secret}
+
+
+def record_check(
+    *, customer_ref: str, client_ref: str, check: str, note: Any, actor_public_id: str,
+    decision: policy.Decision, platform_organization_ref: str | None, clock: Clock | None = None,
+) -> dict[str, Any]:
+    """A Zoiko support person records ONE of the identity, legal or security checks for a
+    customer's partner, with a note saying what was looked at (T-43). Only for a partner that has
+    no secret yet. Nothing is checked automatically: this is a person's statement."""
+    policy.check_receipt(decision, actor_public_id=actor_public_id, operation=WRITE_PLATFORM,
+                         organization_public_id=platform_organization_ref)
+    if check not in CHECKS:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    clean = " ".join(str(note or "").split())
+    if not 3 <= len(clean) <= 300 or any(ord(ch) < 32 for ch in clean):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["note"])
+    target = next((t for t in trust.list_tenants() if t["public_id"] == customer_ref), None)
+    if target is None or target["type"] == "platform":
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    with tenant_transaction(trust.context_for(customer_ref)), transaction.atomic():
+        row = _own(client_ref)
+        if row.state != ClientState.PENDING:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        row.validation = {**(row.validation or {}), check: {
+            "by": actor_public_id, "note": clean, "at": utc_now(clock).isoformat()}}
+        row.entity_version += 1
+        row.save(update_fields=["validation", "entity_version", "updated_at"])
+        record(actor_ref=actor_public_id, action=f"integration.partner_check_{check}",
+               object_type="partner_client", object_ref=row.public_id,
+               outcome=AuditOutcome.ALLOWED)
+        return client_dict(row)
+
+
+def pending_for_platform() -> list[dict[str, Any]]:
+    """For Zoiko support: every customer's partners still waiting for checks (no secrets, no
+    notes), oldest first."""
+    found: list[dict[str, Any]] = []
+    for tenant in trust.list_tenants():
+        if tenant["type"] == "platform":
+            continue
+        with tenant_transaction(trust.context_for(tenant["public_id"])):
+            for c in PartnerClient.objects.filter(state=ClientState.PENDING, **_scope()):
+                found.append({"customer_ref": tenant["public_id"],
+                              "customer_name": tenant["name"], **client_dict(c)})
+    return sorted(found, key=lambda r: r["created_at"])
+
+
+def issue_client_secret(
+    *, client_ref: str, actor_public_id: str, decision: policy.Decision,
+    organization_ref: str | None,
+) -> dict[str, Any]:
+    """Only after all three checks are recorded: make the secret, show it ONCE, go live."""
+    _managed(decision, actor_public_id, organization_ref)
+    with transaction.atomic():
+        row = _own(client_ref)
+        if row.state != ClientState.PENDING:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        if any(name not in (row.validation or {}) for name in CHECKS):
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        secret = f"pcsec_{secrets.token_urlsafe(32)}"
+        row.secret_enc = encrypt(secret, tenant_id=row.tenant_id,
+                                 context=_secret_context(row.public_id))
+        row.state = ClientState.ACTIVE
+        row.entity_version += 1
+        row.save(update_fields=["secret_enc", "state", "entity_version", "updated_at"])
+        record(actor_ref=actor_public_id, action="integration.partner_secret_issued",
                object_type="partner_client", object_ref=row.public_id,
                outcome=AuditOutcome.ALLOWED)
         return {**client_dict(row), "secret": secret}

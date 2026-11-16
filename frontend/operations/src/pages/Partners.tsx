@@ -4,6 +4,7 @@ import type { InboundEvent, PartnerClient } from "../types";
 import { Card, Pill, type PillKind } from "../ui";
 
 const CLIENT_STATE: Record<PartnerClient["state"], { text: string; kind: PillKind }> = {
+  pending: { text: "Waiting for Zoiko's checks", kind: "warn" },
   active: { text: "Allowed to send", kind: "ok" }, suspended: { text: "Suspended", kind: "info" },
   revoked: { text: "Revoked", kind: "bad" },
 };
@@ -15,11 +16,11 @@ function PartnerRow({ c, onDone }: { c: PartnerClient; onDone: () => Promise<voi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [secret, setSecret] = useState("");
-  async function run(step: "suspend" | "resume" | "revoke" | "rotate-secret") {
+  async function run(step: "suspend" | "resume" | "revoke" | "rotate-secret" | "issue-secret") {
     setBusy(true); setError("");
     try {
       const done = await partnerStep(c.public_id, step);
-      setSecret(step === "rotate-secret" ? done.secret ?? "" : "");
+      setSecret(step === "rotate-secret" || step === "issue-secret" ? done.secret ?? "" : "");
       await onDone();
     } catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
     finally { setBusy(false); }
@@ -29,10 +30,17 @@ function PartnerRow({ c, onDone }: { c: PartnerClient; onDone: () => Promise<voi
       <div className="info">
         <b>{c.label} <Pill kind={CLIENT_STATE[c.state].kind}>{CLIENT_STATE[c.state].text}</Pill></b>
         <small>Key {c.key_id}. May send: {c.allowed_types.join(" ")}. Up to {c.rate_per_minute} a minute. {c.last_used_at ? `Last heard from ${c.last_used_at.slice(0, 16).replace("T", " ")}.` : "Never used."}</small>
+        {c.state === "pending" && <small>Zoiko records an identity, a legal and a security check before a secret exists. Done so far: {Object.entries(c.checks).filter(([, done]) => done).map(([name]) => name).join(", ") || "none"}.</small>}
         {secret && <small role="status">New secret (shown once, copy it now): <b>{secret}</b></small>}
         {error && <small style={{ color: "var(--bad)" }} role="alert">{error}</small>}
       </div>
-      {c.state !== "revoked" && (
+      {c.state === "pending" && (
+        <div className="form-row">
+          <button className="btn" disabled={busy || !c.checks.identity || !c.checks.legal || !c.checks.security} onClick={() => void run("issue-secret")}>Get the secret</button>
+          <button className="btn ghost" disabled={busy} onClick={() => void run("revoke")}>Revoke</button>
+        </div>
+      )}
+      {c.state !== "revoked" && c.state !== "pending" && (
         <div className="form-row">
           {c.state === "active" ? <button className="btn ghost" disabled={busy} onClick={() => void run("suspend")}>Suspend</button>
             : <button className="btn ghost" disabled={busy} onClick={() => void run("resume")}>Resume</button>}
@@ -49,27 +57,27 @@ function NewPartner({ onDone }: { onDone: () => Promise<void> }) {
   const [types, setTypes] = useState("partner.");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [created, setCreated] = useState<{ key: string; secret: string } | null>(null);
+  const [created, setCreated] = useState<string | null>(null);
   async function save(ev: React.FormEvent) {
     ev.preventDefault();
     setBusy(true); setError(""); setCreated(null);
     try {
       const made = await addPartner(label, types.split(/[\s,]+/).filter(Boolean));
-      setCreated({ key: made.key_id, secret: made.secret ?? "" });
+      setCreated(made.key_id);
       setLabel("");
       await onDone();
     } catch (err) { setError(err instanceof Error ? err.message : "That did not work"); }
     finally { setBusy(false); }
   }
   return (
-    <Card title="Let a partner send us messages" sub="The partner signs each message with a secret only they and you hold. A message is checked before anything in it is read, and it never changes a booking or a record by itself. Each kind they may send must start with &quot;partner.&quot;.">
+    <Card title="Let a partner send us messages" sub="The partner signs each message with a secret only they and you hold, issued after Zoiko's checks. A message is checked before anything in it is read, and it never changes a booking or a record by itself. Each kind they may send must start with &quot;partner.&quot;.">
       <form className="profile-form" onSubmit={(ev) => void save(ev)}>
         <label>Partner's name<input value={label} maxLength={80} onChange={(ev) => setLabel(ev.target.value)} required /></label>
         <label>Kinds of message allowed (separate with spaces)
           <input value={types} onChange={(ev) => setTypes(ev.target.value)} placeholder="partner.lab." required />
         </label>
         {error && <div className="error" role="alert">{error}</div>}
-        {created && <div className="success" role="status">Added. Give the partner this key <b>{created.key}</b> and this secret <b>{created.secret}</b>. The secret is shown only now.</div>}
+        {created && <div className="success" role="status">Added with key <b>{created}</b>. It has no secret yet: Zoiko records its identity, legal and security checks first, then you can get the secret here. It is shown once.</div>}
         <div><button className="btn" type="submit" disabled={busy}>{busy ? "Adding…" : "Add the partner"}</button></div>
       </form>
     </Card>
