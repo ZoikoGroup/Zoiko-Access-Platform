@@ -1,5 +1,5 @@
 // The platform console menu. `live` screens show real backend data; the rest say what they wait for.
-export type PageId = "overview" | "customers" | "incidents" | "hazards" | "packs" | "releases" | "settings" | "account";
+export type PageId = "overview" | "customers" | "partnerchecks" | "incidents" | "hazards" | "releases" | "packs" | "signedpacks" | "levels" | "readiness" | "matrix" | "settings" | "account";
 
 export interface NavItem {
   id: PageId;
@@ -12,10 +12,15 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { id: "overview", label: "Overview", icon: "dashboard", live: true },
   { id: "customers", label: "Customers", icon: "organizations", live: true },
+  { id: "partnerchecks", label: "Partner checks", icon: "integrations", live: true },
   { id: "incidents", label: "Incidents", icon: "shield", live: true },
   { id: "hazards", label: "Hazards", icon: "shield", live: true },
-  { id: "packs", label: "Country packs", icon: "integrations", live: true },
+  { id: "signedpacks", label: "Signed packs", icon: "integrations", live: true },
   { id: "releases", label: "Releases", icon: "integrations", live: true },
+  { id: "matrix", label: "Requirements matrix", icon: "reports", live: true },
+  { id: "readiness", label: "Go-live readiness", icon: "shield", live: true },
+  { id: "levels", label: "Service levels", icon: "dashboard", live: true },
+  { id: "packs", label: "Country packs", icon: "compliance", live: true },
   { id: "settings", label: "Settings", icon: "settings", live: true },
   { id: "account", label: "My account", icon: "settings", live: true },
 ];

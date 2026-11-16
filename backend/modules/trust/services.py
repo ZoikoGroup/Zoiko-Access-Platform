@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-import uuid
 from typing import Any, TypeVar
 
 from django.conf import settings
@@ -277,7 +276,7 @@ def list_tenants() -> list[dict[str, str]]:
     rows = Tenant.objects.filter(cell_id=settings.ZOIKO_CELL_ID).order_by("created_at")
     return [
         {"public_id": t.public_id, "name": t.name, "type": t.type, "status": t.status,
-         "self_registration": str(t.self_registration).lower(),
+         "self_registration": str(t.self_registration).lower(), "country": t.country,
          "created_at": t.created_at.isoformat()}
         for t in rows
     ]
@@ -330,13 +329,12 @@ def overview() -> dict[str, Any]:
     }
 
 
-def tenant_public_id(tenant_id: uuid.UUID) -> str:
-    """The public id of a tenant from its internal id (for building keys and links that must name
-    the tenant without exposing the internal id)."""
-    found = Tenant.objects.filter(id=tenant_id, cell_id=settings.ZOIKO_CELL_ID).first()
-    if found is None:
-        raise ZoikoError(ErrorCode.NOT_FOUND)
-    return found.public_id
+def role_info(role_code: str) -> dict[str, Any] | None:
+    """The name, workspace and prohibitions the specification gives a role, or None."""
+    row = next((r for r in DEFAULT_ROLES if r[0] == role_code), None)
+    if row is None:
+        return None
+    return {"code": row[0], "name": row[1], "workspace": row[2], "prohibitions": list(row[3])}
 
 
 def context_for(tenant_public_id: str) -> CellContext:
@@ -348,6 +346,14 @@ def context_for(tenant_public_id: str) -> CellContext:
     if tenant is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     return build_context(tenant.id)
+
+
+def tenant_public_id(tenant_id: Any) -> str:
+    """The public id of a tenant (it is not secret: it appears in partner key ids)."""
+    tenant = Tenant.objects.filter(id=tenant_id, cell_id=settings.ZOIKO_CELL_ID).first()
+    if tenant is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    return tenant.public_id
 
 
 MAX_RESPONSE_TARGET_HOURS = 168       # a week
@@ -430,6 +436,20 @@ def set_self_registration(enabled: bool, *, by: str) -> None:
             self_registration=enabled)
         _audit(by, "tenant.self_registration", "tenant", str(ctx.tenant_id)[:36],
                enabled=int(enabled))
+
+
+def set_country(country: str, *, by: str) -> None:
+    """Record which country this customer operates in (empty clears it)."""
+    ctx = require_context()
+    with transaction.atomic():
+        Tenant.objects.filter(id=ctx.tenant_id, cell_id=ctx.cell_id).update(country=country)
+        _audit(by, "tenant.country", "tenant", str(ctx.tenant_id)[:36], set=int(bool(country)))
+
+
+def tenant_country(tenant_id: Any) -> str:
+    """The country recorded for a tenant, or empty."""
+    tenant = Tenant.objects.filter(id=tenant_id, cell_id=settings.ZOIKO_CELL_ID).first()
+    return tenant.country if tenant else ""
 
 
 def is_clinician_at(actor_public_id: str, organization_public_id: str) -> bool:

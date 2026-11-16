@@ -2,7 +2,7 @@
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
-import type { Appointment, Health, PatientRow, Referral, ServiceOption } from "./types";
+import type { Appointment, Health, PartnerRequest, PatientRow, Referral, ServiceOption, Thread, ThreadView } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -96,7 +96,10 @@ async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
   const res = await fetch(`/api/v1/${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.token}`, "X-Zoiko-Purpose": purpose },
+    headers: {
+      "Content-Type": "application/json", Authorization: `Bearer ${current.token}`, "X-Zoiko-Purpose": purpose,
+      ...((init.headers as Record<string, string> | undefined) ?? {}),
+    },
   });
   if (!(res.headers.get("Content-Type") ?? "").includes("json")) {
     throw new ApiError("The server sent something that is not JSON (is the backend reachable?)");
@@ -115,6 +118,15 @@ export const decideReferral = (id: string, decision: "accepted" | "needs_info" |
 export const getServices = async () => (await v1<{ services: ServiceOption[] }>("services")).services;
 export const sendReferral = (body: { patient: string; service: string; reason: string; urgency: string }) =>
   v1<{ referral: Referral }>("clinician/referrals", { method: "POST", body: JSON.stringify(body) });
+export const getThreads = async () => (await v1<{ threads: Thread[] }>("clinician/messages")).threads;
+export const getThread = async (id: string) =>
+  (await v1<{ thread: ThreadView }>(`messages/threads/${encodeURIComponent(id)}`)).thread;
+export const replyToThread = (id: string, body: string, key: string) =>
+  v1<unknown>(`messages/threads/${encodeURIComponent(id)}/reply`, {
+    method: "POST", body: JSON.stringify({ body }), headers: { "Idempotency-Key": key } });
+export const getPartnerRequests = async () => (await v1<{ requests: PartnerRequest[] }>("exchange/requests")).requests;
+export const reviewPartnerResult = (id: string) =>
+  v1<{ request: PartnerRequest }>(`exchange/requests/${encodeURIComponent(id)}/review`, { method: "POST", body: "{}" });
 export const getMe = () => v1<{ cell: string; tenant: string }>("me");
 
 async function ping(path: string): Promise<Health> {

@@ -42,6 +42,8 @@ if TYPE_CHECKING:
 
 TOKEN_PREFIX = "zt1"  # noqa: S105 - a label, not a secret
 TOKEN_LIFETIME = dt.timedelta(hours=8)
+# "Remember me": a patient only, on their own device (DEV-129; the length is a proposal).
+REMEMBER_LIFETIME = dt.timedelta(days=30)
 MAX_FAILURES = 5
 LOCK_FOR = dt.timedelta(minutes=15)
 MAX_PASSWORD = 128
@@ -107,11 +109,12 @@ def _sign(body: str) -> str:
 
 
 def issue_token(
-    *, tenant_public_id: str, actor_public_id: str, epoch: int, now: dt.datetime
+    *, tenant_public_id: str, actor_public_id: str, epoch: int, now: dt.datetime,
+    lifetime: dt.timedelta = TOKEN_LIFETIME,
 ) -> str:
     payload = {
         "t": tenant_public_id, "a": actor_public_id, "e": epoch,
-        "iat": int(now.timestamp()), "exp": int((now + TOKEN_LIFETIME).timestamp()),
+        "iat": int(now.timestamp()), "exp": int((now + lifetime).timestamp()),
     }
     body = _b64(json.dumps(payload, separators=(",", ":")).encode())
     return f"{TOKEN_PREFIX}.{body}.{_sign(body)}"
@@ -150,6 +153,7 @@ class LoginResult:
     tenant_name: str
     tenant_type: str
     roles: list[tuple[str, str, str]]   # (role code, organization id, organization name)
+    remembered: bool = False            # a 30-day session, granted only to a patient who asked
 
 
 def _fail() -> ZoikoError:
@@ -163,9 +167,13 @@ def _audit(actor: str, action: str, outcome: AuditOutcome, reason: str = "") -> 
 
 # ------------------------------------------------------------------ login and sign-out
 def login(
-    *, tenant_name: str, login: str, password: str, clock: Clock | None = None
+    *, tenant_name: str, login: str, password: str, remember: bool = False,
+    clock: Clock | None = None,
 ) -> LoginResult:
-    """Sign in with organization name, login and password. One answer for every failure."""
+    """Sign in with organization name, login and password. One answer for every failure.
+
+    `remember` is honoured only for a patient: staff, doctors and Zoiko's own staff always get the
+    short session, whatever they ask for."""
     now = utc_now(clock)
     login_id = login.strip().lower()
     tenant = (
@@ -196,13 +204,16 @@ def login(
                                          "updated_at"])
                 names = organization_names()
                 roles = [(r, o, names.get(o, "")) for r, o in active_roles(actor.public_id, at=now)]
+                kept = remember and actor.actor_type == ActorType.PATIENT
+                lifetime = REMEMBER_LIFETIME if kept else TOKEN_LIFETIME
                 token = issue_token(
                     tenant_public_id=tenant.public_id, actor_public_id=actor.public_id,
-                    epoch=cred.session_epoch, now=now)
-                _audit(actor.public_id, "auth.login", AuditOutcome.ALLOWED)
+                    epoch=cred.session_epoch, now=now, lifetime=lifetime)
+                _audit(actor.public_id, "auth.login", AuditOutcome.ALLOWED,
+                       "remembered" if kept else "")
                 result = LoginResult(
-                    token, now + TOKEN_LIFETIME, actor.public_id, actor.actor_type, login_id,
-                    tenant.public_id, tenant.name, tenant.type, roles)
+                    token, now + lifetime, actor.public_id, actor.actor_type, login_id,
+                    tenant.public_id, tenant.name, tenant.type, roles, remembered=kept)
             else:
                 reason = "locked" if locked else (
                     "inactive" if password_ok else "bad_password")

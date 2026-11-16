@@ -89,10 +89,34 @@ clean slate each time, so a right added by hand is taken away again.
 - As `zoiko_app` these were all refused: changing or deleting audit rows, deleting an organization, dropping
   or creating a table, truncating a table.
 
+## Rotating the field-encryption key
+
+Patient details, messages, insurance numbers and staff names are stored encrypted. To change the key:
+
+1. Generate a new 32-byte key and add it to `ZOIKO_FIELD_KEYS` next to the old one, for example
+   `k1:<old>,k2:<new>`. Make it the current one with `ZOIKO_FIELD_KEY_ID=k2`. Restart the web server and
+   the worker. Old values still work; new values use `k2`.
+2. Count what is left on the old key: `python manage.py rotate_field_keys --dry-run`.
+3. Move it all: `python manage.py rotate_field_keys` (add `--batch 500` for bigger batches). It is safe to
+   run twice or to stop and run again. A value that cannot be read is counted and left exactly as it was.
+4. Run the dry run again until it says 0 would move and 0 unreadable. Only then remove `k1` from
+   `ZOIKO_FIELD_KEYS` and restart. Old database backups can only be read while the old key is kept
+   somewhere safe, so keep it as long as you may need to restore one.
+
+The command prints counts only, never a value. Where the master key lives (a managed key service) is
+still open (DEV-016).
+
+## Monitoring and webhooks (DEV-127, DEV-130)
+
+- **Webhook sender:** run `python manage.py deliver_webhooks` as its own long-running process next to the web server and the outbox worker (the `webhooks` service in `docker-compose.yml`). Without it, queued webhook deliveries are never sent. It needs outbound HTTPS to the partners' addresses; it refuses addresses that resolve to private networks.
+- **Partner messages:** `POST /api/v1/partner-events` is open to the internet by design (the signature is the credential). Put the usual edge protections in front of it (TLS, a body-size limit of 4 KB or more, and rate limiting by address); the application also limits each partner to 60 messages a minute.
+- **Workflow timers:** the outbox worker also runs the workflow timer check every 30 seconds (`orchestration.timers`); if the worker is not running, timers never fire and no escalation opens. Clinical workflow definitions stay unpublishable until `ZOIKO_WORKFLOW_CLINICAL=true` is set, which needs the local clinical approvals first.
+- **Metrics:** set `ZOIKO_METRICS_TOKEN` (24+ characters, from the secret store) to let a monitoring system read `GET /metrics` with `Authorization: Bearer <token>`. Leave it unset and the endpoint does not exist. The numbers are per web process and reset on restart; point the monitor at every process and keep the history there.
+
 ## Limits and things still to do
 
 - Managed cloud databases: not tried. If your provider has no true superuser, step 2 may need small changes.
 - Passwords are passed on a command line here for clarity; use your secrets manager in practice.
-- Rotating the two passwords, backups and restores, and moving between servers are not written.
+- Rotating the two database passwords, backups and restores, and moving between servers are not written.
 - The check that the app login is restricted runs when the process starts; it does not notice a login being
   changed while the server is running.

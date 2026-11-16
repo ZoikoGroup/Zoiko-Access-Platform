@@ -333,7 +333,7 @@ def platform():
 
 
 def pack_page(p, subject):
-    return p.client.get(API + "platform/packs", **p.header(p.tenant_public_id, subject))
+    return p.client.get(API + "platform/signed-packs", **p.header(p.tenant_public_id, subject))
 
 
 def test_support_and_safety_staff_can_read_the_packs_page_and_it_is_audited(platform, settings):
@@ -375,10 +375,10 @@ def test_an_expired_pack_shows_as_not_in_force_even_though_it_is_still_installed
 
 
 def test_customers_and_patients_cannot_open_the_packs_page(platform, c):
-    customer = c.web.client.get(API + "platform/packs", **c.web.header("boss"))
+    customer = c.web.client.get(API + "platform/signed-packs", **c.web.header("boss"))
     assert customer.status_code == 403
-    assert c.web.client.get(API + "platform/packs", **c.web.header("pat")).status_code == 403
-    assert platform.client.get(API + "platform/packs").status_code == 401
+    assert c.web.client.get(API + "platform/signed-packs", **c.web.header("pat")).status_code == 403
+    assert platform.client.get(API + "platform/signed-packs").status_code == 401
 
 
 def test_an_empty_cell_says_so_honestly(platform, settings):

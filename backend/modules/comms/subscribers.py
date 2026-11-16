@@ -60,6 +60,7 @@ _EMAIL_HEADLINE = {
     "booking_rescheduled": "An appointment was moved.",
     "booking_reminder": "You have an appointment coming up.",
     "message_received": "You have a new message from your clinic.",
+    "exchange_reviewed": "Your doctor reviewed a result.",
 }
 
 
@@ -175,6 +176,28 @@ def on_referral_event(event: PublishedEvent) -> None:
         source_event_id=event.event_id)
 
 
+EXCHANGE_CONSUMER = "comms.exchange_notifier"
+_EXCHANGE_THING = {"lab_order": "test or scan", "pharmacy_request": "pharmacy request",
+                   "homecare_referral": "home-care request"}
+
+
+def on_exchange_event(event: PublishedEvent) -> None:
+    """Tell the patient their doctor has reviewed a result. Worded from the event alone: it says
+    nothing about what the result was (DEV-166)."""
+    if event.event_type != "exchange.reviewed.v1":
+        return
+    person = str(event.payload.get("person_ref", ""))
+    if not person:
+        return
+    thing = _EXCHANGE_THING.get(str(event.payload.get("kind")), "request")
+    Notification.objects.create(
+        person_ref=person, kind="exchange_reviewed", title="Your doctor reviewed a result",
+        body=f"Your doctor has reviewed the result of your {thing}. "
+             "Open My Tests & Requests to see where it stands."[:300],
+        source_event_id=event.event_id)
+    _email_the_patient(person, "exchange_reviewed")
+
+
 WAITLIST_CONSUMER = "comms.waitlist_notifier"
 
 
@@ -264,4 +287,6 @@ def register_subscribers() -> None:
         subscribe(FAMILY_CONSUMER, "family.", on_family_event)
     if not any(s.consumer == MESSAGE_CONSUMER for s in subscriptions()):
         subscribe(MESSAGE_CONSUMER, "message.", on_message_event)
+    if not any(s.consumer == EXCHANGE_CONSUMER for s in subscriptions()):
+        subscribe(EXCHANGE_CONSUMER, "exchange.", on_exchange_event)
 

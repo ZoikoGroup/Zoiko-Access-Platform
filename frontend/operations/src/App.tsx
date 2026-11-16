@@ -16,14 +16,19 @@ import { WorkQueue } from "./pages/WorkQueue";
 import { FamilyRequests } from "./pages/FamilyRequests";
 import { Messages } from "./pages/Messages";
 import { Referrals } from "./pages/Referrals";
+import { Billing } from "./pages/Billing";
+import { Engine } from "./pages/Engine";
+import { Integrations } from "./pages/Integrations";
+import { PartnerRequests } from "./pages/PartnerRequests";
+import { RightsRequests } from "./pages/RightsRequests";
 import { Reports } from "./pages/Reports";
 import { WaitingList } from "./pages/WaitingList";
 import { Services } from "./pages/Services";
 import { AiPermits } from "./pages/AiPermits";
 import { Exceptions } from "./pages/Exceptions";
-import { Integrations } from "./pages/Integrations";
 import { Journeys } from "./pages/Journeys";
-import { BillingClaims } from "./pages/BillingClaims";
+import { ApiClients } from "./pages/ApiClients";
+import { InsuranceStatus } from "./pages/InsuranceStatus";
 import { Matches } from "./pages/Matches";
 import { Team } from "./pages/Team";
 import { SignIn } from "./pages/SignIn";
@@ -79,10 +84,15 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "ai") body = <AiPermits />;
   else if (page === "exceptions") body = <Exceptions />;
   else if (page === "matches") body = <Matches />;
-  else if (page === "billing") body = <BillingClaims />;
+  else if (page === "insurance") body = <InsuranceStatus />;
   else if (page === "journeys") body = <Journeys />;
-  else if (page === "integrations") body = <Integrations />;
+  else if (page === "apiclients") body = <ApiClients />;
   else if (page === "referrals") body = <Referrals />;
+  else if (page === "rights") body = <RightsRequests />;
+  else if (page === "exchange") body = <PartnerRequests />;
+  else if (page === "engine") body = <Engine />;
+  else if (page === "billing") body = <Billing />;
+  else if (page === "integrations") body = <Integrations />;
   else if (page === "reports") body = <Reports staff={staff} />;
   else if (page === "providers") body = <Providers staff={staff} />;
   else if (page === "settings") body = <Settings staff={staff} />;
@@ -100,7 +110,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
         roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
         onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} />
       <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} />
-      <main className="content" id="main" tabIndex={-1}>{body}</main>
+      <main className="content" id="main" tabIndex={0}>{body}</main>
     </div>
   );
 }

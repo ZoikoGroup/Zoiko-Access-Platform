@@ -38,7 +38,7 @@ def hours_ago(p, model, public_id, hours, field):
 
 
 def test_nothing_is_late_when_nothing_waits(p):
-    assert late(p) == {"hours": 24, "bookings": 0, "messages": 0}
+    assert late(p) == {"hours": 24, "bookings": 0, "messages": 0, "data_requests": 0}
 
 
 def test_a_booking_is_late_only_after_the_target_has_passed(p):
@@ -71,7 +71,7 @@ def test_the_target_comes_from_the_setting(p, settings):
     settings.RESPONSE_TARGET_HOURS = 2
     booking = booked(p, confirm=False)
     hours_ago(p, Booking, booking, 3, "created_at")
-    assert late(p) == {"hours": 2, "bookings": 1, "messages": 0}
+    assert late(p) == {"hours": 2, "bookings": 1, "messages": 0, "data_requests": 0}
 
 
 def listed(p, booking):

@@ -17,9 +17,12 @@ from .engine import (
     denial_summary,
     recent_decisions,
 )
+from .rules import POLICY_DIGEST, role_capabilities
 
 __all__ = [
-    "Decision", "NoRelationships", "Reason", "RelationshipChecker", "TrustRelationships",
+    "POLICY_DIGEST", "role_capabilities", "Decision", "NoRelationships", "Reason",
+    "RelationshipChecker",
+    "TrustRelationships",
     "authorize", "check_receipt", "decide", "decision_counts", "decisions_about",
     "denial_summary", "recent_decisions",
 ]

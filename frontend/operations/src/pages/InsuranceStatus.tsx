@@ -12,7 +12,7 @@ const STATE: Record<CoverState, { text: string; kind: PillKind }> = {
 
 const day = (iso: string | null) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString() : "no end date");
 
-export function BillingClaims() {
+export function InsuranceStatus() {
   const result = useLoad(getBilling, 30_000);
   return <Gate result={result}>{(d) => <View data={d} />}</Gate>;
 }

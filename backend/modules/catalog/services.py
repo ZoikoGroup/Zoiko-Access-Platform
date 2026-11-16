@@ -142,8 +142,12 @@ def create_service(
         return service_dict(row)
 
 
-LISTING_ROLES = frozenset({"R04", "R13"})       # may ask for a listing
-LISTING_APPROVERS = frozenset({"R13"})          # may review, publish, suspend
+# May ask for a listing. The lab, pharmacy and home-care partner roles may ask too (TEMPORARY,
+# DEV-158); who reviews a partner's listing is the lead's decision, so it waits for an
+# administrator.
+LISTING_ROLES = frozenset({"R04", "R13", "R05", "R06", "R09"})
+LISTING_APPROVERS = frozenset({"R13", "R05", "R06", "R09"})   # may review, publish, suspend
+# A partner colleague may review a partner service, never their own request (TEMPORARY, DEV-159).
 _ACTIONS = {"request", "return", "review", "publish", "suspend", "restart"}
 
 

@@ -93,15 +93,20 @@ export function PasswordField({ id, label, value, onChange, autoComplete }: {
 }
 
 /**
- * "Remember me" and "Forgot password?". Remembering a login for 30 days is a security decision that
- * has not been made (a login lasts 8 hours and is forgotten when the tab closes), so the box is
- * shown switched off and says so.
+ * "Remember me" and "Forgot password?". Remembering a login for 30 days is allowed for patients only (DEV-129).
+ * Everyone else keeps the 8-hour login that is forgotten when the tab closes, so the box is shown
+ * switched off for them.
  */
-export function RememberRow({ onForgot }: { onForgot?: () => void }) {
+export function RememberRow({ onForgot, checked, onChange }: {
+  onForgot?: () => void;
+  checked?: boolean;                       // given only by the patient app, the only one that allows it
+  onChange?: (value: boolean) => void;
+}) {
+  const allowed = onChange !== undefined;
   return (
     <div className="auth-row">
-      <label className="remember" title="A 30-day login has not been set up yet">
-        <input type="checkbox" disabled /> Remember me for 30 days
+      <label className="remember" title={allowed ? "Stay signed in on this device for 30 days. Use only your own device. Signing out signs you out everywhere." : "A 30-day login is only for patients"}>
+        <input type="checkbox" disabled={!allowed} checked={!!checked} onChange={(e) => onChange?.(e.target.checked)} /> Remember me for 30 days
       </label>
       {onForgot && <button type="button" className="linklike" onClick={onForgot}>Forgot password?</button>}
     </div>

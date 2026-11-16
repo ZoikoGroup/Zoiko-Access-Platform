@@ -39,6 +39,18 @@ INVITABLE_ROLES: dict[str, tuple[ActorType, str]] = {
 }
 
 
+# The kinds of login a partner, payer or employer organisation can add for itself (TEMPORARY,
+# DEV-159): a person can add only colleagues of their own kind. role code -> (login kind, label)
+PARTNER_TEAM_ROLES: dict[str, tuple[ActorType, str]] = {
+    "R05": (ActorType.FACILITY_USER, "a lab or imaging operator"),
+    "R06": (ActorType.FACILITY_USER, "a pharmacy operator"),
+    "R07": (ActorType.PAYER_USER, "a payer user"),
+    "R08": (ActorType.EMPLOYER_USER, "an employer sponsor"),
+    "R09": (ActorType.FACILITY_USER, "a home-care coordinator"),
+    "R10": (ActorType.FACILITY_USER, "a partner developer"),
+}
+
+
 def _receipt(decision: policy.Decision, actor_public_id: str, organization_public_id: str) -> None:
     policy.check_receipt(
         decision, actor_public_id=actor_public_id, operation=WRITE_STAFF,
@@ -75,11 +87,13 @@ def invite_staff(
     organization_public_id: str,
     actor_public_id: str,
     decision: policy.Decision,
+    roles: dict[str, tuple[ActorType, str]] | None = None,
     clock: Clock | None = None,
 ) -> dict[str, Any]:
     """Add a person to the organization and email them an invitation."""
     _receipt(decision, actor_public_id, organization_public_id)
-    if role_code not in INVITABLE_ROLES:
+    table = INVITABLE_ROLES if roles is None else roles
+    if role_code not in table:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["role"])
     address = clean_address(email)
     ctx = require_context()
@@ -92,7 +106,7 @@ def invite_staff(
                                          tenant_id=ctx.tenant_id).exists()
         ):
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)       # that login is already taken
-        kind, label = INVITABLE_ROLES[role_code]
+        kind, label = table[role_code]
         actor = register_actor(actor_type=kind, issuer="local", subject=address,
                                by=actor_public_id)
         assign_role(actor_public_id=actor.public_id, organization_public_id=org.public_id,
@@ -106,6 +120,28 @@ def invite_staff(
                object_ref=actor.public_id, outcome=AuditOutcome.ALLOWED,
                details={"role": role_code})
         return {"id": actor.public_id, "login": address, "role": role_code}
+
+
+def invite_colleague(
+    *,
+    email: str,
+    organization_public_id: str,
+    actor_public_id: str,
+    decision: policy.Decision,
+    clock: Clock | None = None,
+) -> dict[str, Any]:
+    """A partner, payer or employer user adds a colleague of their own kind (same role)."""
+    ctx = require_context()
+    mine = [
+        code for code in RoleAssignment.objects.filter(
+            actor__public_id=actor_public_id, organization__public_id=organization_public_id,
+            status=Status.ACTIVE, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id,
+        ).values_list("role__role_code", flat=True) if code in PARTNER_TEAM_ROLES]
+    if not mine:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    return invite_staff(
+        email=email, role_code=mine[0], organization_public_id=organization_public_id,
+        actor_public_id=actor_public_id, decision=decision, roles=PARTNER_TEAM_ROLES, clock=clock)
 
 
 def set_member_status(

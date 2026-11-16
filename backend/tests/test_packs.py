@@ -1,264 +1,292 @@
-import copy
+"""Country capability packs (GHE-04; DEV-128): drafted and reviewed by Zoiko's own staff, bound to
+a content fingerprint, approved by two different people. Nothing here makes a pack live."""
 import datetime as dt
 import json
 
 import pytest
-from django.core.management import call_command
-from django.core.management.base import CommandError
-from django.db import connection
 
-from foundation.errors import ErrorCode, ZoikoError
-from foundation.timeutil import UTC, FixedClock
-from modules.packs import api as packs
-from modules.packs.models import CountryPack, PackStatus
-from modules.packs.signing import (
-    build_signed_notice,
-    build_signed_pack,
-    generate_keypair,
-    parse_public_keys,
-    sign,
-    verify,
-)
+from foundation.cell_context import tenant_transaction
+from modules.evidence.models import AuditEvent
+from modules.jurisdiction.manifest import fingerprint, normalize
+from tests.test_api import API
+from tests.test_platform import Platform
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
 
-NOW = dt.datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
-DAY = dt.timedelta(days=1)
-CAPS = {"booking.request": {"enabled": True}, "referral.exchange": {"enabled": False},
-        "messaging.secure": {"enabled": True}}
+
+@pytest.fixture(autouse=True)
+def dev_login(settings):
+    settings.DEBUG = True
+    settings.DEV_AUTH_STUB = True
 
 
 @pytest.fixture
-def keys(settings):
-    private, public = generate_keypair()
-    settings.PACK_PUBLIC_KEYS = f"g1:{public}"
-    return private
+def world():
+    w = Platform()
+    w.staff("sam", "R11")          # author and support
+    w.staff("tess", "R11")         # a second support officer
+    w.staff("iyer", "R12")         # a safety officer
+    w.staff("noor", "R12")         # a second safety officer
+    return w
 
 
-@pytest.fixture
-def clock():
-    return FixedClock(NOW)
+def call(w, method, path, body=None, who="sam"):
+    headers = w.header(w.tenant_public_id, who)
+    if method == "POST":
+        return w.client.post(API + path, json.dumps(body or {}),
+                             content_type="application/json", **headers)
+    return w.client.get(API + path, **headers)
 
 
-def pack(private, *, country="GB", version=1, epoch=0, caps=None, valid_from=None, expires=None,
-         key_id="g1", around=NOW):
-    return build_signed_pack(
-        private_key_b64=private, key_id=key_id, country=country, version=version,
-        issued_at=around - DAY, valid_from=valid_from or around - DAY,
-        expires_at=expires or around + 30 * DAY, revocation_epoch=epoch,
-        capabilities=copy.deepcopy(caps or CAPS))
+def full(days=30, **over):
+    expires = (dt.date.today() + dt.timedelta(days=365)).isoformat()
+    manifest = {
+        "settings": {"data_request_days": days, "emergency_number": "112",
+                     "default_language": "en-GB", "time_zone": "Europe/London"},
+        "capabilities": {"provider_directory": True, "booking": True},
+        "evidence": {"legal": "PROVIDED", "dpia": "PROVIDED", "cyber": "PROVIDED",
+                     "clinical": "NOT_APPLICABLE_REVIEW_NEEDED"},
+        "validity": {"expires_on": expires},
+    }
+    manifest.update(over)
+    return manifest
 
 
-# ------------------------------------------------------------------ the happy path
-def test_an_installed_pack_switches_its_capabilities_on(keys, clock):
-    packs.install_pack(pack(keys), clock=clock)
-    assert packs.capability_enabled("GB", "booking.request", clock=clock)
-    assert packs.capability_enabled("GB", "messaging.secure", clock=clock)
-    assert packs.enabled_capabilities("GB", clock=clock) == ["booking.request", "messaging.secure"]
+def make(w, ref="gb-care-navigation", country="GB", manifest=None, who="sam"):
+    r = call(w, "POST", "platform/packs",
+             {"pack_ref": ref, "country": country, "service": "care_navigation",
+              "manifest": manifest if manifest is not None else full()}, who)
+    assert r.status_code == 201, r.content
+    return json.loads(r.content)["pack"]
 
 
-def test_a_capability_the_pack_does_not_enable_is_off(keys, clock):
-    packs.install_pack(pack(keys), clock=clock)
-    assert not packs.capability_enabled("GB", "referral.exchange", clock=clock)  # listed, disabled
-    assert not packs.capability_enabled("GB", "billing.claims", clock=clock)     # not listed
-    assert not packs.capability_enabled("FR", "booking.request", clock=clock)    # no pack: off
+def step(w, pack, name, who="sam", **body):
+    return call(w, "POST", f"platform/packs/{pack['id']}/{name}", body, who)
 
 
-def test_require_capability_refuses_with_the_jurisdiction_code(keys, clock):
-    packs.install_pack(pack(keys), clock=clock)
-    packs.require_capability("GB", "booking.request", clock=clock)
-    with pytest.raises(ZoikoError) as caught:
-        packs.require_capability("GB", "billing.claims", clock=clock)
-    assert caught.value.code == ErrorCode.JURISDICTION_INACTIVE
+def packs(w, who="sam"):
+    r = call(w, "GET", "platform/packs", who=who)
+    assert r.status_code == 200, r.content
+    return json.loads(r.content)["packs"]
 
 
-def test_installing_the_same_pack_again_changes_nothing(keys, clock):
-    doc = pack(keys)
-    first = packs.install_pack(doc, clock=clock)
-    assert packs.install_pack(doc, clock=clock)["public_id"] == first["public_id"]
-    assert CountryPack.objects.count() == 1
+def to_review(w, **kw):
+    pack = make(w, **kw)
+    assert step(w, pack, "validate").status_code == 200
+    assert step(w, pack, "submit").status_code == 200
+    return pack
 
 
-def test_a_newer_version_replaces_the_older_one(keys, clock):
-    packs.install_pack(pack(keys, version=1), clock=clock)
-    packs.install_pack(
-        pack(keys, version=2, caps={"booking.request": {"enabled": False}}), clock=clock)
-    assert not packs.capability_enabled("GB", "booking.request", clock=clock)
-    statuses = {p.version: p.status for p in CountryPack.objects.all()}
-    assert statuses == {1: PackStatus.SUPERSEDED, 2: PackStatus.ACTIVE}
+def status_of(w, pack):
+    return next(p for p in packs(w) if p["id"] == pack["id"])["status"]
 
 
-def test_an_older_or_equal_version_is_refused_so_there_is_no_rollback(keys, clock):
-    packs.install_pack(pack(keys, version=3), clock=clock)
-    for version in (1, 2):
-        with pytest.raises(packs.PackRejected) as caught:
-            packs.install_pack(pack(keys, version=version), clock=clock)
-        assert caught.value.reason == "version_not_newer"
-    other = pack(keys, version=3, caps={"booking.request": {"enabled": False}})
-    with pytest.raises(packs.PackRejected):
-        packs.install_pack(other, clock=clock)         # same version, different content
+# ------------------------------------------------------------------ the content
+def test_a_draft_is_created_with_a_fingerprint_and_nothing_enabled_by_default(world):
+    pack = make(world, manifest={})
+    assert pack["status"] == "draft" and pack["revision"] == 1 and len(pack["content_hash"]) == 64
+    assert not any(pack["manifest"]["capabilities"].values())
+    assert pack["manifest"]["evidence"] == {"legal": "PENDING", "dpia": "PENDING",
+                                            "cyber": "PENDING", "clinical": "PENDING"}
 
 
-# ------------------------------------------------------------------ trust: who signed it
-def test_no_trusted_key_means_nothing_is_accepted(settings, clock):
-    private, _ = generate_keypair()
-    settings.PACK_PUBLIC_KEYS = ""
-    with pytest.raises(packs.PackRejected) as caught:
-        packs.install_pack(pack(private), clock=clock)
-    assert caught.value.reason == "unknown_key"
+def test_the_fingerprint_changes_with_any_change_to_the_content(world):
+    a = normalize(full(days=30))
+    b = normalize(full(days=31))
+    assert fingerprint("x", "GB", "s", 1, a) != fingerprint("x", "GB", "s", 1, b)
+    again = fingerprint("x", "GB", "s", 1, normalize(full(days=30)))
+    assert fingerprint("x", "GB", "s", 1, a) == again
 
 
-def test_a_pack_signed_by_someone_else_is_refused(keys, clock):
-    other_private, _ = generate_keypair()
-    with pytest.raises(packs.PackRejected) as caught:
-        packs.install_pack(pack(other_private), clock=clock)
-    assert caught.value.reason == "bad_signature"
-
-
-def test_a_pack_whose_content_was_changed_after_signing_is_refused(keys, clock):
-    doc = pack(keys)
-    doc["capabilities"]["referral.exchange"]["enabled"] = True
-    with pytest.raises(packs.PackRejected) as caught:
-        packs.install_pack(doc, clock=clock)
-    assert caught.value.reason == "bad_signature"
-
-
-def test_an_unknown_key_id_is_refused(keys, clock):
-    with pytest.raises(packs.PackRejected) as caught:
-        packs.install_pack(pack(keys, key_id="other"), clock=clock)
-    assert caught.value.reason == "unknown_key"
-
-
-# ------------------------------------------------------------------ time and revocation
-def test_a_pack_that_is_not_yet_valid_or_already_expired_is_refused(keys, clock):
-    with pytest.raises(packs.PackRejected) as early:
-        packs.install_pack(pack(keys, valid_from=NOW + DAY, expires=NOW + 5 * DAY), clock=clock)
-    assert early.value.reason == "not_yet_valid"
-    with pytest.raises(packs.PackRejected) as late:
-        packs.install_pack(pack(keys, valid_from=NOW - 9 * DAY, expires=NOW - DAY), clock=clock)
-    assert late.value.reason == "expired"
-
-
-def test_a_pack_stops_working_the_moment_it_expires(keys, clock):
-    packs.install_pack(pack(keys, expires=NOW + 2 * DAY), clock=clock)
-    assert packs.capability_enabled("GB", "booking.request", clock=clock)
-    clock.advance(3 * DAY)
-    assert not packs.capability_enabled("GB", "booking.request", clock=clock)   # fails closed
-    assert packs.active_pack("GB", clock=clock) is None
-
-
-def test_a_tampered_database_row_stops_counting(keys, clock):
-    packs.install_pack(pack(keys), clock=clock)
-    row = CountryPack.objects.get()
-    row.capabilities = {**row.capabilities, "referral.exchange": {"enabled": True}}
-    row.save()
-    assert not packs.capability_enabled("GB", "referral.exchange", clock=clock)
-    assert packs.active_pack("GB", clock=clock) is None
-
-
-def test_a_revocation_notice_switches_older_packs_off_at_once(keys, clock):
-    packs.install_pack(pack(keys, epoch=1), clock=clock)
-    notice = build_signed_notice(private_key_b64=keys, key_id="g1", min_epoch=2, issued_at=NOW)
-    done = packs.apply_revocation_notice(notice, clock=clock)
-    assert done == {"min_epoch": 2, "revoked_packs": 1}
-    assert not packs.capability_enabled("GB", "booking.request", clock=clock)
-    assert CountryPack.objects.get().status == PackStatus.REVOKED
-
-
-def test_a_pack_below_the_revocation_floor_cannot_be_installed(keys, clock):
-    packs.apply_revocation_notice(
-        build_signed_notice(private_key_b64=keys, key_id="g1", min_epoch=5, issued_at=NOW),
-        clock=clock)
-    with pytest.raises(packs.PackRejected) as caught:
-        packs.install_pack(pack(keys, epoch=4), clock=clock)
-    assert caught.value.reason == "revoked"
-    packs.install_pack(pack(keys, epoch=5), clock=clock)          # at the floor is fine
-
-
-def test_the_revocation_floor_never_goes_down_and_must_be_signed(keys, clock):
-    high = build_signed_notice(private_key_b64=keys, key_id="g1", min_epoch=7, issued_at=NOW)
-    packs.apply_revocation_notice(high, clock=clock)
-    low = build_signed_notice(private_key_b64=keys, key_id="g1", min_epoch=3, issued_at=NOW)
-    with pytest.raises(packs.PackRejected) as caught:
-        packs.apply_revocation_notice(low, clock=clock)
-    assert caught.value.reason == "epoch_goes_down"
-    forged = {**low, "min_epoch": 99}
-    with pytest.raises(packs.PackRejected) as caught:
-        packs.apply_revocation_notice(forged, clock=clock)
-    assert caught.value.reason == "bad_signature"
-
-
-# ------------------------------------------------------------------ malformed documents
-@pytest.mark.parametrize("change", [
-    {"country": "gb"}, {"country": "GBR"}, {"version": 0}, {"version": True},
-    {"capabilities": {}}, {"capabilities": {"Bad Name": {"enabled": True}}},
-    {"capabilities": {"booking": {"enabled": "yes"}}}, {"issued_at": "not a time"},
-    {"issued_at": "2026-11-10T12:00:00"},                      # no zone: refused, never guessed
-    {"revocation_epoch": -1},
+@pytest.mark.parametrize("bad", [
+    {"settings": {"data_request_days": 0}}, {"settings": {"data_request_days": 400}},
+    {"settings": {"data_request_days": True}}, {"settings": {"data_request_days": "30"}},
+    {"settings": {"emergency_number": "call us"}}, {"settings": {"time_zone": "Mars/Base"}},
+    {"settings": {"default_language": "English"}}, {"settings": {"surprise": 1}},
+    {"capabilities": {"clinical_ai": True}}, {"capabilities": {"diagnostics": True}},
+    {"capabilities": {"record_exchange": True}}, {"capabilities": {"teleport": True}},
+    {"capabilities": {"booking": "yes"}}, {"evidence": {"legal": "DONE"}},
+    {"evidence": {"tax": "PROVIDED"}}, {"validity": {"expires_on": "next year"}},
+    {"unknown_section": {}},
 ])
-def test_malformed_packs_are_refused_before_trust_is_even_considered(keys, clock, change):
-    body = {**pack(keys), **change}
-    body.pop("signature")
-    doc = {**body, "signature": sign(keys, body)}              # validly signed, still malformed
-    with pytest.raises(packs.PackRejected):
-        packs.install_pack(doc, clock=clock)
+def test_anything_unknown_or_not_built_is_refused_not_ignored(world, bad):
+    r = call(world, "POST", "platform/packs", {
+        "pack_ref": "gb-care", "country": "GB", "service": "care_navigation", "manifest": bad})
+    assert r.status_code == 422
 
 
-def test_extra_or_missing_fields_are_refused(keys, clock):
-    doc = pack(keys)
-    with pytest.raises(packs.PackRejected):
-        packs.install_pack({**doc, "extra": 1}, clock=clock)
-    del doc["version"]
-    with pytest.raises(packs.PackRejected):
-        packs.install_pack(doc, clock=clock)
-    with pytest.raises(packs.PackRejected):
-        packs.install_pack("not a document", clock=clock)
+@pytest.mark.parametrize("fields", [
+    {"pack_ref": "GB care", "country": "GB"}, {"pack_ref": "gb-care", "country": "gb"},
+    {"pack_ref": "gb-care", "country": "GBR"}, {"pack_ref": "x", "country": "GB"},
+])
+def test_the_name_and_the_country_code_must_be_well_formed(world, fields):
+    r = call(world, "POST", "platform/packs",
+             {"service": "care_navigation", "manifest": {}, **fields})
+    assert r.status_code == 422
 
 
-def test_a_country_that_is_not_two_capital_letters_never_matches():
-    assert packs.active_pack("gb") is None
-    assert packs.active_pack("") is None
-    assert not packs.capability_enabled("G", "x")
+def test_a_name_can_be_used_once(world):
+    make(world)
+    r = call(world, "POST", "platform/packs", {
+        "pack_ref": "gb-care-navigation", "country": "GB", "service": "care_navigation",
+        "manifest": {}})
+    assert r.status_code == 409
 
 
-# ------------------------------------------------------------------ signing helpers
-def test_signatures_verify_only_for_the_exact_body():
-    private, public = generate_keypair()
-    signature = sign(private, {"a": 1})
-    assert verify(public, {"a": 1}, signature)
-    assert not verify(public, {"a": 2}, signature)
-    assert not verify(public, {"a": 1}, "not base64!!")
-    assert not verify("not a key", {"a": 1}, signature)
+# ------------------------------------------------------------------ who may do what
+def test_only_zoiko_support_can_start_a_pack_and_safety_can_only_read(world):
+    body = {"pack_ref": "gb-care", "country": "GB", "service": "care_navigation", "manifest": {}}
+    assert call(world, "POST", "platform/packs", body, "iyer").status_code == 403
+    make(world)
+    assert len(packs(world, "iyer")) == 1
 
 
-def test_public_key_settings_must_be_well_formed():
-    assert parse_public_keys("") == {}
-    assert parse_public_keys("a:AAA, b:BBB") == {"a": "AAA", "b": "BBB"}
-    for bad in ("a", "a:", ":b", "a:1,a:2"):
-        with pytest.raises(ValueError):
-            parse_public_keys(bad)
+def test_a_customers_staff_and_patients_cannot_see_packs(world):
+    from tests.test_clinician import Practice
+    p = Practice()
+    make(world)
+    assert p.get("platform/packs", subject="ops").status_code == 403
+    assert p.get("platform/packs", subject="pat").status_code == 403
 
 
-# ------------------------------------------------------------------ the install command
-def test_the_command_installs_a_pack_and_reports_a_refusal(keys, tmp_path, capsys):
-    real_now = dt.datetime.now(UTC)
-    good = tmp_path / "pack.json"
-    good.write_text(json.dumps(pack(keys, around=real_now)))
-    call_command("install_pack", str(good))
-    assert json.loads(capsys.readouterr().out)["country"] == "GB"
-    bad = tmp_path / "bad.json"
-    bad.write_text("{not json")
-    with pytest.raises(CommandError):
-        call_command("install_pack", str(bad))
-    forged = tmp_path / "forged.json"
-    forged.write_text(json.dumps({**pack(keys, around=real_now), "version": 9}))
-    with pytest.raises(CommandError, match="bad_signature"):
-        call_command("install_pack", str(forged))
+def test_a_draft_can_be_edited_and_the_fingerprint_follows(world):
+    pack = make(world, manifest={})
+    r = step(world, pack, "edit", manifest=full(days=45))
+    edited = json.loads(r.content)["pack"]
+    assert r.status_code == 200 and edited["content_hash"] != pack["content_hash"]
+    assert edited["manifest"]["settings"]["data_request_days"] == 45
 
 
-def test_packs_are_cell_wide_and_hold_no_tenant_column():
-    names = {f.name for f in CountryPack._meta.get_fields()}
-    assert "tenant_id" not in names
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT relrowsecurity FROM pg_class WHERE relname = 'packs_countrypack'")
-        assert cursor.fetchone()[0] is False        # no patient data, so no row-level security
+# ------------------------------------------------------------------ the review
+def test_it_cannot_be_checked_while_anything_required_is_missing(world):
+    pack = make(world, manifest=full(evidence={"legal": "PROVIDED", "dpia": "PENDING",
+                                               "cyber": "PROVIDED", "clinical": "PENDING"},
+                                     validity={"expires_on": None}))
+    listed = next(p for p in packs(world) if p["id"] == pack["id"])
+    assert set(listed["missing"]) == {"evidence.dpia", "evidence.clinical", "validity.expires_on"}
+    assert step(world, pack, "validate").status_code == 422
+    assert status_of(world, pack) == "draft"
+
+
+def test_the_steps_must_be_taken_in_order(world):
+    pack = make(world)
+    assert step(world, pack, "submit").status_code == 409                # not checked yet
+    assert step(world, pack, "approve-legal", "tess").status_code == 409  # not with the reviewers
+    step(world, pack, "validate")
+    assert step(world, pack, "validate").status_code == 409
+    assert step(world, pack, "approve-clinical", "iyer").status_code == 409
+    assert step(world, pack, "edit", manifest=full()).status_code == 409  # no longer a draft
+
+
+def test_two_different_people_approve_and_only_then_it_is_signed(world):
+    pack = to_review(world)
+    assert step(world, pack, "approve-legal", "tess").status_code == 200
+    assert status_of(world, pack) == "expert_review"
+    r = step(world, pack, "approve-clinical", "iyer")
+    signed = json.loads(r.content)["pack"]
+    assert signed["status"] == "signed" and set(signed["approvals"]) == {"legal", "clinical"}
+
+
+def test_nobody_approves_their_own_work(world):
+    pack = to_review(world)
+    assert step(world, pack, "approve-legal", "sam").status_code == 403    # the author
+    assert status_of(world, pack) == "expert_review"
+
+
+def test_each_approval_needs_the_right_kind_of_staff(world):
+    pack = to_review(world)
+    assert step(world, pack, "approve-legal", "iyer").status_code == 403     # safety, not support
+    assert step(world, pack, "approve-clinical", "tess").status_code == 403  # support, not safety
+    assert step(world, pack, "approve-sideways", "tess").status_code == 404
+
+
+def test_repeating_an_approval_changes_nothing(world):
+    pack = to_review(world)
+    assert step(world, pack, "approve-legal", "tess").status_code == 200
+    assert step(world, pack, "approve-legal", "tess").status_code == 200
+    assert status_of(world, pack) == "expert_review"
+
+
+def test_sending_it_back_clears_the_approvals_and_needs_a_reason(world):
+    pack = to_review(world)
+    step(world, pack, "approve-legal", "tess")
+    assert step(world, pack, "reject", "iyer").status_code == 422           # no reason
+    r = step(world, pack, "reject", "iyer", note="Retention period is wrong")
+    back = json.loads(r.content)["pack"]
+    assert back["status"] == "draft" and back["approvals"] == {}
+    assert back["note"] == "Retention period is wrong"
+
+
+def test_changing_a_pack_after_a_rejection_means_a_fresh_set_of_approvals(world):
+    pack = to_review(world)
+    step(world, pack, "approve-legal", "tess")
+    step(world, pack, "reject", "tess", note="Fix the emergency number")
+    step(world, pack, "edit", manifest=full(days=14))
+    step(world, pack, "validate")
+    step(world, pack, "submit")
+    assert step(world, pack, "approve-clinical", "iyer").status_code == 200
+    assert status_of(world, pack) == "expert_review"                      # legal approval is gone
+
+
+# ------------------------------------------------------------------ after signing
+def signed(world, **kw):
+    pack = to_review(world, **kw)
+    step(world, pack, "approve-legal", "tess")
+    step(world, pack, "approve-clinical", "iyer")
+    assert status_of(world, pack) == "signed"
+    return pack
+
+
+def test_either_kind_of_reviewer_can_suspend_but_it_needs_a_reason(world):
+    pack = signed(world)
+    assert step(world, pack, "suspend", "iyer").status_code == 422
+    assert step(world, pack, "suspend", "iyer", note="Regulator query").status_code == 200
+    assert step(world, pack, "suspend", "tess", note="Again").status_code == 200   # harmless
+    assert status_of(world, pack) == "suspended"
+
+
+def test_a_suspended_pack_comes_back_only_as_a_new_draft_revision(world):
+    pack = signed(world)
+    step(world, pack, "suspend", "tess", note="Evidence expired")
+    assert step(world, pack, "approve-legal", "tess").status_code == 409     # not a way back
+    r = step(world, pack, "revalidate")
+    newer = json.loads(r.content)["pack"]
+    assert newer["status"] == "draft" and newer["revision"] == 2 and newer["approvals"] == {}
+    assert status_of(world, pack) == "retired"
+
+
+def test_only_a_signed_or_suspended_pack_can_be_retired(world):
+    pack = make(world)
+    assert step(world, pack, "retire").status_code == 409
+    done = signed(world, ref="gb-other")
+    assert step(world, done, "retire").status_code == 200
+    assert step(world, done, "retire").status_code == 200                    # harmless
+    assert step(world, done, "suspend", "tess", note="Too late").status_code == 409
+
+
+def test_a_signed_pack_past_its_expiry_is_shown_as_expired(world):
+    pack = signed(world)
+    with tenant_transaction(world.ctx):
+        from modules.jurisdiction.models import CountryPack
+        row = CountryPack.objects.get(public_id=pack["id"])
+        row.manifest["validity"]["expires_on"] = "2020-01-01"
+        row.save(update_fields=["manifest"])
+    assert next(p for p in packs(world) if p["id"] == pack["id"])["expired"] is True
+
+
+def test_there_is_no_way_to_make_a_pack_active(world):
+    pack = signed(world)
+    for name in ("activate", "stage", "go-live", "active"):
+        assert step(world, pack, name).status_code == 404
+    from modules.jurisdiction.models import PackStatus
+    assert "active" not in PackStatus.values
+
+
+# ------------------------------------------------------------------ the record
+def test_every_step_is_audited(world):
+    pack = signed(world)
+    with tenant_transaction(world.ctx):
+        found = list(AuditEvent.objects.filter(object_ref=pack["id"]).order_by("chain_seq"))
+    assert [e.action for e in found] == [
+        "jurisdiction.created", "jurisdiction.validated", "jurisdiction.submitted",
+        "jurisdiction.approved_legal", "jurisdiction.approved_clinical", "jurisdiction.signed"]

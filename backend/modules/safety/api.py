@@ -10,6 +10,7 @@ from .services import (
     hazard_dict,
     history,
     list_hazards,
+    resolution_summary,
     retire,
     review,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "hazard_dict",
     "history",
     "list_hazards",
+    "resolution_summary",
     "retire",
     "review",
 ]

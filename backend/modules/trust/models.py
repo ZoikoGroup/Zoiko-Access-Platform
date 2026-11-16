@@ -42,6 +42,8 @@ class Tenant(models.Model):
     authority_ref = models.CharField(max_length=64, blank=True, default="")
     # Whether patients may create their own account here. Off unless the customer turns it on.
     self_registration = models.BooleanField(default=False)
+    # ISO 3166 country the customer operates in, set by Zoiko support. Empty = not set (DEV-133).
+    country = models.CharField(max_length=2, blank=True, default="")
     created_at = models.DateTimeField(default=utc_now, editable=False)
 
     class Meta:
@@ -61,7 +63,7 @@ class Organization(CellScopedModel):
     # universal timeout: each clinic's own target is what "late" means for it.
     response_target_hours = models.PositiveSmallIntegerField(null=True, blank=True)
     # Which partner connector confirms this clinic's bookings ("" = the clinic confirms by hand, as
-    # it always has). Only a connector this deployment has registered may be chosen (DEV-126).
+    # it always has). Only a connector this deployment has registered may be chosen (DEV-180).
     booking_system = models.CharField(max_length=32, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
@@ -279,6 +281,11 @@ class ProxyGrant(CellScopedModel):
     )
     valid_from = models.DateTimeField(null=True, blank=True)
     valid_until = models.DateTimeField(null=True, blank=True)
+    # What staff saw to establish the legal basis, recorded at approval (DEV-144): a kind from a
+    # fixed list and a short reference to the proof held in the clinic's own records. Never the
+    # document itself.
+    proof_kind = models.CharField(max_length=24, blank=True, default="")
+    proof_ref = models.CharField(max_length=64, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [

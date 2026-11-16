@@ -13,7 +13,7 @@ from .auth import (
     set_password,
 )
 from .dev_auth import Authenticated, authenticate
-from .directory import actor_labels, counts, patient_registry, staff_directory
+from .directory import actor_labels, counts, inactive_actors, patient_registry, staff_directory
 from .display_names import (
     clear_display_name,
     display_name_of,
@@ -61,7 +61,7 @@ from .models import ActorType, CareBasis, Status, TenantType
 from .name_checks import BASES as NAME_CHECK_BASES
 from .name_checks import states as name_check_states
 from .name_checks import verified_providers, verify_name, withdraw_check
-from .onboarding import onboard_customer, set_customer_sign_up
+from .onboarding import onboard_customer, set_customer_country, set_customer_sign_up
 from .people import (
     approve_proxy_grant,
     care_patients,
@@ -103,27 +103,39 @@ from .services import (
     overview,
     register_actor,
     response_target_hours,
+    role_info,
     set_actor_status,
     set_booking_system,
     set_response_target,
     set_self_registration,
+    tenant_country,
     tenant_public_id,
     verified_emails_for_role,
 )
-from .staff_admin import INVITABLE_ROLES, invite_staff, resend_invitation, set_member_status
+from .staff_admin import (
+    INVITABLE_ROLES,
+    invite_colleague,
+    invite_staff,
+    resend_invitation,
+    set_member_status,
+)
 from .suspensions import cancel_change, decide_change, list_changes, request_change
 
 __all__ = [
     "ActorType", "Authenticated", "CareBasis", "INVITABLE_ROLES", "LoginResult", "Status",
     "TenantType", "active_roles", "actor_labels", "approve_proxy_grant", "assign_role",
+    "inactive_actors",
     "authenticate", "care_patients", "care_team_of", "context_for", "counts", "create_organization",
+    "tenant_public_id",
     "create_person", "create_tenant", "email_status", "end_assignment", "end_care_relationship",
-    "ensure_care_relationship", "get_organization", "invite_staff", "is_clinician_at",
+    "ensure_care_relationship", "get_organization", "invite_colleague", "invite_staff",
+    "is_clinician_at",
     "link_person_to_actor", "list_releases", "list_tenants", "login", "add_release",
     "add_incident", "get_incident", "list_incidents", "resolve_incident",
     "cancel_change", "decide_change", "list_changes", "request_change",
-    "onboard_customer", "organization_names", "set_customer_sign_up",
-    "verified_emails_for_role", "clinicians_at", "tenant_public_id",
+    "onboard_customer", "organization_names", "set_customer_country", "set_customer_sign_up",
+    "tenant_country", "tenant_public_id",
+    "verified_emails_for_role", "clinicians_at",
     "overview", "own_person_of", "patient_registry", "person_exists", "profile_summary_for",
     "link_person_to_site", "people_at_site", "person_at_site", "end_care_links",
     "MAX_RESPONSE_TARGET_HOURS", "response_target_hours", "set_response_target",
@@ -144,6 +156,6 @@ __all__ = [
     "set_display_name", "change_password", "set_email", "reset_password",
     "revoke_proxy_grant",
     "revoke_sessions", "send_verification",
-    "set_actor_status", "set_care_contested", "set_member_status", "set_password",
+    "role_info", "set_actor_status", "set_care_contested", "set_member_status", "set_password",
     "set_self_registration", "staff_directory", "start_care_relationship", "verify_email",
 ]

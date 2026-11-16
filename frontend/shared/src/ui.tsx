@@ -36,7 +36,7 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }) {
 export function Logo({ size = 38 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
-      <rect width="40" height="40" rx="10" fill="#1f5fe0" />
+      <rect width="40" height="40" rx="10" fill="#5b3be0" />
       <path d="M11 12h18L15 28h14" fill="none" stroke="#fff" strokeWidth="3.4"
         strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -81,12 +81,14 @@ export function Pill({ kind, children }: { kind: PillKind; children: ReactNode }
   return <span className={`pill ${kind}`}>{children}</span>;
 }
 
-export function Table({ headers, rows, empty }: {
-  headers: string[]; rows: ReactNode[][]; empty: string;
+export function Table({ headers, rows, empty, label = "Table" }: {
+  headers: string[]; rows: ReactNode[][]; empty: string; label?: string;
 }) {
   if (rows.length === 0) return <div className="empty">{empty}</div>;
+  // A table wider than the screen scrolls sideways inside this box, so a keyboard user must be able
+  // to reach it and scroll it (WCAG 2.1.1 and the "scrollable region" rule).
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" tabIndex={0} role="region" aria-label={label}>
       <table>
         <thead><tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr></thead>
         <tbody>

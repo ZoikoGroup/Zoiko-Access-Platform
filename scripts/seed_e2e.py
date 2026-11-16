@@ -9,6 +9,7 @@ clinic already exists. The robots add their own free times each run.
     e2e.admin@example.org     clinic administrator (R13)  -> staff console   http://localhost:5173/
     e2e.patient@example.org   patient (R01)               -> patient app      http://localhost:5174/
     e2e.doctor@example.org    doctor (R03)                -> doctor app       http://localhost:5176/
+    e2e.reception@example.org receptionist (R04)          -> staff console    http://localhost:5173/
 
 Password for all three: E2e-Pass-2026!
 """
@@ -46,6 +47,7 @@ def login(email, kind, role):
 
 admin = login("e2e.admin@example.org", "facility_user", "R13")
 doctor = login("e2e.doctor@example.org", "clinician", "R03")
+login("e2e.reception@example.org", "facility_user", "R04")
 patient = login("e2e.patient@example.org", "patient", "R01")
 
 person = call("person", tenant=tenant)["public_id"]

@@ -11,6 +11,8 @@ regulatory qualification this system does not have.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -62,6 +64,12 @@ def _bad(*fields: str) -> ZoikoError:
     return ZoikoError(ErrorCode.VALIDATION_FAILED, fields=list(fields))
 
 
+def tool_digest(allowed: list[str], write: list[str], two_person: list[str]) -> str:
+    """A fingerprint of a permit's three tool lists (order does not matter)."""
+    body = {"allowed": sorted(allowed), "write": sorted(write), "two_person": sorted(two_person)}
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+
+
 def _tools(value: list[str] | None, field: str) -> list[str]:
     tools = list(value or [])
     if len(set(tools)) != len(tools) or any(not _TOOL.match(t) for t in tools) or len(tools) > 20:
@@ -79,6 +87,7 @@ def permit_dict(p: AiUsePermit) -> dict[str, Any]:
         "lane": p.lane,
         "level": p.level,
         "state": p.state,
+        "tool_digest": p.tool_digest,
         "allowed_tools": p.allowed_tools,
         "write_tools": p.write_tools,
         "two_person_tools": p.two_person_tools,
@@ -141,6 +150,7 @@ def create_permit(
             allowed_tools=allowed,
             write_tools=writes,
             two_person_tools=twos,
+            tool_digest=tool_digest(allowed, writes, twos),
             max_steps=max_steps,
             **_scope(),
         )

@@ -14,3 +14,9 @@ class TrustConfig(AppConfig):
         from .identity_jobs import REFRESH_EVERY_SECONDS, refresh_all_tenants
 
         periodic.register("trust.identity_expiry", REFRESH_EVERY_SECONDS, refresh_all_tenants)
+        # `manage.py rotate_field_keys` moves this module's encrypted values onto the current key.
+        from foundation import rotation
+
+        from .rotation import rotate
+
+        rotation.register("trust", rotate)

@@ -101,8 +101,8 @@ async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 /** Each call is recorded in the platform tenant's own audit chain, so the page does not poll. */
 /** Support adds a customer; its first administrator is emailed an invitation. */
-export const addCustomer = (body: { customer: string; site: string; admin_email: string }) =>
-  v1<{ customer: { id: string; name: string; site: string } }>("platform/customers", {
+export const addCustomer = (body: { customer: string; site: string; admin_email: string; kind?: string }) =>
+  v1<{ customer: { id: string; name: string; site: string; kind: string } }>("platform/customers", {
     method: "POST", body: JSON.stringify(body),
   });
 
@@ -113,6 +113,12 @@ export const setCustomerSignUp = (customerId: string, enabled: boolean) =>
   v1<{ customer: { id: string; name: string; self_registration: boolean } }>(
     `platform/customers/${encodeURIComponent(customerId)}/sign-up`,
     { method: "POST", body: JSON.stringify({ enabled }) });
+
+/** Support records the country a customer operates in (an ISO code, or "" to clear it). */
+export const setCustomerCountry = (customerId: string, country: string) =>
+  v1<{ customer: { id: string; name: string; country: string } }>(
+    `platform/customers/${encodeURIComponent(customerId)}/country`,
+    { method: "POST", body: JSON.stringify({ country }) });
 
 export interface ReleaseRow {
   id: string;
@@ -174,6 +180,78 @@ export const resolveIncident = (id: string, resolution: string) =>
   v1<{ incident: IncidentRow }>(`platform/incidents/${encodeURIComponent(id)}/resolve`, {
     method: "POST", body: JSON.stringify({ resolution }),
   });
+
+export interface Indicator { value: number | null; target: number; burn_rate: number | null; meeting: boolean | null }
+export interface SloReport {
+  windows: { window_minutes: number; requests: number; availability: Indicator; latency: Indicator }[];
+  routes: { route: string; requests: number; server_errors: number; mean_seconds: number }[];
+  targets: { availability: number; latency_seconds: number; latency_share: number };
+  limits: string[];
+}
+export const getSlo = () => v1<SloReport>("platform/slo");
+
+export interface MatrixData {
+  requirements: { public_id: string; source: string; req_id: string; group: string; title: string;
+    status: "met" | "partly" | "not_built"; evidence: string }[];
+  summary: Record<string, { total: number; met: number; partly: number; not_built: number }>;
+  can_write: boolean;
+}
+export const getMatrix = (source: string, status: string) =>
+  v1<MatrixData>(`platform/traceability?source=${encodeURIComponent(source)}&status=${encodeURIComponent(status)}`);
+export const importMatrixSeed = () =>
+  v1<{ added: number; changed: number; unchanged: number }>("platform/traceability/import",
+    { method: "POST", body: JSON.stringify({ seed: true }) });
+
+export interface ReleaseReadiness {
+  public_id: string;
+  release_ref: string;
+  build: string;
+  cell: string;
+  country: string;
+  capabilities: string[];
+  tuple_digest: string;
+  author: string;
+  decision: "no_go" | "g3_ready" | "g4_authorized";
+  recorded_decision: "no_go" | "g3_ready" | "g4_authorized";
+  blockers: string[];
+  requirements: {
+    gate: string; requirement: string; status: "signed" | "missing" | "expired" | "vetoed";
+    signer: string; role: string; reference: string; expires_on: string | null; note: string;
+  }[];
+}
+export const getReleasesReadiness = async () => (await v1<{ releases: ReleaseReadiness[] }>("platform/readiness")).releases;
+export const createRelease = (body: { release_ref: string; build: string; cell: string; country: string; capabilities: string[] }) =>
+  v1<{ release: ReleaseReadiness }>("platform/readiness", { method: "POST", body: JSON.stringify(body) });
+export const releaseStep = (id: string, step: "sign" | "veto" | "evaluate", body: Record<string, unknown>) =>
+  v1<{ release: ReleaseReadiness }>(`platform/readiness/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify(body) });
+
+export interface PackManifest {
+  settings: { data_request_days: number | null; emergency_number: string; default_language: string; time_zone: string };
+  capabilities: Record<string, boolean>;
+  evidence: Record<string, string>;
+  validity: { expires_on: string | null };
+}
+export interface PackRow {
+  id: string;
+  pack_ref: string;
+  country: string;
+  service: string;
+  revision: number;
+  status: "draft" | "validated" | "expert_review" | "signed" | "suspended" | "retired";
+  manifest: PackManifest;
+  content_hash: string;
+  note: string;
+  author: string;
+  created_at: string;
+  approvals: Record<string, { by: string; at: string }>;
+  missing: string[];
+  expired: boolean;
+}
+export const getPacks = async () => (await v1<{ packs: PackRow[] }>("platform/packs")).packs;
+export const createPack = (body: { pack_ref: string; country: string; service: string; manifest: PackManifest }) =>
+  v1<{ pack: PackRow }>("platform/packs", { method: "POST", body: JSON.stringify(body) });
+export const packStep = (id: string, step: string, body: Record<string, unknown> = {}) =>
+  v1<{ pack: PackRow }>(`platform/packs/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify(body) });
 
 export const addRelease = (body: { version: string; summary: string; released_on: string; details: string }) =>
   v1<{ release: { id: string } }>("platform/releases", { method: "POST", body: JSON.stringify(body) });
@@ -291,17 +369,29 @@ export const reviewHazard = (id: string, verdict: "verified" | "rejected", note:
 export const acceptHazard = (id: string, note: string) => hazardPost(id, "accept", { note });
 export const retireHazard = (id: string, reason: string) => hazardPost(id, "retire", { reason });
 
-// Country packs (read only: packs are installed by a command, never from a screen).
-export interface PackRow {
+// Signed country packs (read only: packs are installed by a command, never from a screen).
+export interface SignedPackRow {
   public_id: string; country: string; version: number; status: "active" | "superseded" | "revoked";
   valid_from: string; expires_at: string; revocation_epoch: number; key_id: string;
   capabilities: string[];
   /** True only if the pack counts RIGHT NOW: signature, dates and revocation all check out. */
   in_force: boolean;
 }
-export interface PacksData {
-  packs: PackRow[]; revocation_floor: number; trusted_key_ids: string[];
+export interface SignedPacksData {
+  packs: SignedPackRow[]; revocation_floor: number; trusted_key_ids: string[];
   /** Whether features must be switched on by the country's pack, and which country this cell serves. */
   enforced: boolean; country: string; country_capabilities: string[];
 }
-export const getPacks = () => v1<PacksData>("platform/packs");
+export const getSignedPacks = () => v1<SignedPacksData>("platform/signed-packs");
+
+/** A customer's partner waits for three checks by Zoiko support before it can have a secret. */
+export type PartnerCheckName = "identity" | "legal" | "security";
+export interface PartnerCheckRow {
+  public_id: string; customer_ref: string; customer_name: string; label: string; key_id: string;
+  allowed_types: string[]; checks: Record<PartnerCheckName, boolean>; created_at: string;
+}
+export const getPartnerChecks = async () => (await v1<{ partners: PartnerCheckRow[] }>("platform/partner-checks")).partners;
+export const recordPartnerCheck = (customer: string, client: string, check: PartnerCheckName, note: string) =>
+  v1<{ client: unknown }>(`platform/partner-checks/${encodeURIComponent(customer)}/${encodeURIComponent(client)}/${check}`, {
+    method: "POST", body: JSON.stringify({ note }),
+  });

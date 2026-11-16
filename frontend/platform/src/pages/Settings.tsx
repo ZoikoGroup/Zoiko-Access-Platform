@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ApiError, setCustomerSignUp } from "../api";
+import { ApiError, setCustomerCountry, setCustomerSignUp } from "../api";
 import type { TenantRow } from "../types";
 import { Card, Pill } from "../ui";
 import { Suspensions } from "./Suspensions";
@@ -21,6 +21,18 @@ export function Settings({ tenants, canWrite, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
+  const [codes, setCodes] = useState<Record<string, string>>({});
+
+  async function saveCountry(t: TenantRow) {
+    const code = (codes[t.id] ?? t.country ?? "").trim().toUpperCase();
+    setBusy(true); setError(""); setDone("");
+    try {
+      await setCustomerCountry(t.id, code);
+      setDone(code ? `${t.name}: country is now ${code}.` : `${t.name}: country cleared.`);
+      await onChanged();
+    } catch (e) { setError(friendly(e)); }
+    finally { setBusy(false); }
+  }
 
   async function change(t: TenantRow, enabled: boolean) {
     setBusy(true); setError(""); setDone("");
@@ -67,6 +79,22 @@ export function Settings({ tenants, canWrite, onChanged }: {
             </div>
           ))}
           {!canWrite && <div className="notice">Your role can look at these settings but not change them.</div>}
+        </Card>
+        <Card title="Country" sub="Which country a customer operates in, as a two-letter code (for example GB). It decides which approved country pack's settings apply, for example how many days a clinic has to answer a data request. It grants nothing, and with no signed pack for that country nothing changes.">
+          {customers.length === 0 ? <div className="empty">No customers yet.</div> : customers.map((t) => (
+            <div key={t.id} className="appt">
+              <div className="info">
+                <b>{t.name} <Pill kind={t.country ? "ok" : "info"}>{t.country || "Not set"}</Pill></b>
+                {canWrite && (
+                  <span className="form-row">
+                    <input aria-label={`Country code for ${t.name}`} maxLength={2} value={codes[t.id] ?? t.country ?? ""}
+                      onChange={(e) => setCodes({ ...codes, [t.id]: e.target.value })} placeholder="GB" style={{ width: 80 }} />
+                    <button className="btn ghost" disabled={busy} onClick={() => void saveCountry(t)}>Save country</button>
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
         </Card>
         <Suspensions tenants={tenants} canWrite={canWrite} onChanged={onChanged} />
       </div>

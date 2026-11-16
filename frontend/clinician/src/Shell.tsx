@@ -34,8 +34,9 @@ export function Topbar({ displayName = "", tenantName, login, roles, onSignOut, 
 
 const HEALTH_TEXT: Record<Health, string> = { ok: "Operational", down: "Unreachable", checking: "Checking" };
 
-export function Sidebar({ page, onPage, cell, api, database }: {
+export function Sidebar({ page, onPage, cell, api, database, badges = {} }: {
   page: PageId; onPage: (id: PageId) => void; cell: string; api: Health; database: Health;
+  badges?: Partial<Record<PageId, number>>;     // how many things wait on a page, shown beside its name
 }) {
   return (
     <nav className="sidebar" aria-label="Main">
@@ -45,6 +46,9 @@ export function Sidebar({ page, onPage, cell, api, database }: {
           <Icon name={item.icon} />
           {item.label}
           {!item.live && <span className="soon">soon</span>}
+          {(badges[item.id] ?? 0) > 0 && (
+            <span className="soon" aria-label={`${badges[item.id]} waiting`}>{badges[item.id]}</span>
+          )}
         </button>
       ))}
       <div className="side-foot">

@@ -14,8 +14,8 @@ from .basemodels import CellScopedModel
 from .timeutil import utc_now
 
 __all__ = [
-    "CellScopedModel", "IdempotencyKey", "InboxMessage", "MailState", "OutboxEvent", "OutboxState",
-    "QueuedEmail",
+    "CellScopedModel", "EmailAttempt", "IdempotencyKey", "InboxMessage", "MailState", "OutboxEvent",
+    "OutboxState", "QueuedEmail",
 ]
 
 OUTBOX_SEQUENCE = "foundation_outbox_seq"
@@ -143,3 +143,30 @@ class QueuedEmail(CellScopedModel):
             models.Index(fields=["cell_id", "tenant_id"], name="mail_scope_idx"),
             models.Index(fields=["state", "next_attempt_at"], name="mail_due_idx"),
         ]
+
+
+class EmailAttempt(models.Model):
+    """One try at sending one email, written once and never changed (GHE-16 DeliveryAttempt:
+    "immutable attempt history"). The queue row keeps only the latest state; this keeps every try,
+    so a message that failed twice and then went through still shows both failures.
+
+    "accepted" means the mail server took it. That is not delivery to a person and not that it was
+    read. Like the queue it belongs to, this table is not tenant-scoped (the worker sends for every
+    tenant) and holds no address, no text and no error message, only the error's class name.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email_ref = models.CharField(max_length=22)            # the QueuedEmail's public id
+    attempt_no = models.PositiveSmallIntegerField()
+    outcome = models.CharField(max_length=16)              # "accepted" or "failed"
+    error = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(default=utc_now, editable=False)
+
+    class Meta:
+        indexes = [models.Index(fields=["created_at"], name="mailattempt_time_idx")]
+        constraints = [
+            models.UniqueConstraint(fields=["email_ref", "attempt_no"], name="mailattempt_once"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.email_ref} try {self.attempt_no}: {self.outcome}"

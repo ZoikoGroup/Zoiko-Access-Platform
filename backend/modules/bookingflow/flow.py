@@ -1,7 +1,7 @@
 """A booking confirmed by the clinic's own booking system, not only by a person.
 
 By default a clinic's staff confirm a booking by hand, exactly as before. A clinic that chooses a
-partner connector as its "booking system" (a setting, DEV-126) gets this flow instead:
+partner connector as its "booking system" (a setting, DEV-180) gets this flow instead:
 
   patient requests  -> a journey starts (J1.partner_booking) at "requested"
   staff "ask"       -> the journey moves to "awaiting provider" and the connector is asked

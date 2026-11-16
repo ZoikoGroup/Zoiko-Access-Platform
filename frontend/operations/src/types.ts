@@ -52,9 +52,9 @@ export interface Compliance extends Evidence {
 export interface Dashboard extends Evidence {
   tenant: string;
   counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
-  late: { hours: number; bookings: number; messages: number };
+  late: { hours: number; bookings: number; messages: number; data_requests: number };
   today: { confirmed: number; waiting: number; still_to_come: number };
-  attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number };
+  attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number; data_requests: number; workflows_without_owner: number; partner_results: number; partner_on_hold: number; partner_held_mine: number; webhooks_gave_up: number };
 }
 
 export interface Directory {
@@ -136,6 +136,8 @@ export interface FamilyRequest {
   requested_at: string;
   requested_by: string;
   requested_by_name: string | null;
+  proof_kind?: string;
+  proof_ref?: string;
 }
 
 export interface MessageThread {
@@ -189,7 +191,7 @@ export interface Reports {
 
 export interface WorkItem {
   id: string;
-  kind: "confirm_booking" | "decide_referral" | "answer_message";
+  kind: "confirm_booking" | "decide_referral" | "answer_message" | "answer_data_request";
   label: string;
   subject: string;
   created_at: string;
@@ -280,6 +282,148 @@ export interface LocationRow {
   organization: string;
 }
 
+export interface WorkflowInstance {
+  public_id: string;
+  definition: string;
+  definition_version: number;
+  journey: string;
+  subject_ref: string;
+  state: string;
+  overlay: "clear" | "at_risk" | "exception" | "reconciling";
+  owner: string;
+  owner_name?: string;
+  owner_inactive?: boolean;
+  version: number;
+  open_escalations: number;
+  timers: { kind: string; due_at: string; watches: string }[];
+  path: string[];
+}
+
+export interface WorkflowStep {
+  seq: number;
+  kind: "transition" | "overlay" | "owner" | "timer";
+  from_state: string;
+  to_state: string;
+  overlay: string;
+  actor: string;
+  actor_name: string;
+  evidence: { kind: string; ref: string }[];
+  note: string;
+  occurred_at: string;
+}
+
+export interface WorkflowHistory {
+  instance: WorkflowInstance;
+  chain_ok: boolean;
+  bad_seq: number | null;
+  steps: WorkflowStep[];
+}
+
+export interface Escalation {
+  public_id: string;
+  instance: string;
+  owner: string;
+  status: "open" | "reached";
+  attempts: number;
+  created_at: string;
+}
+
+export interface FeeRow {
+  service_ref: string;
+  name: string;
+  current: { amount_minor: number; currency: string; effective_from: string } | null;
+  upcoming: { amount_minor: number; currency: string; effective_from: string } | null;
+}
+
+export interface InvoiceRow {
+  public_id: string;
+  number: string;
+  person_ref: string;
+  patient_name?: string | null;
+  currency: string;
+  lines: { service_ref: string; name: string; quantity: number; unit_minor: number }[];
+  total_minor: number;
+  credited_minor: number;
+  balance_minor: number;
+  status: "draft" | "issued" | "paid" | "void";
+  due_on: string | null;
+  payment_ref: string;
+  credit_notes: { number: string; amount_minor: number; reason: string; at: string }[];
+  history?: { seq: number; kind: string; actor: string; at: string }[];
+  chain_ok?: boolean;
+}
+
+export interface PartnerClient {
+  public_id: string;
+  label: string;
+  key_id: string;
+  allowed_types: string[];
+  state: "pending" | "active" | "suspended" | "revoked";
+  rate_per_minute: number;
+  created_at: string;
+  checks: { identity: boolean; legal: boolean; security: boolean };    // what Zoiko has recorded so far
+  last_used_at: string | null;
+  secret?: string;                  // only in the answer to "issue the secret" and "new secret"
+}
+
+export interface InboundEvent {
+  public_id: string;
+  client: string;
+  client_label: string;
+  delivery_id: string;
+  event_type: string;
+  state: "received" | "quarantined";
+  reason: string;
+  body_digest: string;
+  created_at: string;
+}
+
+export interface WebhookEndpoint {
+  public_id: string;
+  label: string;
+  url: string;
+  topics: string[];
+  key_id: string;
+  state: "pending_verification" | "active" | "paused" | "revoked";
+  created_at: string;
+  verified_at: string | null;
+  failure_streak: number;
+  secret?: string;                  // only in the answer to "add" and "new secret"
+}
+
+export interface WebhookDelivery {
+  public_id: string;
+  endpoint: string;
+  event_type: string;
+  delivery_id: string;
+  state: "pending" | "retrying" | "delivered" | "dead_letter";
+  attempts: number;
+  next_attempt_at: string;
+  last_status: number | null;
+  last_error: string;
+  created_at: string;
+  delivered_at: string | null;
+  owner_name?: string;
+  policy_digest?: string;
+  body_digest?: string;
+}
+
+export interface RightsCase {
+  id: string;
+  ref: string;
+  type: string;
+  state: "received" | "in_progress" | "completed" | "declined" | "withdrawn";
+  note: string;
+  created_at: string;
+  identity_checked_at: string | null;
+  decision_note: string;
+  decided_at: string | null;
+  due_at: string | null;
+  due_basis: string;
+  patient: string;
+  patient_name?: string | null;
+}
+
 export interface IncomingReferral {
   id: string;
   patient: string;                       // an id: names are not stored yet
@@ -307,4 +451,12 @@ export interface ReferralInbox {
   fallback: { id: string; name: string } | null;
   doctors: { id: string; name: string }[];
   can_manage: boolean;
+}
+
+export type ExchangeState = "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
+export interface ExchangeRequest {
+  id: string; ref_no: string; kind: "lab_order" | "pharmacy_request" | "homecare_referral";
+  partner: string; partner_ref: string; token: string; patient: string; patient_name?: string | null;
+  label: string; urgency: "routine" | "urgent"; state: ExchangeState; decision_note: string;
+  result_ref: string; on_hold: boolean; hold_owner_name?: string; hold_mine?: boolean; created_at: string; result_at: string | null; reviewed_at: string | null;
 }

@@ -142,7 +142,9 @@ def test_an_event_for_a_booking_that_is_gone_or_an_unknown_event_is_just_deliver
     deliver()                                   # setting up the clinic announced its new times
     with tenant_transaction(web.clinic.ctx):
         emit(event_type="booking.confirmed.v1", aggregate_type="booking",
-             aggregate_ref="missing", payload={"booking_ref": "does-not-exist"})
+             aggregate_ref="missing", payload={
+                 "booking_ref": "does-not-exist", "slot_ref": "sl_x", "service_ref": "sv_x",
+                 "status": "confirmed"})
         emit(event_type="booking.noted.v1", aggregate_type="booking", aggregate_ref="other",
              payload={"booking_ref": "x"})
     result = deliver()

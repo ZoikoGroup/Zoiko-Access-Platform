@@ -28,6 +28,7 @@ from typing import Any
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Exists, OuterRef
 
+from .event_catalog import EVENTS
 from .models import OutboxEvent, OutboxState
 from .payloads import check_reference_payload
 from .request_context import get_request_id, new_request_id
@@ -36,6 +37,19 @@ from .timeutil import Clock, require_aware, utc_now
 MAX_ATTEMPTS = 10
 _EVENT_TYPE = re.compile(r"^[A-Za-z][A-Za-z0-9_.]{0,90}\.v[0-9]{1,3}$")
 _NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+
+
+def _check_against_catalogue(event_type: str, aggregate_type: str, body: dict[str, Any]) -> None:
+    """A published event must be what the catalogue (foundation/event_catalog.py) says it is: the
+    same kind of thing, every required field and no field the catalogue does not list (DEV-152).
+    An event type the catalogue does not know is left alone here; a test finds those."""
+    listed = EVENTS.get(event_type)
+    if listed is None:
+        return
+    about, always, sometimes = listed
+    keys = set(body)
+    if aggregate_type != about or not set(always) <= keys or keys - set(always) - set(sometimes):
+        raise OutboxError(f"{event_type} does not match its catalogue entry")
 
 
 class OutboxError(RuntimeError):
@@ -63,6 +77,7 @@ def emit(
         if not _NAME.match(value):
             raise OutboxError("aggregate_type and aggregate_ref must be plain identifiers")
     body = check_reference_payload(payload or {})
+    _check_against_catalogue(event_type, aggregate_type, body)
     request_id = get_request_id()
     event = OutboxEvent(
         event_type=event_type,

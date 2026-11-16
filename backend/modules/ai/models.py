@@ -76,6 +76,9 @@ class AiUsePermit(CellScopedModel):
     expiry = models.DateTimeField(null=True, blank=True)
     # The tools this feature may use (whitelist only). Write tools need a named human approver.
     allowed_tools = models.JSONField(default=list)
+    # SHA-256 of the three tool lists as they were when the permit was made (GHE-23: the tool policy
+    # is an immutable version). A run is refused if the stored lists no longer match it.
+    tool_digest = models.CharField(max_length=64, blank=True, default="")
     write_tools = models.JSONField(default=list)
     two_person_tools = models.JSONField(
         default=list
@@ -115,6 +118,7 @@ class AiResponseEvidence(CellScopedModel):
     output_digest = models.CharField(max_length=64)
     model_digest = models.CharField(max_length=64)
     prompt_digest = models.CharField(max_length=64)
+    tool_digest = models.CharField(max_length=64, blank=True, default="")   # the tool policy used
     validator_flags = models.JSONField(default=list)
     decision = models.CharField(max_length=14, choices=Decision.choices)
 

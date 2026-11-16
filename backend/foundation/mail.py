@@ -26,10 +26,10 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.core.mail import EmailMessage
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 
 from .errors import ErrorCode, ZoikoError
-from .models import MailState, QueuedEmail
+from .models import EmailAttempt, MailState, QueuedEmail
 from .timeutil import Clock, utc_now
 
 MAX_ATTEMPTS = 5
@@ -103,15 +103,17 @@ def send_due(*, limit: int = 20, clock: Clock | None = None) -> SendResult:
             row.state, row.attempts = MailState.SENDING, row.attempts + 1
             row.locked_until = now + CLAIM_FOR
             row.save(update_fields=["state", "attempts", "locked_until", "updated_at"])
-        claimed = [(row.pk, row.to_address, row.subject, row.body, row.attempts) for row in rows]
+        claimed = [(row.pk, row.public_id, row.to_address, row.subject, row.body, row.attempts)
+                   for row in rows]
 
     sent = retrying = failed = 0
-    for pk, address, subject, body, attempts in claimed:
+    for pk, ref, address, subject, body, attempts in claimed:
         try:
             EmailMessage(subject=subject, body=body, to=[address],
                          from_email=settings.DEFAULT_FROM_EMAIL).send(fail_silently=False)
         except Exception as exc:  # noqa: BLE001 - any failure means "try again later"
             error = type(exc).__name__[:64]
+            _record_attempt(ref, attempts, "failed", error)
             if attempts >= MAX_ATTEMPTS:
                 QueuedEmail.objects.filter(pk=pk).update(
                     state=MailState.FAILED, last_error=error, locked_until=None)
@@ -122,6 +124,7 @@ def send_due(*, limit: int = 20, clock: Clock | None = None) -> SendResult:
                     next_attempt_at=now + _backoff(attempts))
                 retrying += 1
         else:
+            _record_attempt(ref, attempts, "accepted")
             # Wipe the body (it may hold a one-time link) and keep only a masked address.
             QueuedEmail.objects.filter(pk=pk).update(
                 state=MailState.SENT, sent_at=now, body="", to_address=mask_address(address),
@@ -130,10 +133,25 @@ def send_due(*, limit: int = 20, clock: Clock | None = None) -> SendResult:
     return SendResult(sent, retrying, failed)
 
 
-def mail_stats() -> dict[str, int]:
+def _record_attempt(email_ref: str, attempt_no: int, outcome: str, error: str = "") -> None:
+    """Add this try to the email's permanent history. A repeat of the same number is ignored
+    (a crashed worker may report the same attempt again)."""
+    try:
+        with transaction.atomic():
+            EmailAttempt.objects.create(
+                email_ref=email_ref, attempt_no=attempt_no, outcome=outcome, error=error)
+    except IntegrityError:
+        pass
+
+
+def mail_stats(clock: Clock | None = None) -> dict[str, int]:
     """Cell-wide numbers only, for the platform console."""
     rows = QueuedEmail.objects
+    since = utc_now(clock) - dt.timedelta(hours=24)
+    tries = EmailAttempt.objects.filter(created_at__gte=since)
     return {
         "queued": rows.filter(state__in=[MailState.QUEUED, MailState.SENDING]).count(),
         "failed": rows.filter(state=MailState.FAILED).count(),
+        "failed_attempts_24h": tries.filter(outcome="failed").count(),
+        "accepted_attempts_24h": tries.filter(outcome="accepted").count(),
     }

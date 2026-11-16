@@ -7,7 +7,7 @@ import type {
   BillingData, BookingSystem, DeveloperClient, IdentityData, MatchesData, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
 } from "./consoleTypes";
 import type {
-  ClinicSettings, CoverageRow, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
+  ClinicSettings, CoverageRow, ExchangeRequest, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, RightsCase, FeeRow, InvoiceRow, Escalation, WorkflowHistory, WorkflowInstance, InboundEvent, PartnerClient, WebhookDelivery, WebhookEndpoint, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
   BookingRow, Compliance, Dashboard, Directory, Health, LocationRow, Me, PatientRow, ServiceRow,
 } from "./types";
 
@@ -165,8 +165,8 @@ export const listFamilyRequests = async () =>
   await v1<{ requests: FamilyRequest[]; approved: FamilyRequest[] }>("staff/family-requests");
 export const familyStep = (id: string, step: "proof-needed" | "proof-received" | "suspend" | "resume", reason = "") =>
   post(`staff/family-requests/${encodeURIComponent(id)}/${step}`, reason ? { reason } : {});
-export const approveFamily = (id: string, validUntil: string, scopes: string[]) =>
-  post(`staff/family-requests/${encodeURIComponent(id)}/approve`, { verified: true, valid_until: validUntil, scopes });
+export const approveFamily = (id: string, validUntil: string, scopes: string[], proofKind: string, proofRef: string) =>
+  post(`staff/family-requests/${encodeURIComponent(id)}/approve`, { verified: true, valid_until: validUntil, scopes, proof_kind: proofKind, proof_ref: proofRef });
 export const rejectFamily = (id: string) => post(`staff/family-requests/${encodeURIComponent(id)}/reject`);
 export const listMessageThreads = async () => (await v1<{ threads: MessageThread[] }>("messages/threads")).threads;
 export const getMessageThread = async (id: string) =>
@@ -265,6 +265,48 @@ export const withdrawSlot = (slotId: string) =>
   post<{ withdrawn: boolean }>(`slots/${encodeURIComponent(slotId)}/withdraw`, {});
 
 export const listIncomingReferrals = async () => (await v1<{ referrals: IncomingReferral[] }>("referrals/incoming")).referrals;
+export const listRightsCases = async () =>
+  await v1<{ requests: RightsCase[]; can_close: boolean }>("staff/rights");
+export const listWorkflows = async (workbench: boolean) =>
+  (await v1<{ instances: WorkflowInstance[] }>(`staff/workflows${workbench ? "?view=workbench" : ""}`)).instances;
+export const getWorkflowHistory = (id: string) =>
+  v1<WorkflowHistory>(`staff/workflows/${encodeURIComponent(id)}`);
+export const listEscalations = async () =>
+  (await v1<{ escalations: Escalation[] }>("staff/workflows/escalations")).escalations;
+export const recordEscalation = (id: string, reached: boolean, note: string) =>
+  post(`staff/workflows/escalations/${encodeURIComponent(id)}/record`, { reached, note });
+export const getBillingFees = () =>
+  v1<{ fees: FeeRow[]; can_set: boolean }>("staff/billing/fees");
+export const setFee = (service: string, currency: string, amount_minor: number) =>
+  post("staff/billing/fees", { service, currency, amount_minor });
+export const getInvoices = () =>
+  v1<{ invoices: InvoiceRow[]; can_admin: boolean }>("staff/billing/invoices");
+export const getInvoice = async (id: string) =>
+  (await v1<{ invoice: InvoiceRow }>(`staff/billing/invoices/${encodeURIComponent(id)}`)).invoice;
+export const createInvoice = (person: string, lines: { service: string; quantity: number }[]) =>
+  post("staff/billing/invoices", { person, lines });
+export const billingAction = (id: string, action: "issue" | "pay" | "void" | "credit", body: Record<string, unknown>) =>
+  post(`staff/billing/invoices/${encodeURIComponent(id)}/${action}`, body);
+export const listPartners = async () =>
+  (await v1<{ clients: PartnerClient[] }>("staff/integrations/partners")).clients;
+export const addPartner = async (label: string, allowed_types: string[]) =>
+  (await post<{ client: PartnerClient }>("staff/integrations/partners", { label, allowed_types })).client;
+export const partnerStep = async (id: string, step: "suspend" | "resume" | "revoke" | "rotate-secret" | "issue-secret") =>
+  (await post<{ client: PartnerClient }>(`staff/integrations/partners/${encodeURIComponent(id)}/${step}`)).client;
+export const listInboundEvents = async () =>
+  (await v1<{ events: InboundEvent[] }>("staff/integrations/inbound")).events;
+export const listWebhooks = async () =>
+  (await v1<{ endpoints: WebhookEndpoint[] }>("staff/integrations/webhooks")).endpoints;
+export const addWebhook = async (label: string, url: string, topics: string[]) =>
+  (await post<{ endpoint: WebhookEndpoint }>("staff/integrations/webhooks", { label, url, topics })).endpoint;
+export const webhookStep = async (id: string, step: "verify" | "pause" | "resume" | "revoke" | "rotate-secret") =>
+  (await post<{ endpoint: WebhookEndpoint }>(`staff/integrations/webhooks/${encodeURIComponent(id)}/${step}`)).endpoint;
+export const listWebhookDeliveries = async () =>
+  (await v1<{ deliveries: WebhookDelivery[] }>("staff/integrations/deliveries")).deliveries;
+export const redriveDelivery = (id: string) =>
+  post(`staff/integrations/deliveries/${encodeURIComponent(id)}/redrive`);
+export const rightsStep = (id: string, step: "start" | "verify" | "complete" | "decline", note = "") =>
+  post(`staff/rights/${encodeURIComponent(id)}/${step}`, note ? { note } : {});
 export const acknowledgeReferral = (id: string) => post(`referrals/${encodeURIComponent(id)}/acknowledge`);
 export const getReferralInbox = () => v1<ReferralInbox>("staff/referral-inbox");
 export const setReferralInbox = (owner: string, fallback: string) =>
@@ -382,5 +424,14 @@ export const createApiClient = (body: { name: string; environment: string; scope
 export const revokeApiClient = (id: string) => post(`staff/developer/clients/${enc(id)}/revoke`);
 export const testWebhook = (client: string, hook: string) =>
   post(`staff/developer/clients/${enc(client)}/webhooks/${enc(hook)}/test`);
-export const redriveDelivery = (client: string, delivery: string) =>
+export const redriveClientDelivery = (client: string, delivery: string) =>
   post(`staff/developer/clients/${enc(client)}/deliveries/${enc(delivery)}/redrive`);
+
+export const listExchangePartners = async () =>
+  (await v1<{ partners: { id: string; name: string }[] }>("exchange/partners")).partners;
+export const listExchangeRequests = async () =>
+  (await v1<{ requests: ExchangeRequest[] }>("exchange/requests")).requests;
+export const sendExchangeRequest = async (body: { partner: string; kind: string; label: string; token: string; urgency: string; patient: string }) =>
+  (await post<{ request: ExchangeRequest }>("exchange/requests", body)).request;
+export const cancelExchangeRequest = async (id: string) =>
+  (await post<{ request: ExchangeRequest }>(`exchange/requests/${encodeURIComponent(id)}/cancel`)).request;

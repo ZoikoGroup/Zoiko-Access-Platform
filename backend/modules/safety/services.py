@@ -145,6 +145,14 @@ def list_hazards() -> list[dict[str, Any]]:
     return [hazard_dict(h) for h in rows]
 
 
+def resolution_summary() -> dict[str, int]:
+    """How many hazards the register holds and how many are still unresolved (not accepted and
+    not retired). A number only; used by the go-live register (DEV-143)."""
+    rows = list(Hazard.objects.filter(**_scope()).values_list("status", flat=True))
+    open_ones = sum(1 for s in rows if s not in (HazardStatus.ACCEPTED, HazardStatus.RETIRED))
+    return {"total": len(rows), "unresolved": open_ones}
+
+
 def history(hazard_ref: str) -> list[dict[str, Any]]:
     events = HazardEvent.objects.filter(hazard_ref=hazard_ref, **_scope()).order_by("created_at")
     return [

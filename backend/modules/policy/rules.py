@@ -47,6 +47,9 @@ RESOURCE_CLASSES = (
     "directory",
     "platform",
     "staff",
+    "rights",
+    "integration",
+    "program",
 )
 
 PURPOSES = (
@@ -112,6 +115,7 @@ def _v(spec: str) -> frozenset[str]:
 
 RULES: dict[str, dict[str, Rule]] = {
     "R01": {
+        "rights": (_v("rw"), "OWN"),
         "person": (_v("rw"), "OWN"),
         "booking": (_v("rw"), "OWN"),
         "referral": (_v("r"), "OWN"),
@@ -149,6 +153,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "catalog": (_v("r"), "ANY"),
     },
     "R04": {
+        "rights": (_v("rw"), "ORG"),
         "person": (_v("rw"), "ORG"),
         "booking": (_v("rw"), "ORG"),
         "referral": (_v("rw"), "ORG"),
@@ -163,6 +168,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "directory": (_v("r"), "ORG"),
     },
     "R05": {
+        "staff": (_v("rw"), "ORG"),
         "diagnostic": (_v("rw"), "ORG"),
         "workflow": (_v("r"), "ORG"),
         "comms": (_v("rw"), "ORG"),
@@ -170,6 +176,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "partner": (_v("rw"), "ORG"),
     },
     "R06": {
+        "staff": (_v("rw"), "ORG"),
         "medication": (_v("rw"), "ORG"),
         "billing": (_v("r"), "ORG"),
         "workflow": (_v("r"), "ORG"),
@@ -178,6 +185,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "partner": (_v("rw"), "ORG"),
     },
     "R07": {
+        "staff": (_v("rw"), "ORG"),
         "coverage": (_v("rwa"), "ORG"),
         "billing": (_v("r"), "ORG"),
         "comms": (_v("rw"), "ORG"),
@@ -186,12 +194,15 @@ RULES: dict[str, dict[str, Rule]] = {
         "analytics": (_v("r"), "ORG"),
     },
     "R08": {
+        "staff": (_v("rw"), "ORG"),
+        "program": (_v("rw"), "ORG"),
         "billing": (_v("r"), "ORG"),
         "analytics": (_v("r"), "ORG"),
         "comms": (_v("r"), "ORG"),
         "catalog": (_v("r"), "ANY"),
     },
     "R09": {
+        "staff": (_v("rw"), "ORG"),
         "person": (_v("r"), "REL"),
         "booking": (_v("r"), "ORG"),
         "referral": (_v("r"), "ORG"),
@@ -200,6 +211,8 @@ RULES: dict[str, dict[str, Rule]] = {
         "catalog": (_v("rw"), "ORG"),
     },
     "R10": {
+        "integration": (_v("rw"), "ORG"),
+        "staff": (_v("rw"), "ORG"),
         "partner": (_v("rw"), "ORG"),
         "catalog": (_v("r"), "ANY"),
         "evidence": (_v("r"), "ORG"),
@@ -215,7 +228,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "billing": (_v("rw"), "ORG"),
         "directory": (_v("r"), "ORG"),
         "analytics": (_v("r"), "ORG"),
-        "platform": (_v("rw"), "ORG"),  # support may add a customer (DEV-040)
+        "platform": (_v("rwa"), "ORG"),  # add a customer (DEV-040); attest country packs
     },
     "R12": {
         "workflow": (_v("r"), "ORG"),
@@ -225,7 +238,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "catalog": (_v("r"), "ANY"),
         "analytics": (_v("r"), "ORG"),
         "directory": (_v("r"), "ORG"),
-        "platform": (_v("r"), "ORG"),
+        "platform": (_v("ra"), "ORG"),   # safety officers attest country packs (DEV-128)
     },
 }
 
@@ -255,11 +268,20 @@ def _rules_digest() -> str:
 # has none, and R04's absence of patient-care rights carries over because the rules are copied.
 RULES["R13"] = {
     **RULES["R04"], "staff": (_v("rw"), "ORG"),
-    # TEMPORARY (DEV-122): the organization's administrator may manage its partner connections (API
+    # TEMPORARY (DEV-176): the organization's administrator may manage its partner connections (API
     # clients, webhooks). The specification names the partner engineer (R10) for this; who else, if
     # anyone, is the lead's decision (docs/LEAD-NOTE.md).
     "partner": (_v("rw"), "ORG"),
+    "integration": (_v("rw"), "ORG"),
 }
+
+
+def role_capabilities(role_code: str) -> list[dict[str, object]]:
+    """What a role may do, from the same table the policy engine decides with: resource class, the
+    verbs and the condition (OWN, ORG, REL, ANY). Used to tell a person what their account can
+    reach (DEV-158)."""
+    return [{"resource": res, "verbs": sorted(verbs), "scope": scope}
+            for res, (verbs, scope) in sorted(RULES.get(role_code, {}).items())]
 
 
 # Computed once, after every rule above is final (R13 included).

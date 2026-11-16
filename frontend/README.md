@@ -7,9 +7,11 @@ Rule: the frontend may hide buttons for convenience, but the backend always enfo
 frontend/
   platform/     Zoiko's own staff: health of every customer, numbers only (port 5175)
   clinician/    Doctors: my schedule and my patients (port 5176)
+  partners/     Labs, pharmacies, home-care partners, payers and employers (port 5177)
   operations/   staff and operations console (dashboard, patients, organizations, services, appointments, compliance)
   patient/      patients and guardians            (R01, R02)    dashboard, Find Care, Appointments
-  clinician/    doctors: schedule and patients    (R03)         built (port 5176)
+  clinician/    doctors: schedule, patients, referrals, messages, partner results  (R03)   built (port 5176)
+  partners/     lab, pharmacy, payer, employer, home care (R05 to R09)   built: home numbers, services, team, programme counts, plans and cover checks, and the developer console for R10 (port 5177)
   shared/       code used by all four apps (see shared/README.md)
 ```
 
@@ -88,6 +90,17 @@ Google sign-in is a disabled button until someone creates a Google OAuth client 
   (DEV-032). Staff screens never show a patient's email. The dev console (port 8000) is a separate dev tool.
 
 Staff console dev link for an account made by the seed scripts: add `&issuer=local` (for example `?tenant=<id>&as=appoloadmin@gmail.com&issuer=local&page=team`).
+
+## Run the partner app
+
+```bash
+cd frontend/partners
+npm install
+npm run dev          # http://localhost:5177
+```
+
+Make the test customers once with `python scripts/seed_partners.py` (organizations `E2E Lab`, `E2E Pharmacy`,
+`E2E Homecare`, `E2E Payer`, `E2E Employer`; password `E2e-Pass-2026!`; logins `e2e.lab@example.org` and so on).
 
 ## Run the doctor app
 

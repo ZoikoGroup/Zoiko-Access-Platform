@@ -1,0 +1,17 @@
+/* Doctor app additions on top of the shared tokens in styles.css */
+.slot-day { margin: 14px 0 6px; font-weight: 600; font-size: 13px; color: var(--muted); }
+.appt { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 12px 0;
+  border-bottom: 1px solid var(--line); }
+.appt:last-child { border-bottom: 0; }
+.appt .date { width: 84px; text-align: center; padding: 8px 4px; border-radius: 12px;
+  background: var(--brand-soft); color: var(--brand); flex: none; }
+.appt .date b { display: block; line-height: 1.2; }
+.appt .date small { display: block; text-transform: uppercase; font-weight: 700; letter-spacing: 0.4px; font-size: 10px; }
+.appt .info { flex: 1; min-width: 220px; }
+.appt .info small { color: var(--muted); display: block; }
+.ref-form { display: grid; gap: 12px; max-width: 560px; }
+.ref-form label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.ref-form select, .ref-form textarea { padding: 9px 12px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--bg); }
+.ref-form textarea { min-height: 84px; resize: vertical; }
+.success { padding: 12px 14px; border-radius: 10px; background: var(--ok-bg); color: var(--ok); margin-top: 12px; }

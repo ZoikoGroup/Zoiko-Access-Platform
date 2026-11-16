@@ -17,6 +17,7 @@ Audit entries name who did what, never the person's details.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any
 
 from django.db import transaction
@@ -62,6 +63,7 @@ def _grant_dict(g: ProxyGrant, names: dict[str, dict[str, str]]) -> dict[str, An
         "person_ref": ref, "name": profile.get("name", ""),
         "birth_date": profile.get("birth_date", ""),
         "delegate_ref": g.delegate.public_id, "scopes": list(g.rights or []),
+        "proof_kind": g.proof_kind, "proof_ref": g.proof_ref,
         "valid_until": g.valid_until.isoformat() if g.valid_until else None,
         "created_at": g.created_at.isoformat(),
     }
@@ -200,6 +202,13 @@ def _staff_check(
         raise ZoikoError(ErrorCode.POLICY_DENIED)
 
 
+# What staff may say they saw to establish a guardian's legal basis (DEV-144). The list is ours, not
+# the specification's: it names kinds of document, never which one a given relationship needs.
+PROOF_KINDS = ("birth_record", "adoption_record", "court_order", "power_of_attorney",
+               "carer_registration", "patient_written_consent", "other_document")
+_PROOF_REF = re.compile(r"^[A-Za-z0-9._:-]{4,64}$")
+
+
 def approve_family_member(
     *,
     grant_ref: str,
@@ -207,6 +216,8 @@ def approve_family_member(
     decision: policy.Decision,
     organization_public_id: str,
     verified: bool,
+    proof_kind: str = "",
+    proof_ref: str = "",
     scopes: list[str] | None = None,
     valid_until: str = "",
     clock: Clock | None = None,
@@ -216,6 +227,10 @@ def approve_family_member(
     now = utc_now(clock)
     if verified is not True:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["verified"])
+    if proof_kind not in PROOF_KINDS:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["proof_kind"])
+    if not _PROOF_REF.match(proof_ref or ""):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["proof_ref"])
     if not scopes:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["scopes"])
     until: dt.datetime | None = None
@@ -231,7 +246,8 @@ def approve_family_member(
         grant = _own(ProxyGrant, grant_ref)
         _staff_check(grant, approver_public_id, decision, organization_public_id)
         approve_proxy_grant(
-            grant_ref, approver_public_id, valid_until=until, rights=scopes, clock=clock)
+            grant_ref, approver_public_id, valid_until=until, rights=scopes,
+            proof_kind=proof_kind, proof_ref=proof_ref, clock=clock)
         try:
             with transaction.atomic():
                 assign_role(

@@ -40,6 +40,12 @@ ZOIKO_CELL_ID = env("ZOIKO_CELL_ID", required=True)
 # Which program wrote an audit row, and which build it was (a release id or commit; "dev" locally).
 ZOIKO_SERVICE_NAME = env("ZOIKO_SERVICE_NAME", "backend")
 ZOIKO_BUILD = env("ZOIKO_BUILD", "dev")
+# Lets a monitoring system read /metrics (request numbers by route). Empty = the endpoint is off.
+METRICS_TOKEN = env("ZOIKO_METRICS_TOKEN", "")
+# Clinical workflow paths (review, handoff) stay unpublishable until this is "true" (DEV-132).
+WORKFLOW_CLINICAL_ENABLED = env("ZOIKO_WORKFLOW_CLINICAL", "").lower() == "true"
+if METRICS_TOKEN and len(METRICS_TOKEN) < 24:
+    raise ValueError("ZOIKO_METRICS_TOKEN must be at least 24 characters (or empty to turn it off)")
 # Google sign-in is offered only when a Google OAuth client id is configured (empty = off).
 GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", "")
 DEV_AUTH_STUB = False  # unsigned dev login; only dev settings turn it on
@@ -60,6 +66,14 @@ INSTALLED_APPS = [
     "modules.coverage",
     "modules.ai",
     "modules.safety",
+    "modules.rights",
+    "modules.sponsor",
+    "modules.integration",
+    "modules.jurisdiction",
+    "modules.orchestration",
+    "modules.readiness",
+    "modules.traceability",
+    "modules.billing",
     "modules.messaging",
     "modules.comms",
     "modules.evidence",
@@ -67,10 +81,12 @@ INSTALLED_APPS = [
     "modules.connector",
     "modules.developer",
     "modules.bookingflow",
+    "modules.exchange",
 ]
 
 MIDDLEWARE = [
     "foundation.middleware.RequestIdMiddleware",        # first: every request gets an id
+    "foundation.middleware.MetricsMiddleware",          # second: times everything after it
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
     "foundation.middleware.ErrorHandlingMiddleware",    # last: sees view exceptions first
@@ -147,7 +163,7 @@ RESPONSE_TARGET_HOURS = int(env("RESPONSE_TARGET_HOURS", "24"))
 # Which country this cell serves (ISO 3166-1 alpha-2, e.g. "GB"), and whether features must be
 # switched on by that country's signed pack. OFF by default: with enforcement on and no pack
 # installed, every gated feature refuses (fail closed), which is what the specification says but
-# would switch off a development setup. The lead decides when to turn it on (DEV-127).
+# would switch off a development setup. The lead decides when to turn it on (DEV-181).
 ZOIKO_COUNTRY = env("ZOIKO_COUNTRY", "").strip().upper()
 PACKS_ENFORCED = env("ZOIKO_PACKS_ENFORCED", "") == "1"
 
@@ -165,6 +181,7 @@ PATIENT_APP_URL = env("PATIENT_APP_URL", "http://localhost:5174").rstrip("/")
 STAFF_APP_URL = env("STAFF_APP_URL", "http://localhost:5173").rstrip("/")
 CLINICIAN_APP_URL = env("CLINICIAN_APP_URL", "http://localhost:5176").rstrip("/")
 PLATFORM_APP_URL = env("PLATFORM_APP_URL", "http://localhost:5175").rstrip("/")
+PARTNER_APP_URL = env("PARTNER_APP_URL", "http://localhost:5177").rstrip("/")
 
 # --- Passwords ------------------------------------------------------------------------------
 # Minimum length. 10 unless the deployment says otherwise, and never below 8. Only the local

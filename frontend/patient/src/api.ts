@@ -7,6 +7,7 @@ export interface Session {
   token: string;        // a signed session token from /auth/login (or a dev token in development)
   tenantName: string;
   login: string;
+  expiresAt?: string;   // only on a remembered (30-day) session
 }
 
 export interface Me {
@@ -181,8 +182,12 @@ export function loadSession(): Session | null {
     return current;
   }
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
-    current = raw ? (JSON.parse(raw) as Session) : null;
+    const raw = sessionStorage.getItem(SESSION_KEY) ?? localStorage.getItem(SESSION_KEY);
+    const found = raw ? (JSON.parse(raw) as Session) : null;
+    if (found?.expiresAt && Date.parse(found.expiresAt) <= Date.now()) {   // a remembered login that ran out
+      localStorage.removeItem(SESSION_KEY);
+      current = null;
+    } else current = found;
   } catch {
     current = null;
   }
@@ -192,8 +197,11 @@ export function loadSession(): Session | null {
 export function setSession(session: Session | null): void {
   current = session;
   try {
-    if (session) sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    else sessionStorage.removeItem(SESSION_KEY);
+    // A remembered session lives on this device until it expires; any other lasts for this tab only.
+    const keep = !!session?.expiresAt;
+    if (session) (keep ? localStorage : sessionStorage).setItem(SESSION_KEY, JSON.stringify(session));
+    if (!session || keep) sessionStorage.removeItem(SESSION_KEY);
+    if (!session || !keep) localStorage.removeItem(SESSION_KEY);
   } catch {
     /* storage blocked: the session lives in memory only */
   }
@@ -206,17 +214,19 @@ function authHeader(): Record<string, string> {
 
 export interface LoginReply {
   token: string;
+  expires_at?: string;
+  remembered?: boolean;
   home: string;
   tenant: { id: string; name: string };
   actor: { login: string };
 }
 
 /** Sign in. Every failure is the same message on purpose: the server does not say which part was wrong. */
-export async function signIn(organization: string, login: string, password: string): Promise<LoginReply> {
+export async function signIn(organization: string, login: string, password: string, remember = false): Promise<LoginReply> {
   const res = await fetch("/api/v1/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ organization, login, password }),
+    body: JSON.stringify({ organization, login, password, remember }),
   });
   if (!(res.headers.get("Content-Type") ?? "").includes("json")) {
     throw new ApiError("Cannot reach the server", "BAD_RESPONSE", res.status);
@@ -411,6 +421,37 @@ export async function endCoverage(id: string): Promise<void> {
 export const getCareTeam = async () => (await request<{ people: CareTeamPerson[] }>("care-team")).body.people;
 export const getAccessLog = async () => (await request<{ entries: AccessEntry[] }>("access-log")).body.entries;
 
+export interface Invoice {
+  public_id: string;
+  number: string;
+  currency: string;
+  lines: { name: string; quantity: number; unit_minor: number }[];
+  total_minor: number;
+  credited_minor: number;
+  balance_minor: number;
+  status: "draft" | "issued" | "paid" | "void";
+  due_on: string | null;
+}
+export const getInvoices = async () => (await request<{ invoices: Invoice[] }>("billing/invoices")).body.invoices;
+
+export interface RightsRequest {
+  id: string;
+  ref: string;
+  type: string;
+  state: "received" | "in_progress" | "completed" | "declined" | "withdrawn";
+  note: string;
+  created_at: string;
+  identity_checked_at: string | null;
+  decision_note: string;
+  decided_at: string | null;
+  due_at: string | null;
+}
+export const getRights = async () => (await request<{ requests: RightsRequest[] }>("rights")).body.requests;
+export const fileRights = async (type: string, note: string) =>
+  (await request<{ request: RightsRequest }>("rights", { method: "POST", body: JSON.stringify({ type, note }) })).body.request;
+export const withdrawRights = async (id: string) =>
+  request(`rights/${encodeURIComponent(id)}/withdraw`, { method: "POST", body: "{}" });
+
 export const getFamily = async () => (await request<{ family: FamilyRow[] }>("family")).body.family;
 
 export async function requestFamily(body: { relationship: string; name: string; birth_date: string }) {
@@ -425,15 +466,16 @@ export const getThreads = async () => (await request<{ threads: MessageThread[] 
 export const getThread = async (id: string) =>
   (await request<{ thread: ThreadView }>(`messages/threads/${encodeURIComponent(id)}`)).body.thread;
 
-export async function startThread(body: { subject: string; body: string }): Promise<string> {
+export async function startThread(body: { subject: string; body: string }, key?: string): Promise<string> {
   const { body: made } = await request<{ thread: { id: string } }>("messages/threads", {
-    method: "POST", body: JSON.stringify(body),
+    method: "POST", body: JSON.stringify(body), headers: key ? { "Idempotency-Key": key } : {},
   });
   return made.thread.id;
 }
 
-export async function replyToThread(id: string, body: string): Promise<void> {
-  await request(`messages/threads/${encodeURIComponent(id)}/reply`, { method: "POST", body: JSON.stringify({ body }) });
+export async function replyToThread(id: string, body: string, key?: string): Promise<void> {
+  await request(`messages/threads/${encodeURIComponent(id)}/reply`, {
+    method: "POST", body: JSON.stringify({ body }), headers: key ? { "Idempotency-Key": key } : {} });
 }
 
 export const getWaitlist = async () => (await request<{ entries: WaitEntry[] }>("waitlist")).body.entries;
@@ -522,3 +564,11 @@ export async function setEmail(email: string, currentPassword: string) {
     throw friendlyEmailError(e);
   }
 }
+
+export interface MyRequest {
+  id: string; kind: "lab_order" | "pharmacy_request" | "homecare_referral"; partner: string; label: string;
+  urgency: "routine" | "urgent";
+  state: "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
+  created_at: string; result_at: string | null; reviewed_at: string | null;
+}
+export const getMyRequests = async () => (await request<{ requests: MyRequest[] }>("exchange/mine")).body.requests;

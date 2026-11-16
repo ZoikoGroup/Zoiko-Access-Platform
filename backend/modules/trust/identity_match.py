@@ -11,7 +11,7 @@ Rules this follows, from the specification:
   last digits), never full names, to keep demographic exposure small.
 
 The thresholds below are our own proposed starting point (policy version m1): the specification says
-they must be tuned and validated on real data per market, which has not been done (DEV-129).
+they must be tuned and validated on real data per market, which has not been done (DEV-183).
 """
 from __future__ import annotations
 

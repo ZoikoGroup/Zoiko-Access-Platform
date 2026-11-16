@@ -33,6 +33,7 @@ from .models import (
     ActorType,
     AuthToken,
     Credential,
+    RoleAssignment,
     Status,
     Tenant,
     TenantType,
@@ -57,6 +58,11 @@ def app_url_for(actor: Actor) -> str:
         return settings.PATIENT_APP_URL
     if actor.actor_type == ActorType.CLINICIAN:
         return settings.CLINICIAN_APP_URL
+    # Payers, employers and lab, pharmacy and home-care partners have their own app (DEV-158).
+    if actor.actor_type in (ActorType.PAYER_USER, ActorType.EMPLOYER_USER) or (
+            RoleAssignment.objects.filter(
+                actor=actor, role__role_code__in=("R05", "R06", "R09", "R10")).exists()):
+        return settings.PARTNER_APP_URL
     return settings.STAFF_APP_URL
 
 

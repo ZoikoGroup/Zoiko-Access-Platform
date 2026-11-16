@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { downloadMyData, getAccessLog, type AccessEntry } from "../api";
 import { Card, Pill } from "../ui";
+import { RightsRequests } from "./RightsRequests";
 
 // What each recorded action means, in plain words.
 const WHAT: Record<string, string> = {
@@ -53,9 +54,10 @@ export function Privacy() {
       </div></div>
       {error && <div className="error">{error}</div>}
       <div className="grid">
+        <RightsRequests />
         <Card title="Download my data" sub="Everything the app shows you, in one file you can keep: appointments (with each appointment's steps), referrals, messages (with their text), insurance, family links and the access list below.">
           <button className="btn" disabled={preparing} onClick={() => void download()}>{preparing ? "Preparing…" : "Download my data"}</button>
-          <small style={{ display: "block", marginTop: 8 }}>The file is not encrypted: keep it somewhere safe. Deleting your data is not available yet.</small>
+          <small style={{ display: "block", marginTop: 8 }}>The file is not encrypted: keep it somewhere safe. To ask for your data to be deleted, use the request form above.</small>
         </Card>
         <Card title={`Who looked at my information${entries ? ` (${entries.length})` : ""}`}
           sub="Your own visits are not listed. A blocked attempt means the system refused it.">
