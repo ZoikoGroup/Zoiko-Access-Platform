@@ -29,6 +29,7 @@ def good(**over):
         "SECRET_KEY": "Zq8vN2mXk4RtP7wY1sLc9HdF3gJb6AeU5oTi0VnBxMyKrQ2z",
         "DATABASES": {"default": {"PASSWORD": "Vr7Qm2Xk9LpT4wYb8NsHd3GfJc6AeU1o"}},
         "FIELD_KEYS": "k1:3q2+7w==realkeymaterialnotaplaceholder0123456789abcdef",
+        "ALLOW_ENV_KEYS": True,         # knowingly keeps its keys in the environment
         "ALLOWED_HOSTS": ["care.example.org"], "ZOIKO_CELL_ID": "EU-WEST-01",
         "EMAIL_HOST": "smtp.example.org", "EMAIL_PORT": 587, "ZOIKO_BUILD": "2026.11.07-a1b2c3d",
     }

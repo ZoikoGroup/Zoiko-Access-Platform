@@ -50,8 +50,22 @@ def release_problems(conf: Any = settings) -> list[str]:
             f"DJANGO_SECRET_KEY is too short (under {MIN_SECRET_KEY_LENGTH} characters)")
     if _placeholder(str(conf.DATABASES["default"].get("PASSWORD") or "")):
         problems.append("the database password is still a placeholder (POSTGRES_PASSWORD)")
-    if _placeholder(conf.FIELD_KEYS):
+    provider = getattr(conf, "FIELD_KEY_PROVIDER", "env") or "env"
+    if provider == "env" and _placeholder(conf.FIELD_KEYS):
         problems.append("the field encryption keys are still a placeholder (ZOIKO_FIELD_KEYS)")
+    if provider == "env" and not getattr(conf, "ALLOW_ENV_KEYS", False):
+        problems.append("the encryption keys are held in an environment variable; use a key file "
+                        "or wrapped keys (ZOIKO_FIELD_KEY_PROVIDER), or accept the risk with "
+                        "ZOIKO_ALLOW_ENV_KEYS=1")
+    if provider not in ("env", "file", "wrapped"):
+        problems.append("ZOIKO_FIELD_KEY_PROVIDER is not env, file or wrapped")
+    elif provider != "env":
+        from foundation import keys as key_store
+
+        status = key_store.describe()
+        if not status["ok"]:
+            problems.append("the encryption key ring cannot be loaded (ZOIKO_FIELD_KEY_FILE, "
+                            "ZOIKO_KEY_WRAP_KEK)")
     hosts = [h.lower() for h in conf.ALLOWED_HOSTS]
     if not hosts or "*" in hosts:
         problems.append("DJANGO_ALLOWED_HOSTS is empty or allows every host")

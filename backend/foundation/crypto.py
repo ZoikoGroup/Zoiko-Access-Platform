@@ -5,7 +5,9 @@ mistaken query shows nothing readable. What it does NOT replace: the access rule
 still decide who may ask for the plain value.
 
 How it works
-- A MASTER key per key id comes from the environment (`ZOIKO_FIELD_KEYS`, "id:base64,id:base64").
+- A MASTER key per key id comes from a key store chosen by `ZOIKO_FIELD_KEY_PROVIDER` (see
+  `foundation/keys.py`): the environment (`ZOIKO_FIELD_KEYS`, "id:base64,id:base64"), a key ring
+  file, or keys wrapped by a managed key service.
   The current id (`ZOIKO_FIELD_KEY_ID`) encrypts; every listed id can still decrypt, so a key can
   be rotated by adding a new one. `needs_rotation` says which values still use an old key, and
   the `rotate_field_keys` command (foundation/rotation.py) re-encrypts them all, on demand.
@@ -18,8 +20,8 @@ How it works
 Token format: `zf1:<key id>:<base64url(nonce + ciphertext)>`.
 
 Never log a plaintext, a token or a key. Errors carry no detail on purpose.
-In production the master key should come from a managed key service (decision DEV-016); until
-then it is an environment variable, which is only as safe as that environment.
+In production the keys should come from a wrapped key ring held by a managed key service; an
+environment variable is only as safe as that environment (the release check says so).
 """
 from __future__ import annotations
 
@@ -34,7 +36,8 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from django.conf import settings
+
+from foundation import keys as key_store
 
 PREFIX = "zf1"
 KEY_BYTES = 32
@@ -67,17 +70,16 @@ def parse_keys(raw: str) -> dict[str, bytes]:
 
 def _keys() -> dict[str, bytes]:
     try:
-        return parse_keys(settings.FIELD_KEYS)
-    except ValueError:
+        return key_store.load_ring().keys
+    except key_store.KeyRingError:
         raise CryptoError from None
 
 
 def current_key_id() -> str:
-    keys = _keys()
-    wanted = getattr(settings, "FIELD_KEY_ID", "") or next(iter(keys))
-    if wanted not in keys:
-        raise CryptoError
-    return str(wanted)
+    try:
+        return key_store.load_ring().current
+    except key_store.KeyRingError:
+        raise CryptoError from None
 
 
 def _tenant_key(master: bytes, tenant_id: uuid.UUID | str) -> bytes:
