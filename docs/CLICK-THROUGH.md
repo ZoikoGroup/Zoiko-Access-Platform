@@ -31,7 +31,7 @@ Tick each line when it looks right and the words make sense to a non-technical p
 - [ ] Patients, Edit: insurance shows a clear notice when the patient has not shared it, and the details once they have.
 - [ ] AI permits (administrator only): propose, move and retire a permit; the page says AI is switched off.
 - [ ] Reports: "The next 7 days" shows booked versus usual per day and says it is a plain average; a new clinic sees the "not enough history" note.
-- [ ] Reports and Compliance: numbers look believable; the report says its days are UTC days; the CSV opens in a spreadsheet.
+- [ ] Reports and Compliance: numbers look believable; the report says which clock its days run on (the clinic's own, or UTC when its places differ); the CSV opens in a spreadsheet.
 - [ ] Settings: change something, reload, it stayed.
 - [ ] Billing, Integrations and other "not built" pages say so honestly.
 

@@ -20,7 +20,7 @@ export function reportRows(r: Reports): (string | number | null)[][] {
     ["Section", "Measure", "Value"],
     ["Period", "From", r.from],
     ["Period", "To", r.to],
-    ["Period", "Days run", "midnight to midnight UTC (the weekday table uses the clinic clock)"],
+    ["Period", "Days run", `midnight to midnight ${r.zone}${r.zone_source === "places" ? " (the clinic's own clock)" : " (no single clinic clock)"}`],
     ["Bookings", "Made", r.bookings.total],
     ["Bookings", "Waiting for confirmation now", r.bookings.status.requested],
     ["Bookings", "Confirmed now", r.bookings.status.confirmed],
