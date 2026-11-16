@@ -1764,6 +1764,17 @@ _PACK_STEPS = (
 )
 
 
+@endpoint("GET")
+def platform_pack_preflight(
+    request: HttpRequest, auth: trust.Authenticated, pack_id: str
+) -> HttpResponse:
+    """A dry run: what signing this pack would switch on. It changes nothing (AT-14)."""
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        return JsonResponse({"preflight": jurisdiction.preflight(pack_id)})
+
+
 @endpoint("POST")
 def platform_pack_step(
     request: HttpRequest, auth: trust.Authenticated, pack_id: str, step: str
@@ -1840,6 +1851,10 @@ def _incident_json(r: dict[str, Any], labels: dict[str, str]) -> dict[str, Any]:
         "resolved_by": labels.get(r["resolved_by_ref"], "Zoiko staff")
         if r["resolved_by_ref"]
         else "",
+        "assessed_by": labels.get(r["assessed_by_ref"], "Zoiko staff")
+        if r["assessed_by_ref"]
+        else "",
+        "assessment_note": r["assessment_note"],
     }
 
 
@@ -1988,6 +2003,25 @@ def platform_incident_resolve(
             actor_public_id=auth.actor_public_id,
             decision=decision,
             organization_public_id=org,
+        )
+        labels = trust.actor_labels()
+    return JsonResponse({"incident": _incident_json(made, labels)})
+
+
+@endpoint("POST")
+def platform_incident_assess(
+    request: HttpRequest, auth: trust.Authenticated, incident_id: str
+) -> HttpResponse:
+    """TEMPORARY RULE (DEV-176): an incident logged with an unknown severity stays open until a
+    safety officer (R12) evaluates it and gives it a level with a note (AT38)."""
+    _safety_officer(auth)
+    body = json_body(request)
+    with tenant_transaction():
+        made = trust.assess_incident(
+            incident_ref=incident_id,
+            severity=body.get("severity"),
+            note=body.get("note"),
+            actor_public_id=auth.actor_public_id,
         )
         labels = trust.actor_labels()
     return JsonResponse({"incident": _incident_json(made, labels)})

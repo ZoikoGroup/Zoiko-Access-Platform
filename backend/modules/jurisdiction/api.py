@@ -12,6 +12,7 @@ from .services import (
     get_pack,
     list_packs,
     pack_covers,
+    preflight,
     reject,
     retire,
     revalidate,
@@ -21,5 +22,5 @@ from .services import (
 )
 
 __all__ = ["CAPABILITIES", "approve", "create_pack", "data_request_days", "edit_pack",
-           "enabled_capabilities", "get_pack", "list_packs", "pack_covers", "reject", "retire",
-           "revalidate", "submit", "suspend", "validate"]
+           "enabled_capabilities", "get_pack", "list_packs", "pack_covers", "preflight", "reject",
+           "retire", "revalidate", "submit", "suspend", "validate"]

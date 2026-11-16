@@ -363,6 +363,7 @@ class IncidentSeverity(models.TextChoices):
     SEV1 = "sev1", "SEV-1: a major regional loss or a critical workflow failure"
     SEV2 = "sev2", "SEV-2: a partial service degradation"
     SEV3 = "sev3", "SEV-3: a minor operational issue"
+    UNKNOWN = "unknown", "Not yet assessed: stays open until a safety officer evaluates it"
 
 
 class IncidentStatus(models.TextChoices):
@@ -387,6 +388,8 @@ class Incident(CellScopedModel):
     resolved_on = models.DateField(null=True, blank=True)
     recorded_by_ref = models.CharField(max_length=64)
     resolved_by_ref = models.CharField(max_length=64, blank=True, default="")
+    assessed_by_ref = models.CharField(max_length=64, blank=True, default="")   # AT38
+    assessment_note = models.CharField(max_length=300, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="incident_scope_idx")]

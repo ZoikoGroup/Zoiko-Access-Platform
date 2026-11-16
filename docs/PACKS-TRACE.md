@@ -2,7 +2,7 @@
 
 Written 2026-11-12 by the developer, from the specification's own acceptance cases. Each row is a judgement made by reading the case and the code, not an automatic result; "Met" means one of our own automated tests proves the behaviour. The cases have **not** been run as written. This is the developer's reading and nobody else has reviewed it.
 
-**Totals: 6 met, 17 partly, 13 not built (of 36).**
+**Totals: 6 met, 19 partly, 11 not built (of 36).**
 
 What exists is a recorded, reviewed and approved-on-record country pack with an expiry, a fingerprint and a veto, and one applied setting (the data-request deadline). The "not built" rows are mostly the signed manifest, cell staging, preflight, a run-time resolver and the transfer and market controls, none of which can be built without cells, signing keys and approvers.
 
@@ -21,9 +21,9 @@ What exists is a recorded, reviewed and approved-on-record country pack with an 
 | AT-11 | Verification | Unknown fields and incompatible schema versions are rejected. | Partly | Unknown fields are refused (test_packs.py). Schema versions are not modelled. |
 | AT-12 | Verification | Author cannot self-approve mandatory Legal/DPO/CSO/CISO approvals. | Met | test_packs.py: the author cannot approve their own pack, and two different people must approve (support and safety officers stand in for the named roles). |
 | AT-13 | Verification | A material change invalidates affected signatures and produces a new immutable revision. | Met | test_packs.py: sending a pack back clears its approvals, only a draft can change, and a suspended pack returns only as a new revision. |
-| AT-14 | Verification | Preflight executes without mutating live production state. | Not built | There is no preflight. |
+| AT-14 | Verification | Preflight executes without mutating live production state. | Partly | `GET /platform/packs/<id>/preflight` reports what a pack still lacks and which capabilities signing would newly switch on, and writes nothing (DEV-178, test_packs.py). It is a report, not a rehearsal of a real activation. |
 | AT-15 | Verification | G3 production enable cannot occur with any required gate PENDING/UNKNOWN. | Partly | test_readiness.py: a release stays 'not ready' while any requirement is missing. This records a decision and blocks nothing. |
-| AT-16 | Verification | Concurrent activations and conflicting revisions cannot both become effective. | Not built | There is no activation, so no concurrent activation. |
+| AT-16 | Verification | Concurrent activations and conflicting revisions cannot both become effective. | Partly | Two revisions of one pack can never both be signed: the database refuses the second, even when two requests race (DEV-177, test_packs.py). There is still no separate activation step, and different packs for one country are not checked against each other. |
 | AT-17 | Verification | Revocation reaches policy cache within verified bound; stale cache cannot newly authorize. | Partly | A suspended pack stops giving new deadlines at once (test_country_deadline.py). There is no cache to bound. |
 | AT-18 | Verification | Loss of global control plane does not create new entitlements. | Not built | There is no global control plane separate from the cell. |
 | AT-19 | Verification | Rollback cannot restore a now-prohibited configuration. | Partly | A suspended pack comes back only as a new draft revision, never by rolling back (test_packs.py). |

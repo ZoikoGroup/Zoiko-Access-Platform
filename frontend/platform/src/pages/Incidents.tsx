@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, addIncident, getIncidents, resolveIncident, type IncidentRow } from "../api";
+import { ApiError, addIncident, assessIncident, getIncidents, resolveIncident, type IncidentRow } from "../api";
 import { Card, Pill } from "../ui";
 
 function today(): string {
@@ -14,6 +14,7 @@ const SEVERITY = {
   sev1: { text: "SEV-1", kind: "bad", means: "A major regional loss or a critical workflow failure" },
   sev2: { text: "SEV-2", kind: "warn", means: "A partial service degradation" },
   sev3: { text: "SEV-3", kind: "info", means: "A minor operational issue" },
+  unknown: { text: "Not yet assessed", kind: "warn", means: "Stays open until a safety officer evaluates it" },
 } as const;
 
 const EMPTY_FORM = () => ({ title: "", severity: "sev2", happened_on: today(), details: "" });
@@ -27,13 +28,14 @@ function friendly(e: unknown): string {
 }
 
 /** The platform's hand-written incident log, on GHE-20's SEV-0 to SEV-3 scale (DEV-118). */
-export function Incidents({ canWrite }: { canWrite: boolean }) {
+export function Incidents({ canWrite, canAssess = false }: { canWrite: boolean; canAssess?: boolean }) {
   const [rows, setRows] = useState<IncidentRow[] | null>(null);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM());
   const [closing, setClosing] = useState<{ id: string; note: string } | null>(null);
+  const [assessing, setAssessing] = useState<{ id: string; severity: string; note: string } | null>(null);
 
   const load = useCallback(async () => {
     try { setRows(await getIncidents()); setError(""); }
@@ -105,7 +107,28 @@ export function Incidents({ canWrite }: { canWrite: boolean }) {
                 {r.status === "resolved" && (
                   <span style={{ whiteSpace: "pre-wrap" }}>Closed {r.resolved_on} by {r.resolved_by}: {r.resolution}</span>
                 )}
-                {canWrite && r.status === "open" && (closing?.id === r.id ? (
+                {r.assessment_note && <span className="sub">Assessed by {r.assessed_by}: {r.assessment_note}</span>}
+                {r.status === "open" && r.severity === "unknown" && (
+                  <span className="sub">It can be closed only after a safety officer gives it a level.</span>
+                )}
+                {canAssess && r.status === "open" && r.severity === "unknown" && (assessing?.id === r.id ? (
+                  <span className="form-row">
+                    <select aria-label={`Level for ${r.title}`} value={assessing.severity}
+                      onChange={(e) => setAssessing({ ...assessing, severity: e.target.value })}>
+                      {(["sev0", "sev1", "sev2", "sev3"] as const).map((k) => <option key={k} value={k}>{SEVERITY[k].text}: {SEVERITY[k].means}</option>)}
+                    </select>
+                    <input aria-label={`What you evaluated for ${r.title}`} placeholder="What did you evaluate? (no patient details)" maxLength={300}
+                      value={assessing.note} onChange={(e) => setAssessing({ ...assessing, note: e.target.value })} />
+                    <button className="btn" disabled={busy || assessing.note.trim().length < 3}
+                      onClick={() => void run(() => assessIncident(r.id, assessing.severity, assessing.note), "Assessment recorded.", () => setAssessing(null))}>
+                      Record assessment
+                    </button>
+                    <button className="btn ghost" onClick={() => setAssessing(null)}>Cancel</button>
+                  </span>
+                ) : (
+                  <span><button className="btn" onClick={() => setAssessing({ id: r.id, severity: "sev2", note: "" })}>Assess this incident</button></span>
+                ))}
+                {canWrite && r.status === "open" && r.severity !== "unknown" && (closing?.id === r.id ? (
                   <span className="form-row">
                     <textarea aria-label="How it ended" placeholder="How did it end? (no patient details)" rows={2} maxLength={1000}
                       value={closing.note} onChange={(e) => setClosing({ id: r.id, note: e.target.value })} />

@@ -2,7 +2,7 @@
 
 Written 2026-11-11 by the developer, from GHE-12 section 12. Each row is a judgement made by reading the test and the code, not an automatic result; "Met" means one of our own automated tests proves the behaviour. The specification's own tests have **not** been run as written (they need partners, country packs and a regional setup that do not exist). This is the developer's reading and has not been reviewed by anyone else.
 
-**Totals: 25 met, 15 partly, 20 not built (of 60).**
+**Totals: 27 met, 15 partly, 18 not built (of 60).**
 
 Most of the "not built" rows need things the engine cannot invent: partners that return results, country packs applied at run time, patient matching, regions and failover, and the release gate. They are listed so a reviewer can see exactly where the line is.
 
@@ -14,7 +14,7 @@ Most of the "not built" rows need things the engine cannot invent: partners that
 | WF-T04 | Activation | Definition N+1 is deployed while N workflows are active. | Met | test_orchestration.py: a change is a new version and running instances stay on theirs. |
 | WF-T05 | Activation | Remove old definition deployment while an N instance is in flight. | Partly | test_orchestration.py: a retired definition keeps running instances going. There is no delete path, and the database refuses deleting a definition an instance uses (not tested). |
 | WF-T06 | Activation | A non-clinical J4 uses its valid payer closure predicate. | Met | test_orchestration.py: a non-clinical path never invents a review step. There is no payer-specific closure predicate. |
-| WF-T07 | Activation | Unapproved regulated feature toggle is set true manually. | Not built | The clinical switch only decides whether a definition can be published. Nothing checks it, or any approval, when a workflow runs. |
+| WF-T07 | Activation | Unapproved regulated feature toggle is set true manually. | Met | The clinical switch is checked when a definition is published, when a workflow starts, and on every forward step; turning it off later stops new clinical work and stops existing work moving forward, while cancel and block stay possible (DEV-175, test_orchestration.py). It checks the switch, not any named approval. |
 | WF-T08 | Identity | Authenticated user without required patient relationship starts J2. | Partly | Only staff may start one. Subjects are opaque references, so there is no patient-relationship check. |
 | WF-T09 | Identity | A workflow callback supplies a different cell_id or tenant_id. | Met | Tenant and cell come from the login or the partner key, never the body; a body naming another cell, organisation or tenant changes nothing (test_orchestration.py). |
 | WF-T10 | Identity | Revoked delegation sends an otherwise valid step request. | Not built | Engine actors are staff; there is no delegation in a workflow step. |
@@ -47,7 +47,7 @@ Most of the "not built" rows need things the engine cannot invent: partners that
 | WF-T37 | Timeouts | Provider acceptance timer expires without acknowledgment. | Met | test_orchestration.py: an expired timer marks it at risk and opens an escalation for the owner; nothing accepts automatically. |
 | WF-T38 | Timeouts | Clinical reviewer unreachable via first channel. | Met | test_orchestration.py: an unsuccessful try is counted and can hand the escalation to a fallback person; the workflow stays where it was. |
 | WF-T39 | Timeouts | A timer fires after the step was already completed. | Met | test_orchestration.py: a timer for a step already left does nothing. |
-| WF-T40 | Timeouts | Deadline crosses local DST clock change. | Not built | Timers are plain minutes in UTC; calendar and time-zone rules are not supported, and DST is not tested. |
+| WF-T40 | Timeouts | Deadline crosses local DST clock change. | Met | Timers are an exact number of minutes added to a UTC instant, so a daylight-saving change cannot move a deadline; proven for the four 2027 US and European changes (DEV-175, test_orchestration.py). Calendar and per-country deadline rules are still not supported. |
 | WF-T41 | Timeouts | Escalation channel says delivered but no human reach proof. | Met | test_orchestration.py: only a person recording that someone was reached closes an escalation. |
 | WF-T42 | Timeouts | Safety-relevant queue loses designated on-call owner. | Partly | A live workflow whose owner has been suspended or ended is flagged in the list, appears on the exception workbench and is counted on the staff dashboard until an administrator reassigns it (test_orchestration.py, test_attention.py). It is not reassigned automatically and no on-call rota exists. |
 | WF-T43 | Retries | Crash after domain commit before outbox publication. | Met | Every step writes its event in the same transaction, so a step that commits always has its event and a refused one has none (test_orchestration.py); the outbox relay sends it at least once even after a crash (test_outbox.py). The event carries references only. |

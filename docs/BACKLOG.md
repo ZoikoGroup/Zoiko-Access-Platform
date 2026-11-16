@@ -91,3 +91,9 @@ The design documents describe 244 tables; about 25 exist (roughly 10%). Most of 
 1. Do **A7 to A9** soon: they are checks, not features, and they find problems the tests cannot.
 2. Then build **A1 to A6**, one per step.
 3. Ask your lead for answers to **B1, B3 and B9 to B10** first: those unblock the most work.
+
+## Update 2026-11-16 (handover)
+
+Built since the list above was written (see `docs/decisions/REGISTER.md`, DEV-102 to DEV-176): partner portal and exchange, payer and employer programmes, doctor messages, paging, workflow engine, country packs, readiness, billing records, service levels, and today DEV-174 (partner checks before a secret), DEV-175 (clinical switch checked while a workflow runs; deadlines proven daylight-saving safe), DEV-176 (unknown-severity incidents stay open until a safety officer assesses them), DEV-177 (two revisions of one country pack can never both be signed) and DEV-178 (a read-only pack preflight).
+
+Requirement traces now stand at 69 met, 138 partly and 191 not built (of 398). The not-built rows that remain all need something that does not exist yet: a real partner, a mail, SMS or cloud provider, patient matching and break-glass access, a clinical safety lead, or a first market. They are not safe to build on a guess. The checks still open are A7 (a clean Docker rebuild, which fails on pip download timeouts) and a hand click-through by a person.

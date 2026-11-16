@@ -37,6 +37,11 @@ class CountryPack(CellScopedModel):
         constraints = [
             models.UniqueConstraint(fields=["tenant_id", "pack_ref", "revision"],
                                     name="jurisdiction_pack_revision_unique"),
+            # AT-16: two revisions of one pack can never both be in force, even when two requests
+            # race. The database refuses the second (DEV-177).
+            models.UniqueConstraint(fields=["tenant_id", "pack_ref"],
+                                    condition=models.Q(status="signed"),
+                                    name="jurisdiction_one_signed_revision"),
         ]
         indexes = [
             models.Index(fields=["cell_id", "tenant_id"], name="jurisdiction_scope_idx"),

@@ -1302,6 +1302,30 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Not built:** no proof is attached or verified, no expiry or re-check on a change of profile (T-48), and no sandbox, certified or live stages (T-41, T-47).
 - **Checked:** 6 new tests in `test_partner_events.py` (80 in that file and the portal tests passed with the helper that now issues a secret), neighbouring openapi, exchange, sponsor, suspension and contract tests pass (141 passed, 1 skipped), ruff, mypy, import rules and migrations clean, three apps type-check, robot 19 now goes through the checks, robots 6 and 10 pass with the new page. T-43 moves from not built to **partly** (now 13 met, 26 partly, 25 not built).
 
+### DEV-175: the clinical switch is checked while a workflow runs, and deadlines are proven DST-safe (GHE-12 WF-T07, WF-T40)
+
+- **What was done:** `WORKFLOW_CLINICAL_ENABLED` was only checked when a clinical definition was published. The engine now checks it on starting a workflow and on every forward step (`_clinical_must_be_on`); turning it off later stops new clinical workflows and stops existing ones moving forward, while cancelling and blocking stay possible so nothing is stranded. Ordinary workflows are untouched. A new test proves timers are an exact number of minutes added to a UTC instant at the four 2027 US and European clock changes.
+- **Not built:** nothing checks a named approval, only the switch; calendar, working-day and per-country deadline rules are still not supported.
+- **Checked:** 3 new tests in `test_orchestration.py` (115 in the file passed); ruff and mypy clean. WF-T07 and WF-T40 move from not built to **met** (workflow engine now 27 met, 15 partly, 18 not built of 60).
+
+### DEV-176: an incident of unknown severity stays open until a safety officer assesses it (TEMPORARY, GHE-20 AT38)
+
+- **What was done:** an incident can be logged with severity "unknown". It cannot be closed (422) until a safety officer (R12) gives it a level, SEV-0 to SEV-3, with a note of 3 to 300 characters. This can happen once, only while the incident is open and unknown. Who assessed it and the note are kept, and `incident.assess` is audited. The platform Incidents page offers "Assess this incident" to safety officers and hides "Close" until then. Migration `trust 0022`.
+- **TEMPORARY (please confirm):** that a safety officer is the "clinician" the specification means, that one person can assess, and that nothing follows (no notice to affected providers, no time limit).
+- **Checked:** 3 new tests in `test_incidents.py` (59 in the file passed); ruff, mypy, migrations clean; the platform app type-checks; the OpenAPI snapshot was refreshed. AT38 moves from not built to **partly** (safety now 8 met, 20 partly, 26 not built of 54).
+
+### DEV-177: two revisions of one country pack can never both be signed (GHE-16 AT-16)
+
+- **What was done:** the database now refuses a second signed revision of the same pack (a partial unique rule on customer and pack name where the status is signed, migration `jurisdiction 0002`). The normal path already retired the old revision when a suspended pack came back as a new draft, so this is the guard for two requests that race. The migration retires older signed duplicates in any old database, keeping the newest.
+- **Not built:** there is still no separate activation step, and two different packs for one country are not checked against each other (for deadlines the strictest still wins).
+- **Checked:** 1 new test in `test_packs.py` (43 in the file); ruff, mypy and migrations clean. AT-16 moves from not built to **partly**.
+
+### DEV-178: a read-only preflight for a country pack (GHE-16 AT-14)
+
+- **What was done:** `GET /platform/packs/<id>/preflight` (support and safety staff) lists what the pack still lacks, the capabilities signing would switch on, those already on today and those that would be new. It writes nothing; the only record is the platform's normal log of the access itself.
+- **Not built:** it is a report, not a rehearsal of a real activation, because there is no activation step.
+- **Checked:** 1 new test proving no pack, approval or pack audit row changes. AT-14 moves from not built to **partly** (country packs now 6 met, 19 partly, 11 not built of 36).
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |

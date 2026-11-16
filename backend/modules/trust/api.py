@@ -44,7 +44,13 @@ from .family import (
     suspend_family_member,
     withdraw_family_member,
 )
-from .incidents import add_incident, get_incident, list_incidents, resolve_incident
+from .incidents import (
+    add_incident,
+    assess_incident,
+    get_incident,
+    list_incidents,
+    resolve_incident,
+)
 from .models import ActorType, CareBasis, Status, TenantType
 from .name_checks import BASES as NAME_CHECK_BASES
 from .name_checks import states as name_check_states
@@ -116,7 +122,7 @@ __all__ = [
     "ensure_care_relationship", "get_organization", "invite_colleague", "invite_staff",
     "is_clinician_at",
     "link_person_to_actor", "list_releases", "list_tenants", "login", "add_release",
-    "add_incident", "get_incident", "list_incidents", "resolve_incident",
+    "add_incident", "assess_incident", "get_incident", "list_incidents", "resolve_incident",
     "cancel_change", "decide_change", "list_changes", "request_change",
     "onboard_customer", "organization_names", "set_customer_country", "set_customer_sign_up",
     "tenant_country",

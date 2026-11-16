@@ -845,3 +845,49 @@ def test_a_request_that_names_another_customer_or_cell_still_acts_only_in_its_ow
     made = json.loads(r.content)["instance"]
     assert made["organization_ref"] == p.clinic.org
     assert len(json.loads(p.get("staff/workflows", subject="boss").content)["instances"]) == 1
+
+
+# ------------------------------------------------------- WF-T07: the switch is checked at run time
+def test_switching_the_clinical_flag_off_later_stops_new_work_but_not_cancelling(p, settings):
+    settings.WORKFLOW_CLINICAL_ENABLED = True
+    define(p, key="lab-flow", path=CLINICAL_PATH)
+    running = started(p, key="lab-flow", subject="subject-0001")
+    settings.WORKFLOW_CLINICAL_ENABLED = False                      # someone turns it off
+    assert begin(p, key="lab-flow", subject="subject-0002").status_code == 403
+    assert move(p, running, "validated").status_code == 403         # no forward step
+    cancelled = move(p, running, "cancelled", note="Switched off, closing it down")
+    assert cancelled.status_code == 200, cancelled.content          # but it can always be wound up
+
+
+def test_an_ordinary_workflow_is_not_affected_by_the_clinical_flag(p, settings):
+    settings.WORKFLOW_CLINICAL_ENABLED = False
+    define(p)
+    assert go(p, started(p), "validated")["state"] == "validated"
+
+
+# ------------------------------------------------------- WF-T40: clocks cannot move a deadline
+def test_a_deadline_is_a_fixed_number_of_minutes_so_a_clock_change_cannot_move_it(p):
+    """Timers are absolute UTC instants. Starting one just before a spring-forward or fall-back
+    (Europe and the US, 2027) gives exactly start + the stated minutes, never an hour off."""
+    from modules.orchestration import engine
+    from modules.orchestration.models import WorkflowInstance, WorkflowTimer
+    inst = accepted(p)
+    edges = (
+        dt.datetime(2027, 3, 14, 6, 30, tzinfo=dt.UTC),     # US springs forward at 07:00 UTC
+        dt.datetime(2027, 3, 28, 0, 30, tzinfo=dt.UTC),     # Europe springs forward at 01:00 UTC
+        dt.datetime(2027, 10, 31, 0, 30, tzinfo=dt.UTC),    # Europe falls back at 01:00 UTC
+        dt.datetime(2027, 11, 7, 5, 30, tzinfo=dt.UTC),     # US falls back at 06:00 UTC
+    )
+    for start in edges:
+        with tenant_transaction(p.clinic.ctx):
+            row = WorkflowInstance.objects.select_related("definition").get(
+                public_id=inst["public_id"])
+            before = set(WorkflowTimer.objects.values_list("id", flat=True))
+            engine._start_timers(row, start)
+            made = sorted(WorkflowTimer.objects.exclude(id__in=before), key=lambda t: t.due_at)
+            wanted = sorted(t["after_minutes"] for t in row.definition.timer_policies
+                            if t["state"] == row.state)
+        assert wanted and len(made) == len(wanted)
+        for timer, minutes in zip(made, wanted, strict=True):
+            assert timer.due_at == start + dt.timedelta(minutes=minutes)
+            assert timer.due_at.utcoffset() == dt.timedelta(0)

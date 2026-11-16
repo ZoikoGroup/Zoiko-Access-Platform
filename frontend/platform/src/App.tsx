@@ -82,7 +82,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
   else if (page === "hazards") body = <Hazards />;
   else if (page === "partnerchecks") body = <PartnerChecks canWrite={session.roles.some((r) => r.role === "R11")} />;
-  else if (page === "incidents") body = <Incidents canWrite={session.roles.some((r) => r.role === "R11")} />;
+  else if (page === "incidents") body = <Incidents canWrite={session.roles.some((r) => r.role === "R11")} canAssess={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "matrix") body = <Matrix canWrite={session.roles.some((r) => r.role === "R11")} />;
   else if (page === "readiness") body = <Readiness canWrite={session.roles.some((r) => r.role === "R11")} canAttest={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "levels") body = <ServiceLevels />;

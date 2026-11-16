@@ -27,6 +27,7 @@ def incident_dict(row: Incident) -> dict[str, Any]:
         "status": row.status, "resolution": row.resolution,
         "resolved_on": row.resolved_on.isoformat() if row.resolved_on else None,
         "recorded_by_ref": row.recorded_by_ref, "resolved_by_ref": row.resolved_by_ref,
+        "assessed_by_ref": row.assessed_by_ref, "assessment_note": row.assessment_note,
         "created_at": row.created_at.isoformat(),
     }
 
@@ -96,6 +97,8 @@ def resolve_incident(
         raise ZoikoError(ErrorCode.NOT_FOUND)
     if row.status != IncidentStatus.OPEN:
         raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+    if row.severity == IncidentSeverity.UNKNOWN:      # AT38: stays open until it is evaluated
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["severity"])
     row.status, row.resolution = IncidentStatus.RESOLVED, note
     row.resolved_on, row.resolved_by_ref = utc_now(clock).date(), actor_public_id
     row.entity_version += 1
@@ -103,6 +106,31 @@ def resolve_incident(
         "status", "resolution", "resolved_on", "resolved_by_ref", "entity_version", "updated_at"])
     record(actor_ref=actor_public_id, action="incident.resolve", object_type="incident",
            object_ref=row.public_id, outcome=AuditOutcome.ALLOWED)
+    return incident_dict(row)
+
+
+def assess_incident(
+    *, incident_ref: str, severity: object, note: object, actor_public_id: str,
+) -> dict[str, Any]:
+    """A safety officer gives an incident of unknown severity its level, with a note on what was
+    evaluated (AT38). Only an open incident that is still unassessed; the caller has already
+    checked the person is a safety officer. Nothing else about the entry changes."""
+    if severity not in IncidentSeverity.values or severity == IncidentSeverity.UNKNOWN:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["severity"])
+    clean = _clean(note, "note", 300, required=True)
+    ctx = require_context()
+    row = Incident.objects.select_for_update().filter(
+        public_id=incident_ref, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id).first()
+    if row is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if row.status != IncidentStatus.OPEN or row.severity != IncidentSeverity.UNKNOWN:
+        raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+    row.severity, row.assessed_by_ref, row.assessment_note = severity, actor_public_id, clean
+    row.entity_version += 1
+    row.save(update_fields=[
+        "severity", "assessed_by_ref", "assessment_note", "entity_version", "updated_at"])
+    record(actor_ref=actor_public_id, action="incident.assess", object_type="incident",
+           object_ref=row.public_id, outcome=AuditOutcome.ALLOWED, details={"severity": severity})
     return incident_dict(row)
 
 

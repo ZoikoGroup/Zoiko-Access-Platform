@@ -323,6 +323,24 @@ def enabled_capabilities(country: str, clock: Clock | None = None) -> frozenset[
     return frozenset(on)
 
 
+def preflight(ref: str, clock: Clock | None = None) -> dict[str, Any]:
+    """What signing this pack would change, WITHOUT changing anything (AT-14, DEV-178): what it
+    still lacks, which capabilities it would switch on for its country, and which of those are not
+    on today. Reads only: no row is written and nothing is audited as a change."""
+    found = CountryPack.objects.filter(public_id=ref, **_scope()).first()
+    if found is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    would = sorted(name for name, value in found.manifest.get("capabilities", {}).items() if value)
+    today_on = enabled_capabilities(found.country, clock)
+    return {
+        "pack_ref": found.pack_ref, "revision": found.revision, "country": found.country,
+        "status": found.status, "missing": ready_to_sign(found.manifest),
+        "would_enable": would, "already_enabled": sorted(today_on),
+        "newly_enabled": sorted(set(would) - today_on),
+        "changes_nothing": True,
+    }
+
+
 def list_packs(clock: Clock | None = None) -> list[dict[str, Any]]:
     rows = CountryPack.objects.filter(**_scope()).order_by("country", "pack_ref", "-revision")
     return [pack_dict(r, clock) for r in rows]

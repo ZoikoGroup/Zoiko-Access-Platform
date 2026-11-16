@@ -3795,6 +3795,70 @@
     "summary": "The platform's incident log. Support and safety staff may read it; only those who may     write the platform (support) may add an entry. It must never hold patient details."
    }
   },
+  "/platform/incidents/{incident_id}/assess": {
+   "post": {
+    "operationId": "post_platform_incident_assess",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incident_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "TEMPORARY RULE (DEV-176): an incident logged with an unknown severity stays open until a     safety officer (R12) evaluates it and gives it a level with a note (AT38)."
+   }
+  },
   "/platform/incidents/{incident_id}/resolve": {
    "post": {
     "operationId": "post_platform_incident_resolve",
@@ -3979,6 +4043,49 @@
      }
     ],
     "summary": "GET: the country packs. POST {pack_ref, country, service, manifest}: a draft (support)."
+   }
+  },
+  "/platform/packs/{pack_id}/preflight": {
+   "get": {
+    "operationId": "get_platform_pack_preflight",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pack_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A dry run: what signing this pack would switch on. It changes nothing (AT-14)."
    }
   },
   "/platform/packs/{pack_id}/{step}": {

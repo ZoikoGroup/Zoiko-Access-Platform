@@ -162,7 +162,7 @@ export const cancelSuspension = (id: string) =>
 export interface IncidentRow {
   id: string;
   title: string;
-  severity: "sev0" | "sev1" | "sev2" | "sev3";
+  severity: "sev0" | "sev1" | "sev2" | "sev3" | "unknown";
   happened_on: string;
   details: string;
   status: "open" | "resolved";
@@ -170,12 +170,18 @@ export interface IncidentRow {
   resolved_on: string | null;
   recorded_by: string;
   resolved_by: string;
+  assessed_by: string;
+  assessment_note: string;
 }
 
 /** The hand-written incident log. Reading: support and safety staff; adding and closing: support only. */
 export const getIncidents = async () => (await v1<{ incidents: IncidentRow[] }>("platform/incidents")).incidents;
 export const addIncident = (body: { title: string; severity: string; happened_on: string; details: string }) =>
   v1<{ incident: IncidentRow }>("platform/incidents", { method: "POST", body: JSON.stringify(body) });
+export const assessIncident = (id: string, severity: string, note: string) =>
+  v1<{ incident: IncidentRow }>(`platform/incidents/${encodeURIComponent(id)}/assess`, {
+    method: "POST", body: JSON.stringify({ severity, note }),
+  });
 export const resolveIncident = (id: string, resolution: string) =>
   v1<{ incident: IncidentRow }>(`platform/incidents/${encodeURIComponent(id)}/resolve`, {
     method: "POST", body: JSON.stringify({ resolution }),

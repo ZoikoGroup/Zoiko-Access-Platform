@@ -2,7 +2,7 @@
 
 Written 2026-11-12 by the developer, from the specification's own acceptance cases. Each row is a judgement made by reading the case and the code, not an automatic result; "Met" means one of our own automated tests proves the behaviour. The cases have **not** been run as written. This is the developer's reading and nobody else has reviewed it.
 
-**Totals: 8 met, 19 partly, 27 not built (of 54).**
+**Totals: 8 met, 20 partly, 26 not built (of 54).**
 
 What exists is a hazard register with independent assessment, AI built switched off behind two-person permits, evidence rules that refuse transport receipts as clinical facts, and a go-live register with vetoes. The "not built" rows are the clinical safety case itself: intended purpose and classification, regulated-activity records, result matching and review, critical-result routing, incident handling and postmarket follow-up. No clinical pathway is enabled, and those need a clinical owner, regulatory advice and a partner.
 
@@ -45,7 +45,7 @@ What exists is a hazard register with independent assessment, AI built switched 
 | AT35 | Rollback cannot silently reinstate a retired unsafe feature. | Partly | test_packs.py: a suspended pack returns only as a new draft revision, never by rolling back. |
 | AT36 | Unsigned/modified manifest rejected on regional startup. | Not built | The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled. |
 | AT37 | Country-specific adverse event time limits are configurable/tested. | Not built | The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled. |
-| AT38 | Incident severity unknown remains open pending clinician evaluation. | Not built | The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled. |
+| AT38 | Incident severity unknown remains open pending clinician evaluation. | Partly | An incident can be logged with severity "unknown"; it cannot be closed until a safety officer (R12) gives it a level with a note, once (DEV-176, test_incidents.py). The evaluator is a safety officer, not a verified clinician, and no notice or time limit follows. |
 | AT39 | Incident preserved after feature suspension or decommission. | Partly | test_incidents.py: an incident is never deleted. Decommissioning is not modelled. |
 | AT40 | Affected provider receives acknowledgment-required incident notice. | Not built | The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled. |
 | AT41 | Clinical safety record traces to build digest, controls, test runs. | Partly | test_hazards.py, test_readiness.py: hazards and release approvals are recorded and fingerprinted. Nothing links them to a build digest or test runs. |

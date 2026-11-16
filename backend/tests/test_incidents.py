@@ -263,3 +263,43 @@ def test_the_service_refuses_a_date_with_a_time_of_day_and_an_unknown_incident(p
                                organization_public_id=platform.org)
     assert missing.value.code == ErrorCode.NOT_FOUND
     assert incidents(platform) == []
+
+
+# ---------------------------------------------------------- AT38: unknown severity stays open
+def assess(world, incident, subject="iyer", severity="sev1", note="Read the logs and the impact"):
+    return post(world, f"platform/incidents/{incident}/assess",
+                {"severity": severity, "note": note}, subject)
+
+
+def test_an_unassessed_incident_cannot_be_closed_until_a_safety_officer_assesses_it(platform):
+    platform.staff("iyer", "R12")
+    ref = made(platform, severity="unknown")
+    assert incidents(platform)[0]["severity"] == "unknown"
+    refused = resolve(platform, ref)
+    assert refused.status_code == 422 and incidents(platform)[0]["status"] == "open"
+    assert assess(platform, ref).status_code == 200
+    [row] = incidents(platform)
+    assert row["severity"] == "sev1" and row["assessed_by"] and row["assessment_note"]
+    assert resolve(platform, ref).status_code == 200                    # now it can be closed
+
+
+def test_only_a_safety_officer_assesses_and_it_needs_a_real_level_and_a_note(platform):
+    platform.staff("iyer", "R12")
+    ref = made(platform, severity="unknown")
+    assert assess(platform, ref, subject="sam").status_code == 403       # support cannot
+    assert assess(platform, ref, severity="unknown").status_code == 422  # not a level
+    assert assess(platform, ref, severity="sev9").status_code == 422
+    assert assess(platform, ref, note="").status_code == 422
+    assert assess(platform, "no-such-incident").status_code == 404
+
+
+def test_an_incident_is_assessed_once_and_only_while_it_is_unknown_and_open(platform):
+    platform.staff("iyer", "R12")
+    known = made(platform, severity="sev3")
+    assert assess(platform, known).status_code == 409                    # already has a level
+    ref = made(platform, severity="unknown", title="Odd outage")
+    assert assess(platform, ref).status_code == 200
+    assert assess(platform, ref).status_code == 409                      # not twice
+    with tenant_transaction(platform.ctx):
+        actions = set(AuditEvent.objects.values_list("action", flat=True))
+    assert "incident.assess" in actions

@@ -1,7 +1,7 @@
 # Zoiko Access: progress report
 
 Written 2026-11-06, refreshed 2026-11-16. These numbers are estimates unless a row says it was counted. Details of every
-change are in `docs/decisions/REGISTER.md` (DEV-001 to DEV-173); what is left is in `docs/BACKLOG.md`.
+change are in `docs/decisions/REGISTER.md` (DEV-001 to DEV-178); what is left is in `docs/BACKLOG.md`.
 
 ## How far along are we?
 
