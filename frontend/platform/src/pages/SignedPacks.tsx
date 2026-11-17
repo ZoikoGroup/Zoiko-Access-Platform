@@ -40,7 +40,7 @@ export function SignedPacks() {
     <>
       <div className="hero">
         <div>
-          <h1>Country packs</h1>
+          <h1>Signed country packs</h1>
           <p>A pack is a signed file that says which features a country may use. Nothing is on unless a pack for that
             country is in force right now. This page only shows them: packs are installed by a command on the server
             and cannot be changed from here.</p>

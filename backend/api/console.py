@@ -281,3 +281,24 @@ def platform_packs(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
         "enforced": settings.PACKS_ENFORCED, "country": country,
         "country_capabilities": packs.enabled_capabilities(country) if country else [],
     })
+
+
+# --------------------------------------------------------------------------- platform: keys
+
+
+@endpoint("GET")
+def platform_keys(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Where this cell's encryption keys come from and which key encrypts now: a fingerprint of each
+    key, never a key. Read only: keys are changed by a command (`manage.py field_keys`). Looking is
+    recorded."""
+    from foundation import keys as key_store
+
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id, action="platform.keys", object_type="platform",
+            object_ref="keys", outcome=evidence.AuditOutcome.ALLOWED)
+    info = key_store.describe()
+    info["sso"] = trust.sso_providers()          # the outside sign-in options this cell offers
+    return JsonResponse(info)

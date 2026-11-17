@@ -581,3 +581,49 @@ class ProofingRecord(CellScopedModel):
             models.Index(fields=["cell_id", "tenant_id"], name="proofing_scope_idx"),
             models.Index(fields=["person", "checked_at"], name="proofing_person_idx"),
         ]
+
+
+class ExternalIdentity(CellScopedModel):
+    """An outside sign-in (Google, a company's identity provider) linked to one actor.
+
+    `subject` is the provider's own stable id for the person (the token's `sub`), which is what a
+    later sign-in is matched on: an email address can change hands, a subject cannot. The email is
+    kept only as what the provider said when the link was made, for the person's own reference.
+    """
+
+    actor = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="external_identities")
+    provider = models.CharField(max_length=32)
+    subject = models.CharField(max_length=255)
+    email = models.CharField(max_length=254, blank=True, default="")
+    linked_at = models.DateTimeField(default=utc_now)
+    last_login_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "provider", "subject"], name="trust_external_identity_uq"),
+        ]
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="extid_scope_idx")]
+
+
+class SsoAttempt(CellScopedModel):
+    """One outside sign-in in progress: made when the person is sent to the provider, used up when
+    they come back. It lives ten minutes and can be used once, whatever happens.
+
+    Only a hash of the `state` and of the `nonce` is kept (the browser holds the originals); the
+    PKCE `code_verifier` is needed again to finish, so it is stored encrypted.
+    """
+
+    provider = models.CharField(max_length=32)
+    state_hash = models.CharField(max_length=64)
+    nonce_hash = models.CharField(max_length=64)
+    verifier_enc = models.TextField()
+    redirect_uri = models.CharField(max_length=300)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "state_hash"], name="trust_sso_state_uq"),
+        ]
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="ssoattempt_scope_idx")]

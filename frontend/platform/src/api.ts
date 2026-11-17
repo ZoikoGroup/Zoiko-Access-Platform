@@ -395,3 +395,14 @@ export const recordPartnerCheck = (customer: string, client: string, check: Part
   v1<{ client: unknown }>(`platform/partner-checks/${encodeURIComponent(customer)}/${encodeURIComponent(client)}/${check}`, {
     method: "POST", body: JSON.stringify({ note }),
   });
+
+// Encryption keys and outside sign-in options (read only: changed by a command on the server).
+export interface KeysData {
+  ok: boolean;
+  provider: "env" | "file" | "wrapped" | string;
+  current: string;
+  keys: { id: string; fingerprint: string; current: boolean }[];
+  warnings: string[];
+  sso: { key: string; name: string }[];
+}
+export const getKeys = () => v1<KeysData>("platform/keys");

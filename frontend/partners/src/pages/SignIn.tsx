@@ -30,10 +30,13 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
     await attempt(organization, login, password);
   }
 
-  async function attempt(organization: string, login: string, password: string) {
+  async function attempt(
+    organization: string, login: string, password: string,
+    preset?: Awaited<ReturnType<typeof signIn>>,
+  ) {
     setBusy(true); setError(""); setElsewhere(null);
     try {
-      const reply = await signIn(organization, login, password);
+      const reply = preset ?? await signIn(organization, login, password);
       if (!HERE.has(reply.home)) {
         setElsewhere(reply.home);            // right password, wrong app: do not keep the token
         setPassword("");
@@ -60,7 +63,8 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         <h2>Partner sign in</h2>
         <p className="lead">For partner, payer and employer accounts.</p>
 
-        <SsoButtons />
+        <SsoButtons organization={organization} onError={setError}
+          onReply={(r) => attempt(organization, "", "", r as Awaited<ReturnType<typeof signIn>>)} />
         <div className="divider">or use your login</div>
 
         <form onSubmit={(e) => void submit(e)}>

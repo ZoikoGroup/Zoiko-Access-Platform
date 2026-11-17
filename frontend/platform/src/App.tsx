@@ -13,6 +13,7 @@ import { OverviewPage } from "./pages/Overview";
 import { Planned } from "./pages/Planned";
 import { Hazards } from "./pages/Hazards";
 import { Packs } from "./pages/Packs";
+import { Keys } from "./pages/Keys";
 import { SignedPacks } from "./pages/SignedPacks";
 import { Incidents } from "./pages/Incidents";
 import { Matrix } from "./pages/Matrix";
@@ -83,6 +84,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
   else if (page === "hazards") body = <Hazards />;
   else if (page === "signedpacks") body = <SignedPacks />;
+  else if (page === "keys") body = <Keys />;
   else if (page === "partnerchecks") body = <PartnerChecks canWrite={session.roles.some((r) => r.role === "R11")} />;
   else if (page === "incidents") body = <Incidents canWrite={session.roles.some((r) => r.role === "R11")} />;
   else if (page === "matrix") body = <Matrix canWrite={session.roles.some((r) => r.role === "R11")} />;

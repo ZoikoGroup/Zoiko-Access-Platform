@@ -112,6 +112,9 @@ from .services import (
     tenant_public_id,
     verified_emails_for_role,
 )
+from .sso import finish as sso_finish
+from .sso import public_providers as sso_providers
+from .sso import start as sso_start
 from .staff_admin import (
     INVITABLE_ROLES,
     invite_colleague,
@@ -134,6 +137,7 @@ __all__ = [
     "add_incident", "get_incident", "list_incidents", "resolve_incident",
     "cancel_change", "decide_change", "list_changes", "request_change",
     "onboard_customer", "organization_names", "set_customer_country", "set_customer_sign_up",
+    "sso_finish", "sso_providers", "sso_start",
     "tenant_country", "tenant_public_id",
     "verified_emails_for_role", "clinicians_at",
     "overview", "own_person_of", "patient_registry", "person_exists", "profile_summary_for",

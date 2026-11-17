@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import billing, console, identity, views
+from . import billing, console, identity, sso, views
 
 urlpatterns = [
     path("auth/login", views.login),
@@ -14,6 +14,8 @@ urlpatterns = [
     path("auth/forgot-password", views.auth_forgot_password),
     path("auth/reset-password", views.auth_reset_password),
     path("auth/providers", views.providers),
+    path("auth/sso/start", sso.sso_start),
+    path("auth/sso/finish", sso.sso_finish),
     path("openapi.json", views.openapi_document),
     path("asyncapi.json", views.asyncapi_document),
     path("me", views.me),
@@ -167,6 +169,7 @@ urlpatterns = [
     path("staff/developer/clients/<str:client_id>/deliveries/<str:delivery_id>/redrive",
          console.staff_developer_delivery_redrive),
     path("platform/signed-packs", console.platform_packs),
+    path("platform/keys", console.platform_keys),
     path("services", views.services),
     path("locations", views.locations),
     path("locations/<str:location_id>/contact", views.location_contact),

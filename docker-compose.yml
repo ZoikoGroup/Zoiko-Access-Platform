@@ -13,6 +13,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+      start_period: 300s         # a database that is recovering after an unclean stop may take minutes
 
   backend:
     build: ./backend

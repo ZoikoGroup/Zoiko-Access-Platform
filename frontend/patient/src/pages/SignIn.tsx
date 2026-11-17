@@ -105,7 +105,8 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         <h2>{registering ? "Create your account" : "Welcome back!"}</h2>
         <p className="lead">{registering ? "It takes a minute." : "Sign in to your Zoiko Access account."}</p>
 
-        <SsoButtons />
+        <SsoButtons organization={organization} onError={setError}
+          onReply={(r) => finish(r as LoginReply)} />
         <div className="divider">or use your email</div>
 
         <form onSubmit={(e) => void submit(e)}>

@@ -871,8 +871,13 @@ def asyncapi_document(request: HttpRequest) -> HttpResponse:
 @require_GET
 def providers(request: HttpRequest) -> HttpResponse:
     """Which sign-in options this server offers (so the page shows only real ones)."""
-    client_id = getattr(settings, "GOOGLE_CLIENT_ID", "")
-    return JsonResponse({"google": {"enabled": bool(client_id), "client_id": client_id or None}})
+    sso = trust.sso_providers()
+    google = next((p for p in sso if p["key"] == "google"), None)
+    return JsonResponse({
+        # `google` is kept for pages written before several providers were supported.
+        "google": {"enabled": google is not None, "client_id": None},
+        "sso": sso,
+    })
 
 
 @endpoint("POST")

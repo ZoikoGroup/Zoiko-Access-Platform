@@ -277,8 +277,12 @@ def test_who_may_manage_clients_follows_the_role(c):
     assert c.get("staff/developer", "pat").status_code == 403
     assert c.get("staff/developer", "desk").status_code == 403     # no "partner" right for R04
     assert make_client(c, subject="desk").status_code == 403
-    assert make_client(c, subject="eng").status_code == 201        # the partner engineer may
-    assert c.get("staff/developer", "eng").status_code == 200
+    # The partner engineer (R10) now has a developer console of its own (DEV-161), so the staff
+    # console, which serves operations areas only, refuses it; the clinic administrator may.
+    assert make_client(c, subject="eng").status_code == 403
+    assert c.get("staff/developer", "eng").status_code == 403
+    assert make_client(c, subject="boss").status_code == 201
+    assert c.get("staff/developer", "boss").status_code == 200
 
 
 def test_another_clinic_sees_and_controls_none_of_these_clients(c):
@@ -396,3 +400,48 @@ def test_operations_of_another_clinic_stay_untouched_by_all_of_this(c):
     assert c.json(c.get("staff/exceptions", "desk"))["connector"]["attention"] == []
     theirs = c.json(c.get("staff/exceptions", "rival"))["connector"]["attention"]
     assert [o["public_id"] for o in theirs] == [rival_op["public_id"]]
+
+
+# ------------------------------------------------------------------ platform: keys and sign-in
+def keys_page(p, subject):
+    return p.client.get(API + "platform/keys", **p.header(p.tenant_public_id, subject))
+
+
+def test_support_and_safety_staff_can_read_the_key_status_and_it_shows_no_key(platform):
+    for who in ("sam", "tess"):
+        response = keys_page(platform, who)
+        assert response.status_code == 200
+    body = json.loads(response.content)
+    assert body["ok"] is True and body["provider"] == "env" and body["current"] == "t1"
+    (key,) = body["keys"]
+    assert key["id"] == "t1" and key["current"] is True and len(key["fingerprint"]) == 8
+    assert "QUFBQUFB" not in response.content.decode()               # the key material itself
+    assert any("environment variable" in w for w in body["warnings"])
+    assert body["sso"] == []                                         # none configured here
+
+
+def test_the_key_page_lists_the_sign_in_providers_the_cell_offers(platform, settings):
+    settings.GOOGLE_CLIENT_ID, settings.GOOGLE_CLIENT_SECRET = "gid", "gsecret"
+    body = json.loads(keys_page(platform, "sam").content)
+    assert body["sso"] == [{"key": "google", "name": "Google"}]
+    assert "gsecret" not in json.dumps(body)
+
+
+def test_a_broken_key_ring_is_reported_without_detail(platform, settings):
+    settings.FIELD_KEYS = "garbage"
+    body = json.loads(keys_page(platform, "sam").content)
+    assert body["ok"] is False and body["keys"] == []
+    assert "garbage" not in json.dumps(body)
+
+
+def test_looking_at_the_keys_is_recorded(platform):
+    keys_page(platform, "sam")
+    keys_page(platform, "tess")
+    with tenant_transaction(platform.ctx):
+        assert AuditEvent.objects.filter(action="platform.keys").count() == 2
+
+
+def test_customers_and_patients_cannot_open_the_key_page(platform, c):
+    assert c.web.client.get(API + "platform/keys", **c.web.header("boss")).status_code == 403
+    assert c.web.client.get(API + "platform/keys", **c.web.header("pat")).status_code == 403
+    assert platform.client.get(API + "platform/keys").status_code == 401
