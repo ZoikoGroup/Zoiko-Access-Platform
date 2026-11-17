@@ -188,7 +188,7 @@ def load_ring() -> KeyRing:
     if ring is None or _cache["sig"] != sig or now - _cache["at"] > REFRESH_SECONDS:
         ring = _load_uncached()
         _cache.update(at=now, ring=ring, sig=sig)
-    return ring  # type: ignore[no-any-return]
+    return ring
 
 
 def reset_cache() -> None:

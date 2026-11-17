@@ -48,6 +48,17 @@ if METRICS_TOKEN and len(METRICS_TOKEN) < 24:
     raise ValueError("ZOIKO_METRICS_TOKEN must be at least 24 characters (or empty to turn it off)")
 # Google sign-in is offered only when a Google OAuth client id is configured (empty = off).
 GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = env("GOOGLE_CLIENT_SECRET", "")
+# Other OpenID Connect providers (Microsoft Entra, Okta, Auth0, Keycloak...): a JSON list of
+# {"key", "name", "issuer", "client_id", "client_secret"} (endpoints come from the issuer).
+# Google needs only the two values above. A provider with a missing field is simply not offered.
+SSO_PROVIDERS = env("ZOIKO_SSO_PROVIDERS", "")
+# The exact addresses a sign-in may return to (the sign-in pages), comma separated.
+SSO_REDIRECT_URIS = env("ZOIKO_SSO_REDIRECT_URIS",
+                        "http://localhost:5173/,http://localhost:5174/,http://localhost:5175/,"
+                        "http://localhost:5176/,http://localhost:5177/")
+# Development and tests only: allow a provider on plain http (a real one must use https).
+SSO_ALLOW_INSECURE = env("ZOIKO_SSO_ALLOW_INSECURE", "") == "1"
 DEV_AUTH_STUB = False  # unsigned dev login; only dev settings turn it on
 
 # We deliberately do NOT install django.contrib.auth/admin/sessions.
@@ -150,19 +161,20 @@ DEFAULT_FROM_EMAIL = env("EMAIL_FROM", "Zoiko Access <no-reply@zoiko.example>")
 # Field-level encryption (foundation/crypto.py). "id:base64(32 bytes),id:base64(...)". No default:
 # a deployment without a key must not start. FIELD_KEY_ID picks the key that encrypts (default:
 # the first listed); the others stay valid for reading while keys are rotated.
-# Where the keys come from (foundation/keys.py): "env" (the line above, development only), "file" (a key
-# ring file only the service can read) or "wrapped" (a ring whose keys a managed key service unlocks).
+# Where the keys come from (foundation/keys.py): "env" (the line above, development only), "file"
+# (a key ring file only the service can read) or "wrapped" (a ring whose keys a managed key service
+# unlocks).
 FIELD_KEY_PROVIDER = env("ZOIKO_FIELD_KEY_PROVIDER", "env")
 FIELD_KEYS = env("ZOIKO_FIELD_KEYS", "" if FIELD_KEY_PROVIDER != "env" else None,
                  required=FIELD_KEY_PROVIDER == "env")
 FIELD_KEY_ID = env("ZOIKO_FIELD_KEY_ID", "")
 FIELD_KEY_FILE = env("ZOIKO_FIELD_KEY_FILE", "")
-# For "wrapped": the key-encryption key (base64, 32 bytes) that the built-in stand-in for a key service
-# uses, and which unwrapper to use (a real service registers its own name).
+# For "wrapped": the key-encryption key (base64, 32 bytes) that the built-in stand-in for a key
+# service uses, and which unwrapper to use (a real service registers its own name).
 KEY_WRAP_KEK = env("ZOIKO_KEY_WRAP_KEK", "")
 KEY_UNWRAPPER = env("ZOIKO_KEY_UNWRAPPER", "env-kek")
-# A deployment that knowingly keeps its keys in an environment variable says so here, and the release
-# check then allows it. Anything else must use a key file or wrapped keys.
+# A deployment that knowingly keeps its keys in an environment variable says so here, and the
+# release check then allows it. Anything else must use a key file or wrapped keys.
 ALLOW_ENV_KEYS = env("ZOIKO_ALLOW_ENV_KEYS", "") == "1"
 
 # Patients are reminded about a confirmed appointment this many hours ahead.
