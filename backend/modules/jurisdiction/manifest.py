@@ -18,7 +18,8 @@ from foundation.errors import ErrorCode, ZoikoError
 
 # What a pack may switch on. The last three are not built anywhere, so they can only be off.
 CAPABILITIES = ("provider_directory", "booking", "messaging", "referrals", "waiting_list",
-                "diagnostics", "clinical_ai", "record_exchange")
+                "diagnostics", "clinical_ai", "record_exchange",
+                "partner_booking")      # DEV-224: a partner's booking system may confirm bookings
 NOT_BUILT = frozenset({"diagnostics", "clinical_ai", "record_exchange"})
 EVIDENCE_KINDS = ("legal", "dpia", "cyber", "clinical")
 EVIDENCE_STATES = ("PENDING", "PROVIDED", "NOT_APPLICABLE_REVIEW_NEEDED")

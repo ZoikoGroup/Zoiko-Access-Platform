@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { getPartnerRequests, reviewPartnerResult } from "../api";
-import type { PartnerRequest } from "../types";
+import { useEffect, useState } from "react";
+import { getPartnerRequests, getPartners, getPatients, getResultSummary, placeOrder, reviewPartnerResult, type PartnerChoice } from "../api";
+import type { PartnerRequest, PatientRow, ResultSummary } from "../types";
 import { Card, Pill } from "../ui";
 import { Gate, useLoad } from "../useLoad";
 
@@ -16,6 +16,13 @@ const STATE: Record<PartnerRequest["state"], { text: string; kind: "ok" | "warn"
 
 function Row({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState<ResultSummary | null>(null);
+  async function open() {
+    setBusy(true); setError("");
+    try { setSummary(await getResultSummary(r.id)); }
+    catch (err) { setError(err instanceof Error ? err.message : "Could not open the result"); }
+    finally { setBusy(false); }
+  }
   const [error, setError] = useState("");
   async function review() {
     setBusy(true); setError("");
@@ -31,12 +38,22 @@ function Row({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
   return (
     <div className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
       <div className="info">
-        <b>{r.label} <Pill kind={state.kind}>{state.text}</Pill>{r.urgency === "urgent" && <> <Pill kind="warn">urgent</Pill></>}</b>
+        <b>{r.label} <Pill kind={state.kind}>{state.text}</Pill>{r.urgency === "urgent" && <> <Pill kind="warn">urgent</Pill></>}{r.result_flag === "critical" && <> <Pill kind="bad">CRITICAL RESULT</Pill></>}{r.result_flag === "abnormal" && <> <Pill kind="warn">abnormal</Pill></>}</b>
         <small>{KIND[r.kind]} · {r.partner} · {r.patient_name || r.patient} · order {r.token}</small>
         {r.result_ref && <small>The partner holds the result under reference {r.result_ref}. Opening it is done with the partner, outside this screen.</small>}
         {r.state === "declined" && r.decision_note && <small>Reason given: {r.decision_note}</small>}
+        {summary && (
+          <div role="region" aria-label="Result summary">
+            <b>Lab summary ({summary.flag}):</b>
+            <pre style={{ whiteSpace: "pre-wrap", margin: "4px 0 0", fontFamily: "inherit" }}>{summary.summary}</pre>
+          </div>
+        )}
         {error && <div className="error" role="alert">{error}</div>}
       </div>
+      {r.has_summary && !summary && (r.state === "result_available" || r.state === "reviewed") && (
+        <div><button className="btn ghost" disabled={busy} onClick={() => void open()}>Read the lab's summary</button>
+          <small style={{ display: "block", marginTop: 4 }}>Opening it is recorded.</small></div>
+      )}
       {r.state === "result_available" && (
         <div>
           <button className="btn" disabled={busy} onClick={() => void review()}>I have reviewed this result</button>
@@ -47,21 +64,82 @@ function Row({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
   );
 }
 
-export function PartnerResults() {
-  const [n, setN] = useState(0);              // changing the key loads everything again
-  return <PartnerResultsInner key={n} onChanged={() => setN(n + 1)} />;
+function NewOrder({ onSent }: { onSent: (message: string) => void }) {
+  const [partners, setPartners] = useState<PartnerChoice[]>([]);
+  const [patients, setPatients] = useState<PatientRow[]>([]);
+  const [f, setF] = useState({ patient: "", partner: "", kind: "lab_order", label: "", urgency: "routine" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    getPartners().then(setPartners).catch(() => setPartners([]));
+    getPatients().then(setPatients).catch(() => setPatients([]));
+  }, []);
+  const set = (k: string, v: string) => setF((cur) => ({ ...cur, [k]: v }));
+  async function send() {
+    setBusy(true); setError("");
+    const token = `DR-${new Date().toISOString().slice(2, 10).replace(/-/g, "")}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    try {
+      await placeOrder({ ...f, token });
+      onSent("Order sent. The patient has been asked to agree to share their name with the service; it cannot start until they do.");
+    } catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(false); }
+  }
+  const ready = f.patient && f.partner && f.label.trim().length >= 3;
+  return (
+    <Card title="Place an order">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <label>Patient{" "}
+          <select aria-label="Order patient" value={f.patient} onChange={(e) => set("patient", e.target.value)}>
+            <option value="">Choose a patient</option>
+            {patients.map((p) => <option key={p.id} value={p.id}>{p.patient_name || p.id}</option>)}
+          </select>
+        </label>
+        <label>Send to{" "}
+          <select aria-label="Order service" value={f.partner} onChange={(e) => set("partner", e.target.value)}>
+            <option value="">Choose a service</option>
+            {partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        <label>Kind{" "}
+          <select value={f.kind} onChange={(e) => set("kind", e.target.value)}>
+            <option value="lab_order">Laboratory or imaging order</option>
+            <option value="pharmacy_request">Pharmacy request</option>
+            <option value="homecare_referral">Home-care referral</option>
+          </select>
+        </label>
+        <label>What is asked <input className="field" value={f.label} maxLength={80} onChange={(e) => set("label", e.target.value)} placeholder="For example: Full blood count" /></label>
+        <label>Urgency{" "}
+          <select value={f.urgency} onChange={(e) => set("urgency", e.target.value)}>
+            <option value="routine">Routine</option><option value="urgent">Urgent</option>
+          </select>
+        </label>
+        <small>Write only what is asked. Do not put a name, a number that identifies the patient, or clinical details here.</small>
+        {error && <div className="error" role="alert">{error}</div>}
+        <div><button className="btn" disabled={busy || !ready} onClick={() => void send()}>Send order</button></div>
+      </div>
+    </Card>
+  );
 }
 
-function PartnerResultsInner({ onChanged }: { onChanged: () => void }) {
+export function PartnerResults() {
+  const [n, setN] = useState(0);              // changing the key loads everything again
+  const [notice, setNotice] = useState("");   // kept here so it survives the reload
+  return <PartnerResultsInner key={n} notice={notice} onChanged={() => setN(n + 1)}
+    onOrdered={(message) => { setNotice(message); setN(n + 1); }} />;
+}
+
+function PartnerResultsInner({ onChanged, onOrdered, notice }: { onChanged: () => void; onOrdered: (message: string) => void; notice: string }) {
   const list = useLoad(getPartnerRequests, 30_000);
   const waiting = (list.data ?? []).filter((r) => r.state === "result_available").length;
   return (
     <>
       <div className="hero"><div>
-        <h1>Partner results</h1>
+        <h1>Orders &amp; results</h1>
         <p>Requests your clinic sent to laboratories, pharmacies and home-care partners for your patients, and where each stands. {waiting > 0 ? `${waiting} ready for you to review.` : ""}</p>
       </div></div>
       <div className="grid">
+        {notice && <div className="notice" role="status">{notice}</div>}
+        <NewOrder onSent={onOrdered} />
         <Card title="Requests for your patients">
           <Gate result={list}>
             {(rows) => rows.length === 0 ? <div className="empty">Nothing sent for your patients yet.</div> : rows.map((r) => <Row key={r.id} r={r} onChanged={onChanged} />)}

@@ -9,6 +9,7 @@ The clinic does the work itself (a deletion, a correction): this only records an
 from __future__ import annotations
 
 import datetime as dt
+import secrets
 from typing import Any
 
 from django.db import transaction
@@ -31,6 +32,20 @@ CLOSING_ROLES = frozenset({"R13"})            # may complete or decline it
 MAX_NOTE = 500
 MAX_DECISION_NOTE = 300
 MAX_OPEN_PER_PERSON = 5
+
+
+# Crockford's base32: no I, L, O or U, so a number read aloud or copied is not mistaken.
+REF_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+
+def new_ref_no() -> str:
+    """A request number the patient and the clinic can quote: DSR- and 8 random characters
+    (DEV-218). Unique within the customer; a clash, about one in a trillion, is drawn again."""
+    for _ in range(8):
+        candidate = "DSR-" + "".join(secrets.choice(REF_ALPHABET) for _ in range(8))
+        if not RightsCase.objects.filter(ref_no=candidate, **_scope()).exists():
+            return candidate
+    raise ZoikoError(ErrorCode.CONFLICT_VERSION)
 
 
 def _scope() -> dict[str, Any]:
@@ -64,6 +79,7 @@ def case_dict(c: RightsCase) -> dict[str, Any]:
         "decision_note": c.decision_note,
         "decided_at": c.decided_at.isoformat() if c.decided_at else None,
         "due_at": c.due_at.isoformat() if c.due_at else None, "due_basis": c.due_basis,
+        "lawful_hold": c.lawful_hold, "hold_reason": c.hold_reason,
     }
 
 
@@ -99,7 +115,7 @@ def file_request(
         row = RightsCase(
             person_ref=person_ref, organization_ref=organization_ref,
             requested_by_ref=actor_public_id, request_type=request_type, ref_no="", **_scope())
-        row.ref_no = f"DSR-{row.public_id[:8].upper()}"
+        row.ref_no = new_ref_no()
         if deadline is not None:                      # (days, "pack@revision") from a pack
             row.due_at = utc_now(clock) + dt.timedelta(days=deadline[0])
             row.due_basis = deadline[1][:80]
@@ -199,6 +215,9 @@ def close(
         clean = _clean_note(note, MAX_DECISION_NOTE, "note", low=3 if outcome == "declined" else 0)
         if outcome == "completed" and row.identity_checked_at is None:
             raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["identity"])
+        if (outcome == "completed" and row.lawful_hold
+                and row.request_type == RequestType.ERASURE):
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["hold"])   # WF-T35, DEV-192
         row.state = CaseState.COMPLETED if outcome == "completed" else CaseState.DECLINED
         row.decided_by_ref = actor_public_id
         row.decision_note = clean
@@ -211,6 +230,48 @@ def close(
         emit(event_type="rights.closed.v1", aggregate_type="rights_case",
              aggregate_ref=row.public_id,
              payload={"case_ref": row.public_id, "actor_ref": actor_public_id})
+        return case_dict(row)
+
+
+def place_hold(
+    *, case_ref: str, reason: str, actor_public_id: str, decision: policy.Decision
+) -> dict[str, Any]:
+    """A clinic administrator records a lawful hold on an open request: the clinic has a legal duty
+    to keep this data for now. An erasure request cannot then be completed (it can be declined with
+    a reason, or the hold lifted). The reason is for staff; the patient is only told that some
+    data is being kept for a legal reason (WF-T35, DEV-192)."""
+    with transaction.atomic():
+        row = _staff_step(case_ref, actor_public_id, decision)
+        if decision.role_code not in CLOSING_ROLES:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        clean = _clean_note(reason, MAX_DECISION_NOTE, "note", low=3)
+        if row.lawful_hold:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        row.lawful_hold, row.hold_reason, row.hold_by_ref = True, clean, actor_public_id
+        row.entity_version += 1
+        row.save(update_fields=["lawful_hold", "hold_reason", "hold_by_ref", "entity_version",
+                                "updated_at"])
+        record(actor_ref=actor_public_id, action="rights.hold_placed", object_type="rights_case",
+               object_ref=row.public_id, outcome=AuditOutcome.ALLOWED)
+        return case_dict(row)
+
+
+def lift_hold(
+    *, case_ref: str, note: str, actor_public_id: str, decision: policy.Decision
+) -> dict[str, Any]:
+    """The administrator lifts the hold, with a reason (the legal duty has ended)."""
+    with transaction.atomic():
+        row = _staff_step(case_ref, actor_public_id, decision)
+        if decision.role_code not in CLOSING_ROLES:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        _clean_note(note, MAX_DECISION_NOTE, "note", low=3)
+        if not row.lawful_hold:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        row.lawful_hold, row.hold_reason = False, ""
+        row.entity_version += 1
+        row.save(update_fields=["lawful_hold", "hold_reason", "entity_version", "updated_at"])
+        record(actor_ref=actor_public_id, action="rights.hold_lifted", object_type="rights_case",
+               object_ref=row.public_id, outcome=AuditOutcome.ALLOWED)
         return case_dict(row)
 
 

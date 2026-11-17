@@ -891,3 +891,47 @@ def test_a_deadline_is_a_fixed_number_of_minutes_so_a_clock_change_cannot_move_i
         for timer, minutes in zip(made, wanted, strict=True):
             assert timer.due_at == start + dt.timedelta(minutes=minutes)
             assert timer.due_at.utcoffset() == dt.timedelta(0)
+
+
+# ---------------------------------------------------- WF-T10: a revoked role cannot move a step
+def test_a_person_whose_role_was_revoked_cannot_move_a_step_they_could_before(p):
+    from modules.trust.models import RoleAssignment
+    define(p)
+    inst = started(p, owner=p.ops2_id)
+    assert go(p, inst, "validated", who="ops2")["state"] == "validated"      # allowed while held
+    with tenant_transaction(p.clinic.ctx):
+        held = RoleAssignment.objects.get(actor__public_id=p.ops2_id, role__role_code="R04")
+        trust.end_assignment(held.public_id, reason="left_clinic", by="system")
+    now = current(p, inst)
+    refused = move(p, now, "accepted", who="ops2")
+    assert refused.status_code == 403                                   # a valid step, no role
+    assert current(p, inst)["state"] == "validated"                     # nothing moved
+    assert go(p, current(p, inst), "accepted", who="boss")["state"] == "accepted"   # an admin can
+
+
+# ------------------------------------------------------------------ WF-T31: source time (DEV-225)
+def test_evidence_keeps_the_time_it_happened_at_its_source_apart_from_when_we_processed_it(p):
+    define(p)
+    inst = started(p)
+    happened = "2026-01-05T08:30:00+01:00"                    # delivered late, days afterwards
+    evidence = [{**ev("validated")[0], "at": happened}]
+    inst = go(p, inst, "validated", evidence=evidence)
+    step = fetch(p, inst)["steps"][-1]
+    assert step["evidence"][0]["at"] == "2026-01-05T07:30:00+00:00"      # kept, in UTC
+    assert step["late_evidence"] == step["evidence"]                    # shown as late
+    assert step["occurred_at"] > step["evidence"][0]["at"]              # our order stays ours
+
+
+def test_evidence_without_a_source_time_is_not_late(p):
+    define(p)
+    inst = go(p, started(p), "validated")
+    assert fetch(p, inst)["steps"][-1]["late_evidence"] == []
+
+
+@pytest.mark.parametrize("at", ["2999-01-01T00:00:00+00:00", "2026-01-05T08:30:00", "yesterday",
+                                12345])
+def test_a_source_time_in_the_future_or_without_an_offset_is_refused(p, at):
+    define(p)
+    inst = started(p)
+    r = move(p, inst, "validated", evidence=[{**ev("validated")[0], "at": at}])
+    assert r.status_code == 422, r.content

@@ -52,6 +52,8 @@ def suspension_dict(row: Suspension) -> dict[str, Any]:
         "decision_note": row.decision_note,
         "decided_at": row.decided_at.isoformat() if row.decided_at else None,
         "created_at": row.created_at.isoformat(),
+        "continuity_plan": row.continuity_plan,
+        "open_items": row.open_items,
     }
 
 
@@ -94,13 +96,22 @@ def request_change(
     actor_public_id: str,
     platform_organization_public_id: str | None,
     decision: policy.Decision,
+    open_items: int = 0,
+    continuity_plan: object = "",
 ) -> dict[str, Any]:
     """Ask to suspend an active customer or reinstate a suspended one. Needs the right to write
-    the platform. Only one request can be waiting for a customer at a time."""
+    the platform. Only one request can be waiting for a customer at a time.
+
+    TEMPORARY RULE (DEV-193, GHE-18 H-05): when the customer still has patients in the middle of
+    something (`open_items`: open referrals and partner requests, counted by the caller), asking to
+    suspend it needs a continuity plan saying who looks after them (20 to 1000 characters)."""
     _receipt(decision, actor_public_id, platform_organization_public_id)
     if kind not in SuspensionKind.values:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["action"])
     clean_reason = _clean(reason, "reason", 500, required=True)
+    plan = _clean(continuity_plan or "", "continuity_plan", 1000, required=False, multiline=True)
+    if kind == SuspensionKind.SUSPEND and open_items > 0 and len(plan) < 20:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["continuity_plan"])
     found = _customer(customer_public_id)
     if found["status"] != _NEEDS[SuspensionKind(kind)]:
         raise ZoikoError(ErrorCode.CONFLICT_VERSION)
@@ -111,6 +122,8 @@ def request_change(
                 kind=kind,
                 reason=clean_reason,
                 requested_by_ref=actor_public_id,
+                continuity_plan=plan,
+                open_items=max(open_items, 0),
             )
             record(
                 actor_ref=actor_public_id,

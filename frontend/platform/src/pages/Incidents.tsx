@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, addIncident, assessIncident, getIncidents, resolveIncident, type IncidentRow } from "../api";
+import { ApiError, acknowledgeIncident, addIncident, assessIncident, assignIncident, getIncidentTimeline, getIncidents, getOnCallStaff, recordHandoff, resolveIncident, type IncidentRow, type OnCallPerson, type TimelineEntry } from "../api";
 import { Card, Pill } from "../ui";
 
 function today(): string {
@@ -17,7 +17,7 @@ const SEVERITY = {
   unknown: { text: "Not yet assessed", kind: "warn", means: "Stays open until a safety officer evaluates it" },
 } as const;
 
-const EMPTY_FORM = () => ({ title: "", severity: "sev2", happened_on: today(), details: "" });
+const EMPTY_FORM = () => ({ title: "", severity: "sev2", happened_on: today(), details: "", safety_impact: false });
 
 function friendly(e: unknown): string {
   const code = e instanceof ApiError ? e.code : "";
@@ -34,14 +34,23 @@ export function Incidents({ canWrite, canAssess = false }: { canWrite: boolean; 
   const [done, setDone] = useState("");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM());
-  const [closing, setClosing] = useState<{ id: string; note: string } | null>(null);
+  const [closing, setClosing] = useState<{ id: string; note: string; notice: string } | null>(null);
+  const [staff, setStaff] = useState<OnCallPerson[]>([]);
+  const [assigning, setAssigning] = useState<{ id: string; owner: string; deputy: string } | null>(null);
+  const [shown, setShown] = useState<{ id: string; entries: TimelineEntry[] } | null>(null);
   const [assessing, setAssessing] = useState<{ id: string; severity: string; note: string } | null>(null);
+  const [handing, setHanding] = useState<{ id: string; note: string } | null>(null);
 
   const load = useCallback(async () => {
     try { setRows(await getIncidents()); setError(""); }
     catch (e) { setError(friendly(e)); setRows([]); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { getOnCallStaff().then(setStaff).catch(() => setStaff([])); }, []);
+  async function toggleTimeline(id: string) {
+    if (shown?.id === id) { setShown(null); return; }
+    try { setShown({ id, entries: await getIncidentTimeline(id) }); } catch (e) { setError(friendly(e)); }
+  }
 
   async function run(work: () => Promise<unknown>, success: string, after?: () => void) {
     setBusy(true); setError(""); setDone("");
@@ -77,6 +86,10 @@ export function Incidents({ canWrite, canAssess = false }: { canWrite: boolean; 
                   ))}
                 </select>
               </label>
+              <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input type="checkbox" checked={form.safety_impact} onChange={(e) => setForm({ ...form, safety_impact: e.target.checked })} />
+                This touches patient safety (it cannot be closed until a safety officer records the hand-off)
+              </label>
               <label>Happened on
                 <input type="date" value={form.happened_on} max={today()} onChange={(e) => setForm({ ...form, happened_on: e.target.value })} required />
               </label>
@@ -105,9 +118,50 @@ export function Incidents({ canWrite, canAssess = false }: { canWrite: boolean; 
                 <span className="sub">Happened {r.happened_on} - recorded by {r.recorded_by}</span>
                 {r.details && <span className="sub" style={{ whiteSpace: "pre-wrap" }}>{r.details}</span>}
                 {r.status === "resolved" && (
-                  <span style={{ whiteSpace: "pre-wrap" }}>Closed {r.resolved_on} by {r.resolved_by}: {r.resolution}</span>
+                  <span style={{ whiteSpace: "pre-wrap" }}>Closed {r.resolved_on} by {r.resolved_by}: {r.resolution}{r.restoration_notice && ` Restoration notice: ${r.restoration_notice}`}</span>
                 )}
                 {r.assessment_note && <span className="sub">Assessed by {r.assessed_by}: {r.assessment_note}</span>}
+                <span className="sub">
+                  {r.owner ? <>On call: {r.owner} (deputy {r.deputy}).{" "}
+                    {r.acknowledged_at ? <Pill kind="ok">acknowledged</Pill> : r.escalated_at ? <Pill kind="bad">escalated to the deputy</Pill> : <Pill kind="warn">not yet acknowledged</Pill>}</>
+                    : r.status === "open" ? "Nobody is on call for it yet." : ""}
+                  {" "}<button className="btn ghost" onClick={() => void toggleTimeline(r.id)}>{shown?.id === r.id ? "Hide timeline" : "Timeline"}</button>
+                </span>
+                {shown?.id === r.id && (
+                  <ol className="sub">{shown.entries.map((e, i) => <li key={i}>{new Date(e.at).toLocaleString()}: {e.kind} by {e.by}{e.note && ` (${e.note})`}</li>)}</ol>
+                )}
+                {r.status === "open" && r.owner && !r.acknowledged_at && (
+                  <span><button className="btn" disabled={busy} onClick={() => void run(() => acknowledgeIncident(r.id), "Acknowledged.")}>I have it</button></span>
+                )}
+                {canWrite && r.status === "open" && (assigning?.id === r.id ? (
+                  <span className="form-row">
+                    <select aria-label={`Owner for ${r.title}`} value={assigning.owner} onChange={(e) => setAssigning({ ...assigning, owner: e.target.value })}>
+                      <option value="">Owner…</option>{staff.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <select aria-label={`Deputy for ${r.title}`} value={assigning.deputy} onChange={(e) => setAssigning({ ...assigning, deputy: e.target.value })}>
+                      <option value="">Deputy…</option>{staff.filter((p) => p.id !== assigning.owner).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <button className="btn" disabled={busy || !assigning.owner || !assigning.deputy}
+                      onClick={() => void run(() => assignIncident(r.id, assigning.owner, assigning.deputy), "On call named.", () => setAssigning(null))}>Name them</button>
+                    <button className="btn ghost" onClick={() => setAssigning(null)}>Cancel</button>
+                  </span>
+                ) : (
+                  <span><button className="btn ghost" onClick={() => setAssigning({ id: r.id, owner: r.owner_ref, deputy: r.deputy_ref })}>{r.owner ? "Change who is on call" : "Name who is on call"}</button></span>
+                ))}
+                {r.safety_impact && <span className="sub"><Pill kind="bad">safety impact</Pill>{" "}{r.handoff_note ? `Hand-off recorded by ${r.handoff_by}: ${r.handoff_note}` : "It can be closed only after a safety officer records the hand-off or fallback."}</span>}
+                {canAssess && r.status === "open" && r.safety_impact && !r.handoff_note && (handing?.id === r.id ? (
+                  <span className="form-row">
+                    <input aria-label={`Hand-off for ${r.title}`} placeholder="What covers this meanwhile? (no patient details)" maxLength={300}
+                      value={handing.note} onChange={(e) => setHanding({ id: r.id, note: e.target.value })} />
+                    <button className="btn" disabled={busy || handing.note.trim().length < 3}
+                      onClick={() => void run(() => recordHandoff(r.id, handing.note), "Hand-off recorded.", () => setHanding(null))}>
+                      Record hand-off
+                    </button>
+                    <button className="btn ghost" onClick={() => setHanding(null)}>Cancel</button>
+                  </span>
+                ) : (
+                  <span><button className="btn" onClick={() => setHanding({ id: r.id, note: "" })}>Record the hand-off</button></span>
+                ))}
                 {r.status === "open" && r.severity === "unknown" && (
                   <span className="sub">It can be closed only after a safety officer gives it a level.</span>
                 )}
@@ -128,18 +182,22 @@ export function Incidents({ canWrite, canAssess = false }: { canWrite: boolean; 
                 ) : (
                   <span><button className="btn" onClick={() => setAssessing({ id: r.id, severity: "sev2", note: "" })}>Assess this incident</button></span>
                 ))}
-                {canWrite && r.status === "open" && r.severity !== "unknown" && (closing?.id === r.id ? (
+                {canWrite && r.status === "open" && r.severity !== "unknown" && !(r.safety_impact && !r.handoff_note) && (closing?.id === r.id ? (
                   <span className="form-row">
                     <textarea aria-label="How it ended" placeholder="How did it end? (no patient details)" rows={2} maxLength={1000}
-                      value={closing.note} onChange={(e) => setClosing({ id: r.id, note: e.target.value })} />
-                    <button className="btn" disabled={busy || !closing.note.trim()}
-                      onClick={() => void run(() => resolveIncident(r.id, closing.note), "Incident closed.", () => setClosing(null))}>
+                      value={closing.note} onChange={(e) => setClosing({ ...closing, note: e.target.value })} />
+                    {(r.severity === "sev0" || r.severity === "sev1") && (
+                      <textarea aria-label="Restoration notice" placeholder="What were customers and partners told when service came back? (required for SEV-0 and SEV-1)" rows={2} maxLength={1000}
+                        value={closing.notice} onChange={(e) => setClosing({ ...closing, notice: e.target.value })} />
+                    )}
+                    <button className="btn" disabled={busy || !closing.note.trim() || ((r.severity === "sev0" || r.severity === "sev1") && closing.notice.trim().length < 10)}
+                      onClick={() => void run(() => resolveIncident(r.id, closing.note, closing.notice), "Incident closed.", () => setClosing(null))}>
                       Close it
                     </button>
                     <button className="btn ghost" onClick={() => setClosing(null)}>Cancel</button>
                   </span>
                 ) : (
-                  <span><button className="btn ghost" onClick={() => setClosing({ id: r.id, note: "" })}>Close this incident</button></span>
+                  <span><button className="btn ghost" onClick={() => setClosing({ id: r.id, note: "", notice: "" })}>Close this incident</button></span>
                 ))}
               </div>
             </div>

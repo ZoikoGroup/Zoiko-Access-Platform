@@ -17,12 +17,14 @@ const STATE: Record<IncomingState, { text: string; kind: "ok" | "warn" | "info" 
 function Row({ r, onChanged }: { r: Incoming; onChanged: () => void }) {
   const [note, setNote] = useState("");
   const [result, setResult] = useState("");
+  const [summary, setSummary] = useState("");
+  const [flag, setFlag] = useState("normal");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function run(step: "accept" | "decline" | "start" | "deliver") {
     setBusy(true); setError("");
     try {
-      await incomingStep(r.id, step, step === "decline" ? { note } : step === "deliver" ? { result_ref: result } : {});
+      await incomingStep(r.id, step, step === "decline" ? { note } : step === "deliver" ? { result_ref: result, ...(summary.trim() ? { summary, flag } : {}) } : {});
       onChanged();
     } catch (err) {
       const code = (err as { code?: string }).code;
@@ -40,20 +42,32 @@ function Row({ r, onChanged }: { r: Incoming; onChanged: () => void }) {
         <small>{KIND[r.kind]} from {r.from} · order {r.token} · {r.ref_no}</small>
         {r.state === "declined" && r.decision_note && <small>Your reason: {r.decision_note}</small>}
         {r.result_ref && <small>Your result reference: {r.result_ref}</small>}
+        {r.identity && <small>Patient (shared with their agreement, for this request only): <b>{r.identity.name}</b>{r.identity.birth_date ? `, born ${r.identity.birth_date}` : ""}. Do not keep or use it for anything else.</small>}
+        {!r.identity && r.consent !== "declined" && r.consent !== "withdrawn" && <small>Waiting for the patient to agree to tell you who they are. You cannot accept or start until they do.</small>}
+        {(r.consent === "withdrawn" || r.consent === "declined") && <small>The patient did not agree, or took their agreement back. Nothing about them is shown.</small>}
         {r.on_hold && <small>This request is on hold for now. Nothing is needed from you until it is released.</small>}
         {error && <div className="error" role="alert">{error}</div>}
       </div>
-      {r.state === "requested" && !r.on_hold && (
+      {r.state === "requested" && !r.on_hold && r.consent === "granted" && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button className="btn" disabled={busy} onClick={() => void run("accept")}>Accept</button>
           <input className="field" aria-label={`Reason for declining ${r.token}`} placeholder="Reason, if you decline" value={note} onChange={(e) => setNote(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
           <button className="btn ghost" disabled={busy || note.trim().length < 3} onClick={() => void run("decline")}>Decline</button>
         </div>
       )}
-      {r.state === "accepted" && !r.on_hold && <div><button className="btn" disabled={busy} onClick={() => void run("start")}>Start work</button></div>}
-      {r.state === "in_progress" && !r.on_hold && (
+      {r.state === "accepted" && !r.on_hold && r.consent === "granted" && <div><button className="btn" disabled={busy} onClick={() => void run("start")}>Start work</button></div>}
+      {r.state === "in_progress" && !r.on_hold && r.consent === "granted" && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input className="field" aria-label={`Result reference for ${r.token}`} placeholder="Your reference for the result" value={result} onChange={(e) => setResult(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
+          <label style={{ flexBasis: "100%" }}>Short summary of the result (optional, up to 2000 characters)
+            <textarea className="field" rows={4} maxLength={2000} value={summary} onChange={(e) => setSummary(e.target.value)} style={{ width: "100%" }} />
+          </label>
+          <label>Rating{" "}
+            <select value={flag} onChange={(e) => setFlag(e.target.value)} aria-label={`Rating for ${r.token}`}>
+              <option value="normal">Normal</option><option value="abnormal">Abnormal</option><option value="critical">Critical</option>
+            </select>
+          </label>
+          <small style={{ flexBasis: "100%" }}>Only the ordering clinic's treating doctor can read the summary. A critical rating stands out to them. Do not put the patient's name in it.</small>
           <button className="btn" disabled={busy || result.trim().length < 3} onClick={() => void run("deliver")}>Mark the result as available</button>
         </div>
       )}

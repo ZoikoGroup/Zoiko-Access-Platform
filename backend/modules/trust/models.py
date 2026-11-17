@@ -62,6 +62,9 @@ class Organization(CellScopedModel):
     # means the service-wide default (RESPONSE_TARGET_HOURS). The specification says there is no
     # universal timeout: each clinic's own target is what "late" means for it.
     response_target_hours = models.PositiveSmallIntegerField(null=True, blank=True)
+    # The partner connector that confirms this clinic's bookings (modules/bookingflow). Empty means
+    # the clinic's own staff confirm them by hand, as before.
+    booking_system = models.CharField(max_length=32, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="org_scope_idx")]
@@ -397,10 +400,38 @@ class Incident(CellScopedModel):
     recorded_by_ref = models.CharField(max_length=64)
     resolved_by_ref = models.CharField(max_length=64, blank=True, default="")
     assessed_by_ref = models.CharField(max_length=64, blank=True, default="")   # AT38
+    # G-08: an incident that touches patient safety cannot close until a safety officer has
+    # recorded the hand-off or fallback that covers it.
+    safety_impact = models.BooleanField(default=False)
+    handoff_note = models.CharField(max_length=300, blank=True, default="")
+    handoff_by_ref = models.CharField(max_length=64, blank=True, default="")
     assessment_note = models.CharField(max_length=300, blank=True, default="")
+    # G-01 (DEV-202): an owner and a deputy from Zoiko's support and safety staff; the owner (or
+    # the deputy) acknowledges it; if nobody does in time, it is escalated to the deputy once.
+    owner_ref = models.CharField(max_length=22, blank=True, default="")
+    deputy_ref = models.CharField(max_length=22, blank=True, default="")
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_by_ref = models.CharField(max_length=22, blank=True, default="")
+    escalated_at = models.DateTimeField(null=True, blank=True)
+    # G-10: what customers and partners were told when service came back (SEV-0 and SEV-1).
+    restoration_notice = models.CharField(max_length=1000, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="incident_scope_idx")]
+
+
+class IncidentEvent(CellScopedModel):
+    """One entry of an incident's timeline (DEV-202). Append-only: the database refuses UPDATE
+    and DELETE. Never patient details: a step's kind, who, and a short note."""
+
+    incident = models.ForeignKey(Incident, on_delete=models.PROTECT, related_name="+")
+    kind = models.CharField(max_length=16)        # recorded, assigned, acknowledged, escalated, ...
+    actor_ref = models.CharField(max_length=64)   # a login's public id, or "system"
+    note = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="incident_event_scope_idx")]
 
 
 class SuspensionKind(models.TextChoices):
@@ -429,6 +460,9 @@ class Suspension(CellScopedModel):
     decided_by_ref = models.CharField(max_length=64, blank=True, default="")
     decision_note = models.CharField(max_length=300, blank=True, default="")
     decided_at = models.DateTimeField(null=True, blank=True)
+    # H-05: who looks after patients still in the middle of something, when there are any.
+    continuity_plan = models.TextField(blank=True, default="")
+    open_items = models.PositiveIntegerField(default=0)    # open referrals + partner requests
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="suspension_scope_idx")]

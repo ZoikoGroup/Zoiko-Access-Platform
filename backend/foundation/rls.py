@@ -67,3 +67,19 @@ class EnableRLS(migrations.RunSQL):
             sql=cast("Any", enable_rls_sql(table)),
             reverse_sql=cast("Any", disable_rls_sql(table)),
         )
+
+
+def for_each_tenant(apps: Any, schema_editor: Any, step: Any) -> None:
+    """Run a data migration step once per customer, with that customer's RLS context set
+    (DEV-216). A migration step that just reads a table sees nothing when it runs as a role that
+    row-level security applies to (FORCE applies it to the owner too); setting the context makes the
+    step work whichever role runs the migration. `step(tenant_id, cell_id)` is called inside the
+    migration's transaction; the settings are local to it."""
+    tenant_model = apps.get_model("trust", "Tenant")
+    with schema_editor.connection.cursor() as cursor:
+        for tenant_id, cell_id in tenant_model.objects.values_list("id", "cell_id"):
+            cursor.execute("SELECT set_config('app.cell_id', %s, true), "
+                           "set_config('app.tenant_id', %s, true)", [cell_id, str(tenant_id)])
+            step(tenant_id, cell_id)
+        cursor.execute("SELECT set_config('app.cell_id', '', true), "
+                       "set_config('app.tenant_id', '', true)")

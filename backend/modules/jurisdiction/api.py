@@ -6,8 +6,10 @@ from .manifest import CAPABILITIES
 from .services import (
     approve,
     create_pack,
+    customer_capabilities,
     data_request_days,
     edit_pack,
+    emergency_number,
     enabled_capabilities,
     get_pack,
     list_packs,
@@ -21,6 +23,7 @@ from .services import (
     validate,
 )
 
-__all__ = ["CAPABILITIES", "approve", "create_pack", "data_request_days", "edit_pack",
-           "enabled_capabilities", "get_pack", "list_packs", "pack_covers", "preflight", "reject",
-           "retire", "revalidate", "submit", "suspend", "validate"]
+__all__ = ["CAPABILITIES", "approve", "create_pack", "customer_capabilities", "data_request_days",
+           "edit_pack",
+           "emergency_number", "enabled_capabilities", "get_pack", "list_packs", "pack_covers",
+           "preflight", "reject", "retire", "revalidate", "submit", "suspend", "validate"]

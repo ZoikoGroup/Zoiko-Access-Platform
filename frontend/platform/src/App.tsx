@@ -14,10 +14,12 @@ import { Planned } from "./pages/Planned";
 import { Hazards } from "./pages/Hazards";
 import { Incidents } from "./pages/Incidents";
 import { Matrix } from "./pages/Matrix";
+import { Connectors } from "./pages/Connectors";
 import { Packs } from "./pages/Packs";
 import { Readiness } from "./pages/Readiness";
 import { ServiceLevels } from "./pages/ServiceLevels";
 import { PartnerChecks } from "./pages/PartnerChecks";
+import { Purposes } from "./pages/Purposes";
 import { Releases } from "./pages/Releases";
 import { Settings } from "./pages/Settings";
 import { SignIn } from "./pages/SignIn";
@@ -81,11 +83,13 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
   else if (page === "hazards") body = <Hazards />;
+  else if (page === "purposes") body = <Purposes canPropose canDecide={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "partnerchecks") body = <PartnerChecks canWrite={session.roles.some((r) => r.role === "R11")} />;
   else if (page === "incidents") body = <Incidents canWrite={session.roles.some((r) => r.role === "R11")} canAssess={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "matrix") body = <Matrix canWrite={session.roles.some((r) => r.role === "R11")} />;
   else if (page === "readiness") body = <Readiness canWrite={session.roles.some((r) => r.role === "R11")} canAttest={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "levels") body = <ServiceLevels />;
+  else if (page === "connectors") body = <Connectors />;
   else if (page === "packs") body = <Packs canWrite={session.roles.some((r) => r.role === "R11")} canAttest={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "releases") body = <Releases canAdd={session.roles.some((r) => r.role === "R11")} />;
   else if (denied) body = <div className="notice">Your account is not allowed to use the platform console.</div>;

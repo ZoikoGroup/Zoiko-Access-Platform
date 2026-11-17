@@ -32,6 +32,9 @@ class CountryPack(CellScopedModel):
     content_hash = models.CharField(max_length=64)           # approvals bind this exact value
     author_ref = models.CharField(max_length=22)
     note = models.CharField(max_length=300, blank=True, default="")   # last reject/suspend reason
+    # Set when the pack is signed; checked on every read (DEV-210). Empty means "not signed".
+    signature = models.CharField(max_length=100, blank=True, default="")    # base64 Ed25519
+    signing_key_id = models.CharField(max_length=16, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         constraints = [

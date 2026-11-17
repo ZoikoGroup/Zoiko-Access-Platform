@@ -4,24 +4,24 @@
   "req_id": "AT01",
   "group": "Acceptance",
   "title": "Unknown intended purpose -> block enable; no default classification.",
-  "status": "not_built",
-  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+  "status": "partly",
+  "evidence": "Each capability needs a written intended-purpose statement with a class someone had to choose (there is no default), approved by a safety officer who did not write it; a release cannot be authorised for a country while any of its capabilities has none (DEV-184, test_purposes.py, test_readiness.py). A country pack can still switch a capability on without one, and nothing stops a statement being out of date."
  },
  {
   "source": "GHE-08",
   "req_id": "AT02",
   "group": "Acceptance",
   "title": "Changed marketing clinical claim triggers reclassification review.",
-  "status": "not_built",
-  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+  "status": "partly",
+  "evidence": "A new intended-purpose statement that changes a capability's class (for example administrative to regulated) is flagged and needs two different safety officers, neither of them its author, before it replaces the approved one; the old one stays in force until then (DEV-187, test_purposes.py). Marketing claims themselves are not recorded, so a changed claim cannot trigger anything unless someone also proposes a new statement."
  },
  {
   "source": "GHE-08",
   "req_id": "AT03",
   "group": "Acceptance",
   "title": "A feature approved in market A cannot run in market B.",
-  "status": "not_built",
-  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+  "status": "partly",
+  "evidence": "Every go-live approval is bound to one exact build, cell, country and set of capabilities: evidence given for a different fingerprint, a signed pack for another country, and another release's signatures all count for nothing (test_readiness.py). A workflow that needs a capability also refuses to start where no signed, current pack for that country switches it on (test_workflow_packs.py). Nothing else at run time checks the market, and a release decision deploys nothing."
  },
  {
   "source": "GHE-08",
@@ -36,8 +36,8 @@
   "req_id": "AT05",
   "group": "Acceptance",
   "title": "Missing required legal manufacturer record (device) prevents enable.",
-  "status": "not_built",
-  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+  "status": "partly",
+  "evidence": "A statement classed as regulated cannot be approved without a named legal manufacturer, so the release gate keeps that capability off (DEV-184, test_purposes.py). The name is free text: it is not checked against any register of manufacturers."
  },
  {
   "source": "GHE-08",
@@ -260,8 +260,8 @@
   "req_id": "AT33",
   "group": "Acceptance",
   "title": "Any clinical policy cache stale -> deny, not allow.",
-  "status": "not_built",
-  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+  "status": "partly",
+  "evidence": "There is no policy cache to go stale: every access decision is worked out at request time from the roles and care relationships held at that moment, so an ended role is refused on the very next request (test_policy.py ended assignment, test_orchestration.py revoked role, DEV-188). No clinical policy exists yet, and nothing tests a cache because none is built."
  },
  {
   "source": "GHE-08",
@@ -300,8 +300,8 @@
   "req_id": "AT38",
   "group": "Acceptance",
   "title": "Incident severity unknown remains open pending clinician evaluation.",
-  "status": "not_built",
-  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+  "status": "partly",
+  "evidence": "An incident can be logged with severity \"unknown\"; it cannot be closed until a safety officer (R12) gives it a level with a note, once (DEV-176, test_incidents.py). The evaluator is a safety officer, not a verified clinician, and no notice or time limit follows."
  },
  {
   "source": "GHE-08",
@@ -340,8 +340,8 @@
   "req_id": "AT43",
   "group": "Acceptance",
   "title": "No trusted national source availability is invented in UI.",
-  "status": "not_built",
-  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+  "status": "partly",
+  "evidence": "The screens show a national-source fact only when one is on record: the emergency number and data-request deadlines only from a signed, current country pack, and nothing otherwise (test_emergency_number.py, test_country_deadline.py); a doctor's \"Verified\" mark only after a recorded name check (DEV-095, browser robot 8). There is no connection to any national register, so nothing can claim one."
  },
  {
   "source": "GHE-08",
@@ -372,8 +372,8 @@
   "req_id": "AT47",
   "group": "Acceptance",
   "title": "Unavailable emergency contact shows approved local alternatives.",
-  "status": "not_built",
-  "evidence": "The clinical safety machinery of this specification (intended purpose, regulated-activity controls, result review, incident handling) is not built, and no clinical pathway is enabled."
+  "status": "partly",
+  "evidence": "The patient Help page shows the local emergency number only when a signed, current country pack for the clinic's country states one, and nothing when there is none or when packs disagree; the general wording \"not an emergency service, call your local number\" always stays (DEV-185, test_emergency_number.py). There is no list of alternatives (a crisis line, a hospital) and no check that a number is reachable."
  },
  {
   "source": "GHE-08",

@@ -6,3 +6,11 @@ class SponsorConfig(AppConfig):
 
     name = "modules.sponsor"
     label = "sponsor"
+
+    def ready(self) -> None:
+        # `manage.py rotate_field_keys` moves the sealed member numbers onto the current key.
+        from foundation import rotation
+
+        from .rotation import rotate
+
+        rotation.register("sponsor", rotate)

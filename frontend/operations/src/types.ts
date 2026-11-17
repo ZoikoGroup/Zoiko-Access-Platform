@@ -54,7 +54,7 @@ export interface Dashboard extends Evidence {
   counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
   late: { hours: number; bookings: number; messages: number; data_requests: number };
   today: { confirmed: number; waiting: number; still_to_come: number };
-  attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number; data_requests: number; workflows_without_owner: number; partner_results: number; partner_on_hold: number; partner_held_mine: number; webhooks_gave_up: number };
+  attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number; data_requests: number; workflows_without_owner: number; partner_results: number; partner_on_hold: number; partner_held_mine: number; partner_hold_escalated: number; webhooks_gave_up: number };
 }
 
 export interface Directory {
@@ -189,7 +189,7 @@ export interface Reports {
 
 export interface WorkItem {
   id: string;
-  kind: "confirm_booking" | "decide_referral" | "answer_message" | "answer_data_request";
+  kind: "confirm_booking" | "decide_referral" | "answer_message" | "answer_data_request" | "settle_partner_op";
   label: string;
   subject: string;
   created_at: string;
@@ -418,6 +418,8 @@ export interface RightsCase {
   due_basis: string;
   patient: string;
   patient_name?: string | null;
+  lawful_hold: boolean;
+  hold_reason?: string;
 }
 
 export interface IncomingReferral {
@@ -448,9 +450,17 @@ export interface ReferralInbox {
 }
 
 export type ExchangeState = "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
+export type ClaimState = "submitted" | "approved" | "declined" | "paid" | "withdrawn";
+export interface Claim {
+  id: string; claim_no: string; payer: string; payer_ref: string; patient: string; patient_name?: string | null;
+  member_tail: string; category: string; label: string; amount_minor: number; currency: string; service_date: string;
+  state: ClaimState; decision_reason: string | null; payment_ref: string | null; created_at: string;
+  decided_at: string | null; paid_at: string | null;
+}
+
 export interface ExchangeRequest {
   id: string; ref_no: string; kind: "lab_order" | "pharmacy_request" | "homecare_referral";
   partner: string; partner_ref: string; token: string; patient: string; patient_name?: string | null;
   label: string; urgency: "routine" | "urgent"; state: ExchangeState; decision_note: string;
-  result_ref: string; on_hold: boolean; hold_owner_name?: string; hold_mine?: boolean; created_at: string; result_at: string | null; reviewed_at: string | null;
+  result_ref: string; on_hold: boolean; hold_owner_name?: string; hold_mine?: boolean; hold_escalated?: boolean; consent: "pending" | "granted" | "declined" | "withdrawn" | "expired"; created_at: string; result_at: string | null; reviewed_at: string | null;
 }

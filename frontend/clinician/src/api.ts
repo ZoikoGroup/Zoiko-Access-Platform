@@ -2,7 +2,7 @@
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
-import type { Appointment, Health, PartnerRequest, PatientRow, Referral, ServiceOption, Thread, ThreadView } from "./types";
+import type { Appointment, Health, Note, PartnerRequest, ResultSummary, PatientRow, Referral, ServiceOption, Thread, ThreadView } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -223,3 +223,28 @@ export async function saveDisplayName(name: string): Promise<string> {
 export async function clearDisplayName(): Promise<void> {
   await v1("auth/display-name", { method: "DELETE" });
 }
+
+// Consultation notes (DEV-304): the text is encrypted at rest, a signed note is never edited.
+export const getNotes = async (patient: string) =>
+  (await v1<{ notes: Note[] }>(`clinician/notes?patient=${encodeURIComponent(patient)}`)).notes;
+export const getNote = async (id: string) => (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}`)).note;
+export const createNote = async (patient: string, note_date: string, body: string) =>
+  (await v1<{ note: Note }>("clinician/notes", { method: "POST", body: JSON.stringify({ patient, note_date, body }) })).note;
+export const editNote = async (id: string, body: string) =>
+  (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/edit`, { method: "POST", body: JSON.stringify({ body }) })).note;
+export const signNote = async (id: string) =>
+  (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/sign`, { method: "POST", body: "{}" })).note;
+export const addNoteAddendum = async (id: string, body: string) =>
+  (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/addendum`, { method: "POST", body: JSON.stringify({ body }) })).note;
+export const amendNote = async (id: string, reason: string) =>
+  (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/amend`, { method: "POST", body: JSON.stringify({ reason }) })).note;
+
+// Orders to a laboratory, pharmacy or home-care partner (the exchange; status and references only).
+export interface PartnerChoice { id: string; name: string }
+export const getPartners = async () => (await v1<{ partners: PartnerChoice[] }>("exchange/partners")).partners;
+export const placeOrder = async (o: { partner: string; kind: string; label: string; token: string; urgency: string; patient: string }) =>
+  (await v1<{ request: PartnerRequest }>("exchange/requests", { method: "POST", body: JSON.stringify(o) })).request;
+
+// The lab's summary of a delivered result (encrypted at rest; opening it is recorded).
+export const getResultSummary = async (id: string) =>
+  (await v1<{ result: ResultSummary }>(`exchange/requests/${encodeURIComponent(id)}/result`)).result;

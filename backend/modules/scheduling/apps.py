@@ -13,3 +13,9 @@ class SchedulingConfig(AppConfig):
         from .jobs import REMIND_EVERY_SECONDS, remind_all_tenants
 
         periodic.register("scheduling.reminders", REMIND_EVERY_SECONDS, remind_all_tenants)
+
+        from foundation import retention
+
+        from .retention import count_older
+
+        retention.register("bookings", "Appointments", "the appointment time", count_older)

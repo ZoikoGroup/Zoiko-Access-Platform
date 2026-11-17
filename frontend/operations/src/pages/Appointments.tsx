@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BookingHistory } from "@shared/BookingHistory";
 import { CLINIC_REASONS, reasonText } from "@shared/cancelReasons";
-import { cancelBooking, confirmBooking, getBookingHistory, listBookings, listFreeTimes, markAttendance, rescheduleBooking, type Staff } from "../api";
+import { askProvider, cancelBooking, confirmBooking, getBookingHistory, getBookingSystem, listBookings, listFreeTimes, markAttendance, rescheduleBooking, type Staff } from "../api";
 import type { BookingRow, FreeTime } from "../types";
 import { Card, Patient, Pill, Table, shortId, type PillKind } from "../ui";
 
@@ -34,6 +34,19 @@ export function Appointments({ staff }: { staff: Staff | null }) {
     try { setRows(await listBookings()); setError(""); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not load bookings"); }
   }, [staff]);
+
+  // DEV-217: with a partner booking system chosen, the partner confirms, not staff.
+  // DEV-221: while that system is paused or stopped, staff may confirm by hand again.
+  const [partner, setPartner] = useState("");
+  const [partnerDown, setPartnerDown] = useState(false);
+  useEffect(() => {
+    if (!staff) return;
+    getBookingSystem().then((s) => {
+      setPartner(s.system);
+      setPartnerDown(Boolean(s.system) && !s.partner_decides);
+    }).catch(() => { setPartner(""); setPartnerDown(false); });
+  }, [staff]);
+  const handConfirm = !partner || partnerDown;
 
   useEffect(() => {
     setRows(null);
@@ -92,7 +105,7 @@ export function Appointments({ staff }: { staff: Staff | null }) {
           <p>Bookings for {staff.organizationName}. Patients request; staff confirm. {waiting > 0 && <b>{waiting} waiting for confirmation.</b>}</p>
         </div>
         <span className="spacer" />
-        {confirmable.length > 1 && bulk === "" && (
+        {confirmable.length > 1 && bulk === "" && handConfirm && (
           <button className="btn" onClick={() => setBulk("asking")}>Confirm all waiting ({confirmable.length})</button>
         )}
         {bulk === "asking" && (
@@ -166,8 +179,12 @@ export function Appointments({ staff }: { staff: Staff | null }) {
                       )}{" "}
                     </>
                   )}
-                  {b.status === "requested" && (
-                    <button className="btn" disabled={busy === b.id} onClick={() => void run(b.id, confirmBooking)}>Confirm</button>
+                  {b.status === "requested" && handConfirm && (
+                    <button className="btn" disabled={busy === b.id} onClick={() => void run(b.id, confirmBooking)}>{partner ? "Confirm by hand (booking system unavailable)" : "Confirm"}</button>
+                  )}
+                  {b.status === "requested" && partner && !partnerDown && (
+                    <button className="btn" disabled={busy === b.id} title="The booking stays requested until the booking system itself confirms it"
+                      onClick={() => void run(b.id, askProvider)}>Ask the booking system</button>
                   )}{" "}
                   {b.status !== "cancelled" && asking !== b.id && (
                     <>

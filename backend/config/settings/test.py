@@ -20,6 +20,11 @@ DEBUG = False
 REQUIRE_RESTRICTED_DB_ROLE = False
 # The test settings are all placeholders on purpose.
 REQUIRE_PRODUCTION_SETTINGS = False
+# The pretend partner connector (modules/connector/simulator.py). Never set in production.
+CONNECTOR_SIMULATOR = True
+# The pretend payment provider (modules/billing/payments.py). Payments stay switched off
+# (BILLING_PAYMENT_PROVIDER = "") unless a test turns them on.
+BILLING_PRETEND_PROVIDER = True
 
 # A throwaway table for proving tenant isolation. Exists only under test settings.
 INSTALLED_APPS = [*INSTALLED_APPS, "tests.probe"]  # noqa: F405

@@ -84,10 +84,26 @@ def send(clinic, lab, subject="ops", **over):
     return clinic.post("exchange/requests", fields, subject=subject)
 
 
-def made(clinic, lab, **over):
+def give_profile(clinic, name="Asha Rao", birth="1990-04-12"):
+    r = clinic.post(
+        f"people/{clinic.person}/profile", {"name": name, "birth_date": birth}, subject="pat"
+    )
+    assert r.status_code in (200, 201), r.content
+
+
+def agree(clinic, request_id, step="agree", subject="pat"):
+    return clinic.post(f"exchange/mine/{request_id}/{step}", {}, subject=subject)
+
+
+def made(clinic, lab, consent=True, **over):
+    """Send a request; by default the patient has already agreed to share their name."""
     r = send(clinic, lab, **over)
     assert r.status_code == 201, r.content
-    return body(r)["request"]["id"]
+    request_id = body(r)["request"]["id"]
+    if consent:
+        give_profile(clinic)
+        assert agree(clinic, request_id).status_code == 200
+    return request_id
 
 
 def step(lab, request_id, name, **extra):
@@ -139,6 +155,9 @@ def test_a_doctor_without_a_relationship_cannot_send_for_that_patient(world):
         {"kind": "dentist"},
         {"token": "x"},
         {"token": "has space here"},
+        {"token": "9434765919"},  # DEV-222: an NHS number
+        {"token": "NHS-943-476-5919"},
+        {"label": "Bloods for 943 476 5919"},
         {"label": ""},
         {"label": "<script>"},
         {"urgency": "whenever"},
@@ -316,6 +335,7 @@ def test_both_sides_read_the_history_as_sides_not_names(world):
         steps = body(who)["history"]
         assert [(s["what"], s["side"]) for s in steps] == [
             ("sent", "clinic"),
+            ("consent_granted", "patient"),
             ("accept", "partner"),
             ("start", "partner"),
             ("deliver", "partner"),
@@ -408,8 +428,9 @@ def test_the_patient_is_told_once_when_a_doctor_reviews_a_result(world):
 
     _, clinic, lab = world
     deliver()  # setting the clinic up announced its new times
-    before = len(notices(clinic))
     request_id = made(clinic, lab)
+    deliver()  # sending it asked the patient for their agreement (a separate notice)
+    before = len(notices(clinic))
     deliver_all_the_way(lab, request_id)
     deliver()
     assert len(notices(clinic)) == before  # a result being ready tells the patient nothing yet
@@ -452,7 +473,12 @@ def _suspend(platform, customer, action="suspend"):
     r = go(
         f"platform/customers/{customer.tenant_public_id}/suspension",
         "sam",
-        {"action": action, "reason": "Unpaid and unreachable"},
+        # DEV-193: open partner requests need a plan for the patients concerned.
+        {
+            "action": action,
+            "reason": "Unpaid and unreachable",
+            "continuity_plan": "The clinic's own team calls each patient and books another lab.",
+        },
     )
     assert r.status_code == 201, r.content
     done = go(f"platform/suspensions/{body(r)['id']}/approve", "tess", {})
@@ -536,3 +562,383 @@ def test_a_held_request_is_assigned_to_the_person_who_sent_it(world):
     assert att["partner_held_mine"] == 1 and att["partner_on_hold"] == 1
     _suspend(platform, lab, "reinstate")
     assert body(clinic.get("staff/dashboard", subject="ops"))["attention"]["partner_held_mine"] == 0
+
+
+# ---------------------------------------------- the patient's agreement (DEV-226)
+def partner_row(lab, request_id):
+    rows = body(lab.call("get", "exchange/incoming"))["requests"]
+    return next(r for r in rows if r["id"] == request_id)
+
+
+def test_without_the_patients_agreement_the_partner_learns_nothing_and_cannot_proceed(world):
+    _, clinic, lab = world
+    request_id = made(clinic, lab, consent=False)
+    row = partner_row(lab, request_id)
+    assert row["consent"] == "pending" and row["identity"] is None
+    for name in ("accept", "start"):
+        assert step(lab, request_id, name).status_code == 409
+    assert clinic.person not in json.dumps(row)
+
+
+def test_after_agreeing_the_partner_sees_only_name_and_birth_date_for_that_order(world):
+    _, clinic, lab = world
+    give_profile(clinic, "Asha Rao", "1990-04-12")
+    request_id = made(clinic, lab, consent=False)
+    done = agree(clinic, request_id)
+    assert done.status_code == 200 and body(done)["request"]["consent"] == "granted"
+    row = partner_row(lab, request_id)
+    assert row["identity"] == {"name": "Asha Rao", "birth_date": "1990-04-12"}
+    assert set(row["identity"]) == {"name", "birth_date"} and clinic.person not in json.dumps(row)
+    other = made(clinic, lab, consent=False, token="ORD-0099")
+    assert partner_row(lab, other)["identity"] is None  # another order is not covered
+    assert step(lab, request_id, "accept").status_code == 200
+
+
+def test_the_name_is_not_stored_in_plain_text(world):
+    from django.db import connection
+
+    _, clinic, lab = world
+    give_profile(clinic, "Zuleikha Brandtmann", "1981-02-03")
+    request_id = made(clinic, lab, consent=False)
+    assert agree(clinic, request_id).status_code == 200
+    with connection.cursor() as cur:
+        cur.execute("select shared_identity_enc from exchange_exchangerequest")
+        stored = " ".join(row[0] for row in cur.fetchall())
+    assert stored and "Zuleikha" not in stored and "1981" not in stored
+
+
+def test_declining_shares_nothing_and_cancels_the_order(world):
+    _, clinic, lab = world
+    give_profile(clinic)
+    request_id = made(clinic, lab, consent=False)
+    done = agree(clinic, request_id, "decline")
+    assert done.status_code == 200
+    assert (
+        body(done)["request"]["consent"] == "declined"
+        and body(done)["request"]["state"] == "cancelled"
+    )
+    assert partner_row(lab, request_id)["identity"] is None
+    assert agree(clinic, request_id).status_code == 409  # a refusal is not reversed quietly
+
+
+def test_withdrawing_erases_what_was_shared_and_cancels_unfinished_work(world):
+    _, clinic, lab = world
+    request_id = made(clinic, lab)
+    assert partner_row(lab, request_id)["identity"]
+    done = agree(clinic, request_id, "withdraw")
+    assert done.status_code == 200 and body(done)["request"]["state"] == "cancelled"
+    row = partner_row(lab, request_id)
+    assert row["identity"] is None and row["consent"] == "withdrawn"
+    assert agree(clinic, request_id, "withdraw").status_code == 200  # repeating is harmless
+
+
+def test_an_agreement_ends_after_thirty_days_and_can_be_given_again(world):
+    from datetime import timedelta
+
+    from foundation.cell_context import tenant_transaction as tx
+    from modules.exchange import models as xm
+    from modules.exchange.models import ExchangeRequest
+
+    platform, clinic, lab = world
+    request_id = made(clinic, lab)
+    with tx(platform.ctx):
+        row = ExchangeRequest.objects.get(public_id=request_id)
+        assert (row.consent_expires_at - row.consent_at) == timedelta(days=xm.CONSENT_DAYS)
+        row.consent_expires_at = row.consent_at - timedelta(minutes=1)
+        row.save(update_fields=["consent_expires_at"])
+    shown = partner_row(lab, request_id)
+    assert shown["consent"] == "expired" and shown["identity"] is None
+    assert step(lab, request_id, "accept").status_code == 409
+    assert agree(clinic, request_id).status_code == 200
+    assert partner_row(lab, request_id)["identity"]
+
+
+def test_only_the_patient_or_a_guardian_can_answer_not_staff_or_a_partner(world):
+    _, clinic, lab = world
+    request_id = made(clinic, lab, consent=False)
+    assert agree(clinic, request_id, subject="ops").status_code in (403, 404)
+    assert agree(clinic, request_id, subject="doc").status_code in (403, 404)
+    assert lab.call("post", f"exchange/mine/{request_id}/agree").status_code in (403, 404)
+    assert partner_row(lab, request_id)["identity"] is None
+
+
+def test_a_patient_needs_a_name_on_file_before_agreeing(world):
+    _, clinic, lab = world
+    request_id = made(clinic, lab, consent=False)
+    assert agree(clinic, request_id).status_code == 422
+
+
+def test_the_patient_sees_what_they_are_asked_to_share_and_the_clinic_sees_the_state(world):
+    _, clinic, lab = world
+    give_profile(clinic)
+    request_id = made(clinic, lab, consent=False)
+    mine = body(clinic.get("exchange/mine", subject="pat"))["requests"][0]
+    assert mine["consent"] == "pending"
+    sent = body(clinic.get("exchange/requests", subject="ops"))["requests"][0]
+    assert sent["consent"] == "pending" and "identity" not in sent
+    agree(clinic, request_id)
+    assert (
+        body(clinic.get("exchange/requests", subject="ops"))["requests"][0]["consent"] == "granted"
+    )
+
+
+def test_the_worker_erases_the_stored_name_once_the_agreement_has_run_out(world):
+    from datetime import timedelta
+
+    from django.db import connection
+
+    from foundation.cell_context import tenant_transaction as tx
+    from modules.exchange import jobs
+    from modules.exchange.models import ExchangeRequest
+
+    platform, clinic, lab = world
+    give_profile(clinic, "Marguerite Delacroix", "1975-06-07")
+    old = made(clinic, lab, consent=False)
+    fresh = made(clinic, lab, consent=False, token="ORD-0077")
+    assert agree(clinic, old).status_code == 200 and agree(clinic, fresh).status_code == 200
+    with tx(platform.ctx):
+        row = ExchangeRequest.objects.get(public_id=old)
+        row.consent_expires_at = row.consent_at - timedelta(minutes=1)
+        row.save(update_fields=["consent_expires_at"])
+    assert jobs.erase_expired_all() == 1
+    assert jobs.erase_expired_all() == 0  # nothing left to do
+    with connection.cursor() as cur:
+        cur.execute("select public_id, shared_identity_enc from exchange_exchangerequest")
+        stored = {p: e for p, e in cur.fetchall()}
+    assert stored[old] == "" and stored[fresh] != ""
+    assert partner_row(lab, fresh)["identity"] and partner_row(lab, old)["identity"] is None
+    history = body(clinic.get(f"exchange/requests/{old}/history", subject="ops"))["history"]
+    assert history[-1]["what"] == "identity_erased"
+
+
+def test_the_patient_is_told_once_that_a_request_needs_their_agreement(world):
+    from tests.test_notifications import deliver
+
+    _, clinic, lab = world
+    deliver()
+    made(clinic, lab, consent=False)
+    deliver()
+    deliver()  # the worker running again must not tell them twice
+    told = [n for n in notices(clinic) if n["kind"] == "exchange_consent"]
+    assert len(told) == 1 and told[0]["title"] == "A request needs your agreement"
+    text = json.dumps(told[0])
+    assert "Full blood count" not in text and "ORD-0001" not in text and lab.tenant_name not in text
+    assert "name and date of birth" in told[0]["body"]
+
+
+def test_a_request_held_for_three_days_is_escalated_to_the_administrator(world):
+    from datetime import timedelta
+
+    from foundation.cell_context import tenant_transaction as tx
+    from modules.exchange import jobs
+    from modules.exchange.models import HOLD_ESCALATE_DAYS, ExchangeRequest
+    from modules.trust import api as trust_api
+
+    platform, clinic, lab = world
+    clinic.login("boss", trust_api.ActorType.FACILITY_USER, "R13")
+    young, old = made(clinic, lab), made(clinic, lab, token="ORD-0050")
+    _suspend(platform, lab)
+
+    def attention(subject):
+        return body(clinic.get("staff/dashboard", subject=subject))["attention"]
+
+    assert HOLD_ESCALATE_DAYS == 3 and jobs.escalate_holds_all() == 0  # just held: too early
+    with tx(platform.ctx):
+        row = ExchangeRequest.objects.get(public_id=old)
+        row.on_hold_at = row.on_hold_at - timedelta(days=3, minutes=1)
+        row.save(update_fields=["on_hold_at"])
+    assert jobs.escalate_holds_all() == 1 and jobs.escalate_holds_all() == 0  # once only
+    assert attention("boss")["partner_hold_escalated"] == 1  # the administrator's number
+    assert attention("ops")["partner_hold_escalated"] == 0  # not shown to other staff
+    rows = {r["id"]: r for r in body(clinic.get("exchange/requests", subject="ops"))["requests"]}
+    assert rows[old]["hold_escalated"] is True and rows[young]["hold_escalated"] is False
+    hist = body(clinic.get(f"exchange/requests/{old}/history", subject="ops"))["history"]
+    assert hist[-1]["what"] == "hold_escalated"
+    _suspend(platform, lab, "reinstate")  # released: no longer escalated
+    assert attention("boss")["partner_hold_escalated"] == 0
+
+
+# ---------------------------------------- a result summary and the lab's rating (DEV-307)
+SUMMARY = "Haemoglobin 82 g/L (low). Platelets and white cells within range."
+
+
+def delivered_with(clinic, lab, flag="abnormal", summary=SUMMARY, **over):
+    request_id = made(clinic, lab, **over)
+    for name in ("accept", "start"):
+        assert step(lab, request_id, name).status_code == 200
+    r = step(lab, request_id, "deliver", result_ref="RES-0042", summary=summary, flag=flag)
+    assert r.status_code == 200, r.content
+    return request_id
+
+
+def result(clinic, request_id, subject="doc"):
+    return clinic.get(f"exchange/requests/{request_id}/result", subject=subject)
+
+
+def test_a_treating_doctor_opens_the_summary_and_the_rating(world):
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab, "critical")
+    got = body(result(clinic, request_id))["result"]
+    assert (
+        got["summary"] == SUMMARY and got["flag"] == "critical" and got["result_ref"] == "RES-0042"
+    )
+    row = body(clinic.get("exchange/requests", subject="doc"))["requests"][0]
+    assert row["result_flag"] == "critical" and row["has_summary"] is True
+    assert "Haemoglobin" not in json.dumps(row)  # the list says there is one, not what
+
+
+def test_nobody_else_can_open_the_summary(world):
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab)
+    assert result(clinic, request_id, "ops").status_code == 403  # clinic staff
+    assert result(clinic, request_id, "doc2").status_code == 403  # a doctor not treating them
+    assert result(clinic, request_id, "pat").status_code == 403  # the patient
+    assert lab.call("get", f"exchange/requests/{request_id}/result").status_code == 403
+
+
+def test_the_summary_is_stored_encrypted_and_never_leaks_into_other_views(world):
+    from django.db import connection
+
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab, summary="Unmistakable sentinel zebra-quokka-5519")
+    with connection.cursor() as cur:
+        cur.execute("select result_summary_enc from exchange_exchangerequest")
+        stored = " ".join(row[0] for row in cur.fetchall())
+    assert stored and "zebra" not in stored
+    every = [
+        clinic.get("exchange/requests", subject="ops"),
+        clinic.get(f"exchange/requests/{request_id}/history", subject="ops"),
+        clinic.get("exchange/mine", subject="pat"),
+        lab.call("get", "exchange/incoming"),
+        lab.call("get", f"exchange/requests/{request_id}/history"),
+    ]
+    assert all("zebra" not in r.content.decode() for r in every)
+
+
+def test_a_summary_needs_a_valid_rating_and_a_sensible_length(world):
+    _, clinic, lab = world
+    request_id = made(clinic, lab)
+    for name in ("accept", "start"):
+        step(lab, request_id, name)
+    for extra in (
+        {"summary": SUMMARY},
+        {"summary": SUMMARY, "flag": "urgent!"},
+        {"flag": "huge"},
+        {"summary": "x" * 2001, "flag": "normal"},
+        {"summary": 5, "flag": "normal"},
+    ):
+        assert step(lab, request_id, "deliver", result_ref="RES-0042", **extra).status_code == 422
+    assert step(lab, request_id, "deliver", result_ref="RES-0042", flag="normal").status_code == 200
+    assert result(clinic, request_id).status_code == 404  # a rating with no summary
+
+
+def test_every_time_a_doctor_opens_a_summary_it_is_recorded_without_the_text(world):
+    from foundation.cell_context import tenant_transaction as tx
+    from modules.evidence.models import AuditEvent
+
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab)
+    result(clinic, request_id)
+    result(clinic, request_id)
+    with tx(clinic.clinic.ctx):
+        # once in the clinic's own trail, once in the platform's (the test login sees both)
+        reads = AuditEvent.objects.filter(
+            action="exchange.result_read", tenant_id=clinic.clinic.ctx.tenant_id
+        ).count()
+        dump = json.dumps(list(AuditEvent.objects.values_list("details", flat=True)), default=str)
+    assert reads == 2 and "Haemoglobin" not in dump
+
+
+def test_a_result_that_is_not_delivered_has_no_summary_to_open(world):
+    _, clinic, lab = world
+    request_id = made(clinic, lab)
+    assert result(clinic, request_id).status_code == 404
+
+
+# ------------------------------------------------ alerts by email (DEV-310)
+def give_email(clinic, actor_ref, address, verified=True):
+    from django.utils import timezone
+
+    from modules.trust.models import Actor, Credential
+
+    with tenant_transaction(clinic.clinic.ctx):
+        Credential.objects.create(
+            actor=Actor.objects.get(public_id=actor_ref),
+            login=address,
+            password_hash="x",
+            email=address,
+            email_verified_at=timezone.now() if verified else None,
+        )
+
+
+def mails(kind):
+    from foundation.models import QueuedEmail
+
+    return list(QueuedEmail.objects.filter(kind=kind))
+
+
+def accepted(clinic, lab, **over):
+    request_id = made(clinic, lab, **over)
+    for name in ("accept", "start"):
+        assert step(lab, request_id, name).status_code == 200
+    return request_id
+
+
+def test_a_critical_result_emails_the_person_who_ordered_it_once(world):
+    _, clinic, lab = world
+    give_email(clinic, clinic.desk, "desk@clinic.test")
+    request_id = accepted(clinic, lab)
+    deliver = dict(result_ref="RES-0042", summary=SUMMARY, flag="critical")
+    assert step(lab, request_id, "deliver", **deliver).status_code == 200
+    assert step(lab, request_id, "deliver", **deliver).status_code == 200  # a repeat
+    sent = mails("critical_result")
+    assert len(sent) == 1 and sent[0].to_address == "desk@clinic.test"
+    text = sent[0].subject + sent[0].body
+    assert "Haemoglobin" not in text and lab.tenant_name not in text and clinic.person not in text
+
+
+def test_no_alert_for_a_normal_result_or_an_unconfirmed_address(world):
+    _, clinic, lab = world
+    give_email(clinic, clinic.desk, "desk@clinic.test", verified=False)
+    first = accepted(clinic, lab)
+    assert (
+        step(
+            lab, first, "deliver", result_ref="RES-0042", summary=SUMMARY, flag="critical"
+        ).status_code
+        == 200
+    )  # unconfirmed
+    second = accepted(clinic, lab, token="ORD-0300")
+    assert (
+        step(
+            lab, second, "deliver", result_ref="RES-0043", summary=SUMMARY, flag="normal"
+        ).status_code
+        == 200
+    )  # not critical
+    assert mails("critical_result") == []
+
+
+def test_the_administrator_is_emailed_once_a_day_about_requests_held_too_long(world):
+    from datetime import timedelta
+
+    from foundation.cell_context import tenant_transaction as tx
+    from modules.comms import api as comms_api
+    from modules.exchange import jobs
+    from modules.exchange.models import ExchangeRequest
+    from modules.trust import api as trust_api
+
+    platform, clinic, lab = world
+    boss = clinic.login("boss", trust_api.ActorType.FACILITY_USER, "R13")
+    give_email(clinic, boss, "boss@clinic.test")
+    old = made(clinic, lab)
+    _suspend(platform, lab)
+    with tx(platform.ctx):
+        row = ExchangeRequest.objects.get(public_id=old)
+        row.on_hold_at = row.on_hold_at - timedelta(days=3, minutes=1)
+        row.save(update_fields=["on_hold_at"])
+    assert comms_api.send_escalation_alerts() == 0  # not escalated yet
+    assert jobs.escalate_holds_all() == 1
+    assert comms_api.send_escalation_alerts() == 1
+    assert comms_api.send_escalation_alerts() == 0  # once a day
+    sent = mails("hold_escalation")
+    assert len(sent) == 1 and sent[0].to_address == "boss@clinic.test"
+    assert "Haemoglobin" not in sent[0].body and lab.tenant_name not in sent[0].body

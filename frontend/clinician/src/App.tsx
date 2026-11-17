@@ -6,6 +6,7 @@ import { Account } from "./Account";
 import { Patients } from "./pages/Patients";
 import { Planned } from "./pages/Planned";
 import { Messages } from "./pages/Messages";
+import { Notes } from "./pages/Notes";
 import { PartnerResults } from "./pages/PartnerResults";
 import { Referrals } from "./pages/Referrals";
 import { clearLink, LinkPage, readLinkAction } from "./pages/LinkActions";
@@ -67,6 +68,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
   else if (page === "patients") body = <Patients key={patientQuery} initialSearch={patientQuery} />;
   else if (page === "referrals") body = <Referrals />;
+  else if (page === "notes") body = <Notes />;
   else if (page === "messages") body = <Messages />;
   else if (page === "results") body = <PartnerResults />;
   else body = <Schedule />;

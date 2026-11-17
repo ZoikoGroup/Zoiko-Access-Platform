@@ -280,7 +280,8 @@ def test_an_unassessed_incident_cannot_be_closed_until_a_safety_officer_assesses
     assert assess(platform, ref).status_code == 200
     [row] = incidents(platform)
     assert row["severity"] == "sev1" and row["assessed_by"] and row["assessment_note"]
-    assert resolve(platform, ref).status_code == 200                    # now it can be closed
+    assert resolve(platform, ref, restoration_notice="Customers told by email at 10:40 that "
+                   "service is back.").status_code == 200              # now it can be closed
 
 
 def test_only_a_safety_officer_assesses_and_it_needs_a_real_level_and_a_note(platform):
@@ -303,3 +304,51 @@ def test_an_incident_is_assessed_once_and_only_while_it_is_unknown_and_open(plat
     with tenant_transaction(platform.ctx):
         actions = set(AuditEvent.objects.values_list("action", flat=True))
     assert "incident.assess" in actions
+
+
+# ---------------------------------------------------------- G-08: a safety item must be handed off
+def handoff(world, incident, subject="iyer", note="Covered by the clinic's own phone line"):
+    return post(world, f"platform/incidents/{incident}/handoff", {"note": note}, subject)
+
+
+def test_an_incident_touching_safety_cannot_be_closed_until_a_hand_off_is_recorded(platform):
+    platform.staff("iyer", "R12")
+    ref = made(platform, safety_impact=True)
+    assert incidents(platform)[0]["safety_impact"] is True
+    refused = resolve(platform, ref)
+    assert refused.status_code == 422 and incidents(platform)[0]["status"] == "open"
+    assert handoff(platform, ref).status_code == 200
+    [row] = incidents(platform)
+    assert row["handoff_note"] and row["handoff_by"]
+    assert resolve(platform, ref).status_code == 200
+
+
+def test_an_ordinary_incident_closes_without_a_hand_off(platform):
+    ref = made(platform)
+    assert incidents(platform)[0]["safety_impact"] is False
+    assert resolve(platform, ref).status_code == 200
+
+
+def test_only_a_safety_officer_records_a_hand_off_once_and_only_where_it_applies(platform):
+    platform.staff("iyer", "R12")
+    ref = made(platform, safety_impact=True)
+    assert handoff(platform, ref, subject="sam").status_code == 403          # support cannot
+    assert handoff(platform, ref, note="").status_code == 422
+    assert handoff(platform, ref, note="ab").status_code == 422
+    assert handoff(platform, "no-such-incident").status_code == 404
+    assert handoff(platform, ref).status_code == 200
+    assert handoff(platform, ref).status_code == 409                          # only once
+    plain = made(platform, title="Another one")
+    assert handoff(platform, plain).status_code == 409                        # no safety impact
+
+
+def test_the_safety_flag_must_be_a_real_yes_or_no(platform):
+    assert add(platform, safety_impact="yes").status_code == 422
+
+
+def test_the_hand_off_is_audited(platform):
+    platform.staff("iyer", "R12")
+    ref = made(platform, safety_impact=True)
+    handoff(platform, ref)
+    with tenant_transaction(platform.ctx):
+        assert "incident.handoff" in set(AuditEvent.objects.values_list("action", flat=True))

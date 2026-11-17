@@ -9,6 +9,7 @@ import { Keys } from "./pages/Keys";
 import { Webhooks } from "./pages/Webhooks";
 import { Plans } from "./pages/Plans";
 import { Programme } from "./pages/Programme";
+import { Claims } from "./pages/Claims";
 import { Requests } from "./pages/Requests";
 import { Services } from "./pages/Services";
 import { Team } from "./pages/Team";
@@ -53,6 +54,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (item.id === "services") body = <Services />;
   else if (item.id === "team") body = <Team />;
   else if (item.id === "requests") body = <Requests />;
+  else if (item.id === "claims") body = <Claims />;
   else if (item.id === "keys") body = <Keys />;
   else if (item.id === "webhooks") body = <Webhooks />;
   else if (item.id === "documents") body = <Documents />;

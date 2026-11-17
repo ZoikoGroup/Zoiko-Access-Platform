@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getEmailNotices, markNotificationRead, setEmailNotices, type EmailNotices, type Notice } from "../api";
+import { getEmailNotices, markNotificationRead, setEmailNotices, confirmPhoneCode, sendPhoneCode, setQuietHours, setTexts, type EmailNotices, type Notice } from "../api";
 import { Card, Pill, type PillKind } from "../ui";
 
 const KIND: Record<string, { label: string; kind: PillKind }> = {
@@ -43,6 +43,21 @@ function EmailSwitch({ goToProfile }: { goToProfile: () => void }) {
     finally { setBusy(false); }
   }
 
+  const [times, setTimes] = useState({ start: "22:00", end: "07:00" });
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState("");
+  useEffect(() => {
+    if (state?.quiet) setTimes({ start: state.quiet.start, end: state.quiet.end });
+  }, [state?.quiet]);
+  async function saveQuiet(clear: boolean) {
+    setBusy(true); setError("");
+    try {
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      setState(await setQuietHours(clear ? null : { start: times.start, end: times.end, zone }));
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not change it"); }
+    finally { setBusy(false); }
+  }
+
   return (
     <Card title="Email me about changes"
       sub="A short email when an appointment is confirmed, cancelled, moved or coming up, or when your clinic writes to you. It never says which clinic, service or time: you sign in to see the details.">
@@ -52,8 +67,50 @@ function EmailSwitch({ goToProfile }: { goToProfile: () => void }) {
             <input type="checkbox" checked={state.enabled} disabled={busy} onChange={(e) => void change(e.target.checked)} />
             Send me these emails
           </label>
+          {state.enabled && (
+            <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+              <input type="checkbox" checked={state.texts} disabled={busy}
+                onChange={async (e) => { const on = e.target.checked; setBusy(true); setError(""); try { setState(await setTexts(on)); } catch (err) { setError(err instanceof Error ? err.message : "Could not change it"); } finally { setBusy(false); } }} />
+              Also send me a text message (it only says there is an update; your phone number must start with + and the country code)
+            </label>
+          )}
+          {state.enabled && state.texts && (state.phone_verified ? (
+            <p className="sub">Your phone number is verified for texts.</p>
+          ) : (
+            <div className="form-row" style={{ marginTop: 8 }}>
+              <span className="sub">Texts are sent only after you prove the number is yours.</span>
+              {codeSent ? (
+                <>
+                  <input aria-label="The six-digit code we texted you" inputMode="numeric" maxLength={6} value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ""))} />
+                  <button className="btn" disabled={busy || code.length !== 6}
+                    onClick={async () => { setBusy(true); setError(""); try { await confirmPhoneCode(code); setState(await getEmailNotices()); setCodeSent(false); setCode(""); } catch { setError("That code did not work. Check it, or ask for a new one."); } finally { setBusy(false); } }}>
+                    Confirm
+                  </button>
+                </>
+              ) : (
+                <button className="btn ghost" disabled={busy}
+                  onClick={async () => { setBusy(true); setError(""); try { await sendPhoneCode(); setCodeSent(true); } catch { setError("We could not send a code. Check that your number in My Profile starts with + and the country code, or try again in an hour."); } finally { setBusy(false); } }}>
+                  Text me a code
+                </button>
+              )}
+            </div>
+          ))}
           {state.enabled && !state.can_email && (
             <p><Pill kind="warn">no confirmed address</Pill> Nothing is sent until you add an email address and confirm it in <button className="link" onClick={goToProfile}>My Profile</button>.</p>
+          )}
+          {state.enabled && (
+            <fieldset style={{ border: 0, padding: 0, margin: "12px 0 0" }}>
+              <legend><b>Quiet hours</b></legend>
+              <p className="sub">Reminder emails wait until these hours end. Changes to an appointment, and messages from your clinic, are never held back.</p>
+              <div className="form-row">
+                <label>From <input type="time" value={times.start} disabled={busy} onChange={(e) => setTimes({ ...times, start: e.target.value })} /></label>
+                <label>Until <input type="time" value={times.end} disabled={busy} onChange={(e) => setTimes({ ...times, end: e.target.value })} /></label>
+                <button className="btn" disabled={busy || !times.start || !times.end || times.start === times.end} onClick={() => void saveQuiet(false)}>Save quiet hours</button>
+                {state.quiet && <button className="btn ghost" disabled={busy} onClick={() => void saveQuiet(true)}>Clear</button>}
+              </div>
+              {state.quiet && <p className="sub">Quiet from {state.quiet.start} to {state.quiet.end} ({state.quiet.zone}).</p>}
+            </fieldset>
           )}
           {error && <div className="error" role="alert">{error}</div>}
         </>

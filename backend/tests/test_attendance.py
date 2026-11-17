@@ -153,3 +153,18 @@ def test_it_is_recorded_in_the_audit_chain_without_a_note_about_health(web):
     with tenant_transaction(web.clinic.ctx):
         events = list(AuditEvent.objects.filter(action="booking.attended"))
     assert len(events) == 1 and events[0].object_ref == booking
+
+
+@pytest.mark.parametrize("outcome", ["attended", "no_show"])
+def test_a_visit_with_attendance_on_record_cannot_be_cancelled_afterwards(web, outcome):
+    """DEV-215: cancelling would rewrite what the clinic recorded about the visit."""
+    booking = visit(web)
+    assert mark(web, booking, outcome).status_code == 200
+    for who in ("desk", "boss"):
+        assert web.post(f"bookings/{booking}/cancel", {}, subject=who).status_code == 409
+    assert mine(web)[booking]["status"] == "confirmed"
+
+
+def test_a_past_visit_with_nothing_recorded_can_still_be_tidied_away(web):
+    booking = visit(web)
+    assert web.post(f"bookings/{booking}/cancel", {}, subject="desk").status_code == 200

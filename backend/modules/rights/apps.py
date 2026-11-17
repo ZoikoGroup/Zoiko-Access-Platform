@@ -14,3 +14,9 @@ class RightsConfig(AppConfig):
         from .rotation import rotate
 
         rotation.register("rights", rotate)
+
+        from foundation import retention
+
+        from .retention import persons_on_hold
+
+        retention.register_holds(persons_on_hold)

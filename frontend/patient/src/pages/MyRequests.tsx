@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getMyRequests, type MyRequest } from "../api";
+import { answerMyRequest, getMyRequests, type MyRequest } from "../api";
 import { Card, Pill, type PillKind } from "../ui";
 
 const KIND: Record<MyRequest["kind"], string> = {
@@ -19,12 +19,23 @@ function words(r: MyRequest): { text: string; kind: PillKind; hint: string } {
   }
 }
 
+const OPEN = ["requested", "accepted", "in_progress"];
+
 export function MyRequests() {
   const [rows, setRows] = useState<MyRequest[] | null>(null);
   const [error, setError] = useState("");
-  useEffect(() => {
-    getMyRequests().then(setRows).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load"));
-  }, []);
+  const [busy, setBusy] = useState("");
+  const load = () => getMyRequests().then(setRows).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load"));
+  useEffect(() => { void load(); }, []);
+  async function answer(id: string, step: "agree" | "decline" | "withdraw") {
+    setBusy(id); setError("");
+    try { await answerMyRequest(id, step); await load(); }
+    catch (e) {
+      const code = (e as { code?: string }).code;
+      setError(code === "VALIDATION_FAILED" ? "Please add your name to your details first, then try again."
+        : e instanceof Error ? e.message : "That did not work");
+    } finally { setBusy(""); }
+  }
   return (
     <>
       <div className="hero"><div>
@@ -44,6 +55,26 @@ export function MyRequests() {
                     <b>{r.label}</b>
                     <small>{KIND[r.kind]} · {r.partner} · asked on {r.created_at.slice(0, 10)}</small>
                     <small>{w.hint}</small>
+                    {r.consent === "pending" && OPEN.includes(r.state) && (
+                      <small>
+                        <b>Your agreement is needed.</b> {r.partner} can only do this if you agree to tell them your name and date of birth for this one request. They are told nothing else, and you can take it back at any time. If you say no, the request is cancelled.
+                      </small>
+                    )}
+                    {r.consent === "granted" && r.consent_expires_at && (
+                      <small>You agreed to share your name and date of birth for this request until {r.consent_expires_at.slice(0, 10)}.</small>
+                    )}
+                    {r.consent === "expired" && OPEN.includes(r.state) && <small>Your agreement has ended. Agree again if you still want this done.</small>}
+                    {r.consent === "declined" && <small>You said no, so nothing was shared.</small>}
+                    {r.consent === "withdrawn" && <small>You took your agreement back and what was shared has been removed.</small>}
+                    {(r.consent === "pending" || r.consent === "expired") && OPEN.includes(r.state) && (
+                      <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button className="btn" disabled={busy === r.id} onClick={() => void answer(r.id, "agree")}>I agree to share my name and date of birth</button>
+                        {r.consent === "pending" && <button className="btn ghost" disabled={busy === r.id} onClick={() => void answer(r.id, "decline")}>No, cancel this request</button>}
+                      </span>
+                    )}
+                    {r.consent === "granted" && (
+                      <span><button className="btn ghost" disabled={busy === r.id} onClick={() => void answer(r.id, "withdraw")}>Take my agreement back</button></span>
+                    )}
                   </div>
                   {r.urgency === "urgent" && <Pill kind="warn">Urgent</Pill>}
                   <Pill kind={w.kind}>{w.text}</Pill>

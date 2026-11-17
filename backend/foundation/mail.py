@@ -72,6 +72,15 @@ def queue_email(*, kind: str, to_address: str, subject: str, body: str) -> Queue
         content_digest=hashlib.sha256(f"{cleaned}\n{body}".encode()).hexdigest())
 
 
+def cancel_queued(*, kind: str, to_address: str) -> int:
+    """Cancel emails of this kind still waiting for this address (TC37, DEV-182): the person turned
+    them off after they were queued. Only QUEUED rows: one already being sent cannot be taken
+    back. The text is wiped and the address masked, as after a send. Returns how many."""
+    address = to_address.strip().lower()
+    rows = QueuedEmail.objects.filter(kind=kind, to_address=address, state=MailState.QUEUED)
+    return rows.update(state=MailState.CANCELLED, body="", to_address=mask_address(address))
+
+
 @dataclass(frozen=True)
 class SendResult:
     sent: int

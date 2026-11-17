@@ -74,5 +74,13 @@ export type IncomingState = "requested" | "accepted" | "declined" | "in_progress
 export interface Incoming {
   id: string; ref_no: string; kind: "lab_order" | "pharmacy_request" | "homecare_referral"; from: string;
   token: string; label: string; urgency: "routine" | "urgent"; state: IncomingState;
-  decision_note: string; result_ref: string; on_hold: boolean; created_at: string; accepted_at: string | null; result_at: string | null;
+  decision_note: string; result_ref: string; on_hold: boolean; consent: "pending" | "granted" | "declined" | "withdrawn" | "expired"; identity: { name: string; birth_date: string } | null; created_at: string; accepted_at: string | null; result_at: string | null;
 }
+
+export interface Claim {
+  id: string; claim_no: string; from: string; member_id: string; category: string; label: string;
+  amount_minor: number; currency: string; service_date: string;
+  state: "submitted" | "approved" | "declined" | "paid" | "withdrawn";
+  decision_reason: string | null; payment_ref: string | null; created_at: string;
+}
+export interface ClaimCheck { covered: boolean; reason: string; plan: string | null; copay_percent: number | null }

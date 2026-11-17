@@ -27,6 +27,7 @@ from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 
+from . import signing
 from .manifest import check_identity, fingerprint, normalize, ready_to_sign
 from .models import CountryPack, PackApproval, PackStatus
 
@@ -53,6 +54,12 @@ def _expired(pack: CountryPack, today: dt.date) -> bool:
     return bool(expires) and dt.date.fromisoformat(str(expires)) < today
 
 
+def _in_force(pack: CountryPack, today: dt.date) -> bool:
+    """A SIGNED pack counts only while unexpired AND its signature checks out against the exact row
+    (DEV-210). A row edited or marked signed in the database by hand counts for nothing."""
+    return not _expired(pack, today) and signing.is_valid(pack)
+
+
 def pack_dict(pack: CountryPack, clock: Clock | None = None) -> dict[str, Any]:
     approvals = {a.role: a for a in PackApproval.objects.filter(pack=pack, **_scope())}
     today = utc_now(clock).date()
@@ -66,6 +73,8 @@ def pack_dict(pack: CountryPack, clock: Clock | None = None) -> dict[str, Any]:
         "missing": ready_to_sign(pack.manifest) if pack.status in (
             PackStatus.DRAFT, PackStatus.VALIDATED) else [],
         "expired": pack.status == PackStatus.SIGNED and _expired(pack, today),
+        "signature": {"key_id": pack.signing_key_id, "valid": signing.is_valid(pack)}
+        if pack.status == PackStatus.SIGNED else None,
     }
 
 
@@ -137,8 +146,13 @@ def _move(row: CountryPack, status: str, actor: str, action: str, note: str = ""
     row.status = status
     if note or action in ("reject", "suspend"):
         row.note = note
+    if status == PackStatus.SIGNED:
+        signing.sign(row)
+    else:          # a pack that is no longer signed carries no signature to be flipped back to
+        row.signature = row.signing_key_id = ""
     row.entity_version += 1
-    row.save(update_fields=["status", "note", "entity_version", "updated_at"])
+    row.save(update_fields=["status", "note", "signature", "signing_key_id", "entity_version",
+                            "updated_at"])
     _audit(actor, action, row)
 
 
@@ -290,9 +304,28 @@ def data_request_days(country: str, clock: Clock | None = None) -> tuple[int, st
     found = [
         (p.manifest["settings"]["data_request_days"], f"{p.pack_ref}@{p.revision}")
         for p in CountryPack.objects.filter(country=country, status=PackStatus.SIGNED, **_scope())
-        if p.manifest["settings"]["data_request_days"] and not _expired(p, today)
+        if p.manifest["settings"]["data_request_days"] and _in_force(p, today)
     ]
     return min(found) if found else None
+
+
+def emergency_number(country: str, clock: Clock | None = None) -> tuple[str, str] | None:
+    """The local emergency number a SIGNED, unexpired pack states for this country, with the pack
+    that said so, or None (DEV-185). If several packs state different numbers there is no answer:
+    nothing is guessed, because a wrong number in an emergency is worse than none. Call with the
+    PLATFORM tenant bound."""
+    if not country:
+        return None
+    today = utc_now(clock).date()
+    stated = {
+        (p.manifest["settings"]["emergency_number"], f"{p.pack_ref}@{p.revision}")
+        for p in CountryPack.objects.filter(country=country, status=PackStatus.SIGNED, **_scope())
+        if p.manifest["settings"].get("emergency_number") and _in_force(p, today)
+    }
+    numbers = {number for number, _ in stated}
+    if len(numbers) != 1:
+        return None
+    return next(iter(numbers)), sorted(source for _, source in stated)[0]
 
 
 def pack_covers(
@@ -304,7 +337,7 @@ def pack_covers(
     for p in CountryPack.objects.filter(
             country=country, status=PackStatus.SIGNED, **_scope()
     ).order_by("pack_ref", "-revision"):
-        if not _expired(p, today) and all(p.manifest["capabilities"].get(c) for c in capabilities):
+        if _in_force(p, today) and all(p.manifest["capabilities"].get(c) for c in capabilities):
             return f"{p.pack_ref}@{p.revision}"
     return None
 
@@ -318,7 +351,7 @@ def enabled_capabilities(country: str, clock: Clock | None = None) -> frozenset[
     today = utc_now(clock).date()
     on: set[str] = set()
     for p in CountryPack.objects.filter(country=country, status=PackStatus.SIGNED, **_scope()):
-        if not _expired(p, today):
+        if _in_force(p, today):
             on |= {name for name, value in p.manifest["capabilities"].items() if value}
     return frozenset(on)
 
@@ -352,3 +385,20 @@ def get_pack(ref: str) -> dict[str, Any]:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     return pack_dict(found)
 
+
+
+def customer_capabilities(tenant_id: Any, clock: Clock | None = None) -> frozenset[str]:
+    """What the signed, current country packs switch on for this customer's market (DEV-228):
+    its recorded country, read in the platform's space where the packs live. Nothing when the
+    customer has no country or there is no platform. Safe inside a customer's transaction: the
+    platform is bound for the read and the customer's binding is put back after."""
+    from foundation.cell_context import tenant_transaction
+    from modules.trust import api as trust
+
+    country = trust.tenant_country(tenant_id)
+    platform = next((t for t in trust.list_tenants()
+                     if t["type"] == "platform" and t["status"] == "active"), None)
+    if not country or platform is None:
+        return frozenset()
+    with tenant_transaction(trust.context_for(platform["public_id"])):
+        return enabled_capabilities(country, clock)

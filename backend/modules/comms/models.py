@@ -17,6 +17,16 @@ class EmailPreference(CellScopedModel):
 
     actor_ref = models.CharField(max_length=22)           # trust Actor.public_id
     enabled = models.BooleanField(default=False)
+    # Quiet hours (TC30): routine reminder emails wait until the window ends. Minutes after local
+    # midnight, 0 to 1439, in `quiet_zone`; both empty means no quiet hours.
+    quiet_start = models.PositiveSmallIntegerField(null=True, blank=True)
+    quiet_end = models.PositiveSmallIntegerField(null=True, blank=True)
+    quiet_zone = models.CharField(max_length=40, blank=True, default="")
+    # DEV-194: also send a short text (never with care details) to the patient's own number.
+    texts_enabled = models.BooleanField(default=False)
+    # DEV-198: a keyed fingerprint of the number this login proved it holds, and when.
+    phone_digest = models.CharField(max_length=64, blank=True, default="")
+    phone_verified_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="emailpref_scope_idx")]
@@ -45,3 +55,19 @@ class Notification(CellScopedModel):
                 fields=["tenant_id", "source_event_id"], name="comms_one_per_event"
             ),
         ]
+
+
+class PhoneCheck(CellScopedModel):
+    """One code texted to prove a phone number (DEV-198). Only fingerprints are kept: never the
+    code, never the number."""
+
+    actor_ref = models.CharField(max_length=22)
+    number_digest = models.CharField(max_length=64)
+    code_digest = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id", "actor_ref"],
+                                name="phonecheck_actor_idx")]

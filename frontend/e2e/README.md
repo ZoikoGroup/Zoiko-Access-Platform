@@ -48,8 +48,11 @@ A failed robot leaves a screenshot and a trace under `test-results/` (not commit
 | 18 | The patient and staff inboxes each have a polite live region that states how many new messages are waiting, for screen readers. |
 | 19 | The partner app: a lab, pharmacy, home-care partner, payer and employer each sign in and see their own role and what it may reach; a lab adds a service and asks for a listing and adds a colleague; an employer enrols people and sees only counts; every kind of login sees real numbers on its home screen; a partner developer makes a key and finds the documents; a payer sets up a plan and a member and checks cover; a clinic administrator is pointed to the staff console. |
 | 20 | A patient writes to the clinic; the doctor who cares for them reads it in the doctor app and answers; the patient sees the clinic's reply. |
-| 21 | A clinic sends a lab order, the lab accepts, starts and delivers a result, a doctor marks it reviewed, and the clinic sees every step; the patient sees it is ready (not yet reviewed) and then reviewed; the lab's home screen counts its requests. |
+| 21 | A clinic sends a lab order, the lab accepts, starts and delivers a result, the patient agrees to share their name, the lab then sees it and can proceed, a doctor marks it reviewed, and the clinic sees every step; the patient sees it is ready (not yet reviewed) and then reviewed; the lab's home screen counts its requests. |
 | 22 | Every kind of login (patient, doctor, receptionist, clinic administrator, regional support, safety officer, lab, pharmacy, home care, payer, employer, developer) signs in and lands on its own home screen with no error; a picture of each is kept in `screens/` (not committed). The one-click links for the same logins are in `docs/LOGIN-LINKS.md`. |
+| 23 | A doctor places a lab order for their own patient from the doctor app and sees it waiting for the service. |
+| 24 | A clinic sends a claim to a payer; the payer sees nothing until the patient agrees; the patient agrees; the payer sees only member id, service, amount and date, approves and pays it; the clinic sees it paid. |
+| 25 | An employer enrols a member and makes a one-time code; the patient types it and agrees to be counted, then leaves; the employer sees the member as linked and nothing more. |
 
 ## Good to know
 

@@ -19,6 +19,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 
 from foundation.cell_context import require_context
+from foundation.crypto import blind_index, encrypt
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
@@ -222,12 +223,29 @@ def _date(value: Any, field: str) -> dt.date | None:
         raise _bad(field) from None
 
 
-def _mask(member_id: str) -> str:
-    return "…" + member_id[-4:]
+MEMBER_KEY_CONTEXT = "sponsor:member_id"
+
+
+def member_key(member_id: str, tenant_id: Any) -> str:
+    """The keyed fingerprint a member number is found by (DEV-216)."""
+    return blind_index(member_id, tenant_id=tenant_id, context=MEMBER_KEY_CONTEXT)
+
+
+def member_context(public_id: str) -> str:
+    """The sealed number is bound to its own row, so it cannot be moved to another member."""
+    return f"sponsor:{public_id}:member_id"
+
+
+def seal_member(row: PlanMember, member_id: str) -> None:
+    row.member_id = ""
+    row.member_key = member_key(member_id, row.tenant_id)
+    row.member_enc = encrypt(member_id, tenant_id=row.tenant_id,
+                             context=member_context(row.public_id))
+    row.member_tail = member_id[-4:]
 
 
 def member_dict(m: PlanMember) -> dict[str, Any]:
-    return {"id": m.public_id, "member": _mask(m.member_id), "plan": m.plan.code,
+    return {"id": m.public_id, "member": "…" + m.member_tail, "plan": m.plan.code,
             "valid_from": m.valid_from.isoformat() if m.valid_from else None,
             "valid_until": m.valid_until.isoformat() if m.valid_until else None, "state": m.state}
 
@@ -248,9 +266,11 @@ def add_plan_member(
                 code=plan_code, organization_ref=organization_ref, **_scope()).first()
             if plan is None:
                 raise _bad("plan")
-            row = PlanMember.objects.create(
-                organization_ref=organization_ref, plan=plan, member_id=member_id,
+            row = PlanMember(
+                organization_ref=organization_ref, plan=plan,
                 valid_from=start, valid_until=end, added_by_ref=actor_public_id, **_scope())
+            seal_member(row, member_id)
+            row.save()
             _audit(actor_public_id, "plan.add_member", "plan_member", row.public_id)
     except IntegrityError:
         raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None
@@ -295,7 +315,8 @@ def check_entitlement(
         raise _bad("category")
     day = _date(on, "on") or utc_now(clock).date()
     member = PlanMember.objects.select_related("plan").filter(
-        organization_ref=organization_ref, member_id=member_id, **_scope()).first()
+        organization_ref=organization_ref, member_key=member_key(member_id, _scope()["tenant_id"]),
+        **_scope()).first()
     if member is None:
         reason, plan = "no_member", None
     elif member.state != MemberState.ACTIVE:
@@ -315,3 +336,10 @@ def check_entitlement(
     return {"covered": reason == "covered", "reason": reason,
             "plan": plan.code if plan else None,
             "copay_percent": plan.copay_percent if plan and reason == "covered" else None}
+
+
+def member_active(*, organization_ref: str, member_ref: str) -> bool:
+    """Is this reference an enrolled, active member of the employer's programme? (DEV-312)"""
+    return ProgramMember.objects.filter(
+        organization_ref=organization_ref, member_ref=member_ref, state=MemberState.ACTIVE,
+        **_scope()).exists()

@@ -57,11 +57,59 @@
     }
    }
   },
+  "connector_operation_accepted_v1": {
+   "address": "connector.operation.accepted.v1",
+   "messages": {
+    "connector_operation_accepted_v1": {
+     "$ref": "#/components/messages/connector_operation_accepted_v1"
+    }
+   }
+  },
+  "connector_operation_confirmed_v1": {
+   "address": "connector.operation.confirmed.v1",
+   "messages": {
+    "connector_operation_confirmed_v1": {
+     "$ref": "#/components/messages/connector_operation_confirmed_v1"
+    }
+   }
+  },
+  "connector_operation_dead_v1": {
+   "address": "connector.operation.dead.v1",
+   "messages": {
+    "connector_operation_dead_v1": {
+     "$ref": "#/components/messages/connector_operation_dead_v1"
+    }
+   }
+  },
+  "connector_operation_rejected_v1": {
+   "address": "connector.operation.rejected.v1",
+   "messages": {
+    "connector_operation_rejected_v1": {
+     "$ref": "#/components/messages/connector_operation_rejected_v1"
+    }
+   }
+  },
+  "connector_operation_unknown_v1": {
+   "address": "connector.operation.unknown.v1",
+   "messages": {
+    "connector_operation_unknown_v1": {
+     "$ref": "#/components/messages/connector_operation_unknown_v1"
+    }
+   }
+  },
   "delegation_revoked_v1": {
    "address": "delegation.revoked.v1",
    "messages": {
     "delegation_revoked_v1": {
      "$ref": "#/components/messages/delegation_revoked_v1"
+    }
+   }
+  },
+  "exchange_consent_needed_v1": {
+   "address": "exchange.consent_needed.v1",
+   "messages": {
+    "exchange_consent_needed_v1": {
+     "$ref": "#/components/messages/exchange_consent_needed_v1"
     }
    }
   },
@@ -78,6 +126,14 @@
    "messages": {
     "family_decided_v1": {
      "$ref": "#/components/messages/family_decided_v1"
+    }
+   }
+  },
+  "identity_subject_proofed_v1": {
+   "address": "identity.subject.proofed.v1",
+   "messages": {
+    "identity_subject_proofed_v1": {
+     "$ref": "#/components/messages/identity_subject_proofed_v1"
     }
    }
   },
@@ -404,6 +460,156 @@
     },
     "x-schema-hash": "a5084c72721c8718"
    },
+   "connector_operation_accepted_v1": {
+    "contentType": "application/json",
+    "name": "connector.operation.accepted.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation_ref": {
+       "type": "string"
+      },
+      "operation_type": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "subject_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation_ref",
+      "operation_type",
+      "subject_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "external_operation"
+    },
+    "x-schema-hash": "11c4c64cdf4f1db8"
+   },
+   "connector_operation_confirmed_v1": {
+    "contentType": "application/json",
+    "name": "connector.operation.confirmed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation_ref": {
+       "type": "string"
+      },
+      "operation_type": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "subject_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation_ref",
+      "operation_type",
+      "subject_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "external_operation"
+    },
+    "x-schema-hash": "11c4c64cdf4f1db8"
+   },
+   "connector_operation_dead_v1": {
+    "contentType": "application/json",
+    "name": "connector.operation.dead.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation_ref": {
+       "type": "string"
+      },
+      "operation_type": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "subject_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation_ref",
+      "operation_type",
+      "subject_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "external_operation"
+    },
+    "x-schema-hash": "11c4c64cdf4f1db8"
+   },
+   "connector_operation_rejected_v1": {
+    "contentType": "application/json",
+    "name": "connector.operation.rejected.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation_ref": {
+       "type": "string"
+      },
+      "operation_type": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "subject_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation_ref",
+      "operation_type",
+      "subject_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "external_operation"
+    },
+    "x-schema-hash": "11c4c64cdf4f1db8"
+   },
+   "connector_operation_unknown_v1": {
+    "contentType": "application/json",
+    "name": "connector.operation.unknown.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation_ref": {
+       "type": "string"
+      },
+      "operation_type": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "subject_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation_ref",
+      "operation_type",
+      "subject_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "external_operation"
+    },
+    "x-schema-hash": "11c4c64cdf4f1db8"
+   },
    "delegation_revoked_v1": {
     "contentType": "application/json",
     "name": "delegation.revoked.v1",
@@ -425,6 +631,32 @@
      "x-aggregate": "delegation"
     },
     "x-schema-hash": "6d6c86a201375468"
+   },
+   "exchange_consent_needed_v1": {
+    "contentType": "application/json",
+    "name": "exchange.consent_needed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "kind": {
+       "type": "string"
+      },
+      "person_ref": {
+       "type": "string"
+      },
+      "request_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "request_ref",
+      "person_ref",
+      "kind"
+     ],
+     "type": "object",
+     "x-aggregate": "exchange_request"
+    },
+    "x-schema-hash": "9e057096266b46ef"
    },
    "exchange_reviewed_v1": {
     "contentType": "application/json",
@@ -473,6 +705,32 @@
      "x-aggregate": "family"
     },
     "x-schema-hash": "5273cb81e0654950"
+   },
+   "identity_subject_proofed_v1": {
+    "contentType": "application/json",
+    "name": "identity.subject.proofed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "outcome": {
+       "type": "string"
+      },
+      "person_ref": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "person_ref",
+      "outcome",
+      "status"
+     ],
+     "type": "object",
+     "x-aggregate": "person"
+    },
+    "x-schema-hash": "a767f7cdb7e19d1d"
    },
    "message_sent_v1": {
     "contentType": "application/json",
@@ -786,12 +1044,54 @@
    },
    "summary": "Zoiko publishes booking.rescheduled.v1"
   },
+  "publish_connector_operation_accepted_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/connector_operation_accepted_v1"
+   },
+   "summary": "Zoiko publishes connector.operation.accepted.v1"
+  },
+  "publish_connector_operation_confirmed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/connector_operation_confirmed_v1"
+   },
+   "summary": "Zoiko publishes connector.operation.confirmed.v1"
+  },
+  "publish_connector_operation_dead_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/connector_operation_dead_v1"
+   },
+   "summary": "Zoiko publishes connector.operation.dead.v1"
+  },
+  "publish_connector_operation_rejected_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/connector_operation_rejected_v1"
+   },
+   "summary": "Zoiko publishes connector.operation.rejected.v1"
+  },
+  "publish_connector_operation_unknown_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/connector_operation_unknown_v1"
+   },
+   "summary": "Zoiko publishes connector.operation.unknown.v1"
+  },
   "publish_delegation_revoked_v1": {
    "action": "send",
    "channel": {
     "$ref": "#/channels/delegation_revoked_v1"
    },
    "summary": "Zoiko publishes delegation.revoked.v1"
+  },
+  "publish_exchange_consent_needed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/exchange_consent_needed_v1"
+   },
+   "summary": "Zoiko publishes exchange.consent_needed.v1"
   },
   "publish_exchange_reviewed_v1": {
    "action": "send",
@@ -806,6 +1106,13 @@
     "$ref": "#/channels/family_decided_v1"
    },
    "summary": "Zoiko publishes family.decided.v1"
+  },
+  "publish_identity_subject_proofed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/identity_subject_proofed_v1"
+   },
+   "summary": "Zoiko publishes identity.subject.proofed.v1"
   },
   "publish_message_sent_v1": {
    "action": "send",

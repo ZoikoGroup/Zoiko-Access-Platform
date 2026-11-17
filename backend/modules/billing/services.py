@@ -21,7 +21,7 @@ from typing import Any
 
 from django.db import IntegrityError, transaction
 
-from foundation.cell_context import require_context
+from foundation.cell_context import require_context, tenant_transaction
 from foundation.chain import GENESIS, chain_digest, verify_chain
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.timeutil import Clock, utc_now
@@ -29,7 +29,9 @@ from modules.catalog import api as catalog
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 
-from .models import CreditNote, FeeItem, Invoice, InvoiceEvent, InvoiceStatus
+from . import payments
+from .models import CreditNote, FeeItem, Invoice, InvoiceEvent, InvoiceStatus, PaymentAttempt
+from .payments import FINAL, PaymentStatus
 
 WRITE = "write:billing"
 READ = "read:billing"
@@ -246,6 +248,26 @@ def create_invoice(
     raise _conflict()
 
 
+def _record_paid(inv: Invoice, payment_ref: str, actor: str, now: dt.datetime) -> None:
+    """THE one way an invoice becomes paid: by staff with a reference of a payment taken
+    elsewhere, or by a payment provider's reference. Call inside a transaction with the invoice
+    locked. Paying an invoice already paid is a harmless repeat."""
+    if inv.status == InvoiceStatus.PAID:
+        return
+    if inv.status != InvoiceStatus.ISSUED:
+        raise _conflict()
+    if not _PAYMENT_REF.match(payment_ref or ""):
+        raise _bad("payment_ref")
+    if inv.total_minor - _credited(inv) <= 0:
+        raise _conflict()                                        # nothing left to pay
+    inv.status, inv.paid_at, inv.payment_ref = InvoiceStatus.PAID, now, payment_ref
+    inv.entity_version += 1
+    inv.save()
+    _log(inv, "paid", actor, now)
+    record(actor_ref=actor, action="billing.invoice_paid", object_type="invoice",
+           object_ref=inv.public_id, outcome=AuditOutcome.ALLOWED)
+
+
 def step(
     *, invoice_ref: str, organization_ref: str, action: str, payment_ref: str,
     reason: str, actor_public_id: str, decision: policy.Decision, clock: Clock | None = None,
@@ -264,16 +286,8 @@ def step(
                 raise _conflict()
             inv.status, inv.issued_at, kind = InvoiceStatus.ISSUED, now, "issued"
         elif action == "pay":
-            if inv.status == InvoiceStatus.PAID:
-                return invoice_dict(inv)
-            if inv.status != InvoiceStatus.ISSUED:
-                raise _conflict()
-            if not _PAYMENT_REF.match(payment_ref or ""):
-                raise _bad("payment_ref")
-            if inv.total_minor - _credited(inv) <= 0:
-                raise _conflict()                                # nothing left to pay
-            inv.status, inv.paid_at, inv.payment_ref, kind = (
-                InvoiceStatus.PAID, now, payment_ref, "paid")
+            _record_paid(inv, payment_ref, actor_public_id, now)
+            return invoice_dict(inv)
         else:
             _admin(decision)
             if inv.status == InvoiceStatus.VOID:
@@ -368,3 +382,179 @@ def patient_invoices(person_ref: str) -> list[dict[str, Any]]:
     rows = Invoice.objects.filter(person_ref=person_ref, **_scope()).exclude(
         status=InvoiceStatus.DRAFT).order_by("-created_at")[:200]
     return [invoice_dict(i) for i in rows]
+
+
+# ------------------------------------------------------------------ paying through a provider
+# A switched-off skeleton (no provider has been chosen). The rules:
+# * Only the patient who owes an issued invoice may start paying it, for the whole balance.
+# * One attempt at a time per invoice: one still pending or unknown must be asked about first.
+# * The same idempotency key gives back the same attempt and never asks the provider twice.
+# * The provider is called OUTSIDE any database transaction; the attempt is written before and
+#   after. If the first answer never arrives, asking again sends the same key, which the provider
+#   must honour (payments.PaymentProvider), so there is never a second charge.
+# * "succeeded" marks the invoice paid through _record_paid, the same path staff use, with the
+#   provider's reference. "failed" and "unknown" leave the invoice open.
+_IDEMPOTENCY_KEY = re.compile(r"^[A-Za-z0-9._:-]{8,64}$")
+_OPEN = (PaymentStatus.PENDING.value, PaymentStatus.UNKNOWN.value)
+
+
+def payment_dict(a: PaymentAttempt, inv: Invoice) -> dict[str, Any]:
+    return {
+        "public_id": a.public_id, "invoice_ref": inv.public_id, "invoice_number": inv.number,
+        "provider": a.provider, "provider_ref": a.provider_ref, "amount_minor": a.amount_minor,
+        "currency": a.currency, "status": a.status, "attempts": a.attempts,
+        "created_at": a.created_at.isoformat(), "updated_at": a.updated_at.isoformat(),
+    }
+
+
+def _provider() -> payments.PaymentProvider:
+    found = payments.active()
+    if found is None:
+        raise _bad("payment_provider")                   # payments are switched off here
+    return found
+
+
+def _ask_start(
+    provider: payments.PaymentProvider, invoice_ref: str, amount: int, currency: str, key: str
+) -> tuple[str, PaymentStatus]:
+    try:
+        ref, status = provider.start_payment(invoice_ref, amount, currency, key)
+        status = PaymentStatus(status)
+    except Exception:                                    # no answer we can trust: ask again later
+        return "", PaymentStatus.UNKNOWN
+    if ref and not _PAYMENT_REF.match(ref):
+        return "", PaymentStatus.UNKNOWN
+    return ref, status
+
+
+def _ask_status(provider: payments.PaymentProvider, provider_ref: str) -> PaymentStatus:
+    try:
+        return PaymentStatus(provider.payment_status(provider_ref))
+    except Exception:
+        return PaymentStatus.UNKNOWN
+
+
+def _apply_answer(
+    attempt_ref: str, provider_ref: str, status: PaymentStatus, actor: str, now: dt.datetime
+) -> dict[str, Any]:
+    """Write what the provider said. A final answer (succeeded or failed) is never overwritten."""
+    with tenant_transaction():
+        invoice_id = PaymentAttempt.objects.filter(
+            public_id=attempt_ref, **_scope()).values_list("invoice_id", flat=True).get()
+        inv = Invoice.objects.select_for_update().get(pk=invoice_id, **_scope())  # invoice first
+        a = PaymentAttempt.objects.select_for_update().get(public_id=attempt_ref, **_scope())
+        before = a.status
+        a.attempts += 1
+        if provider_ref and not a.provider_ref:
+            a.provider_ref = provider_ref
+        if before not in {s.value for s in FINAL}:
+            a.status = status.value
+        a.entity_version += 1
+        a.save()
+        if a.status != before:
+            record(actor_ref=actor, action=f"billing.payment_{a.status}", object_type="payment",
+                   object_ref=a.public_id, outcome=AuditOutcome.ALLOWED, reason_code=a.provider)
+        if a.status == PaymentStatus.SUCCEEDED and before != a.status:
+            balance = inv.total_minor - _credited(inv)
+            if inv.status == InvoiceStatus.ISSUED and balance == a.amount_minor and a.provider_ref:
+                _record_paid(inv, a.provider_ref, actor, now)
+            else:
+                # The invoice changed while the payment was under way (cancelled, credited or paid
+                # another way). It is left as it is for the clinic to put right; nothing is guessed.
+                record(actor_ref=actor, action="billing.payment_unmatched", object_type="payment",
+                       object_ref=a.public_id, outcome=AuditOutcome.FAILED,
+                       reason_code="invoice_changed")
+        return payment_dict(a, inv)
+
+
+def start_payment(
+    *, invoice_ref: str, person_ref: str, idempotency_key: str, actor_public_id: str,
+    clock: Clock | None = None,
+) -> dict[str, Any]:
+    """The patient who owes an issued invoice pays its balance through this deployment's provider.
+
+    Refused (422, field payment_provider) when payments are switched off. The caller has
+    authorized the patient's own billing for `person_ref`; an invoice addressed to anyone else, or
+    still a draft, is not found. Runs its own transactions: do not call inside one."""
+    if not person_ref:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    provider = _provider()
+    if not _IDEMPOTENCY_KEY.match(idempotency_key or ""):
+        raise _bad("idempotency_key")
+    now = utc_now(clock)
+    with tenant_transaction():
+        inv = Invoice.objects.select_for_update().filter(
+            public_id=invoice_ref, person_ref=person_ref, **_scope()).exclude(
+            status=InvoiceStatus.DRAFT).first()
+        if inv is None:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        earlier = PaymentAttempt.objects.filter(
+            idempotency_key=idempotency_key, **_scope()).first()
+        if earlier is not None:
+            if earlier.invoice_id != inv.id:
+                raise ZoikoError(ErrorCode.DUPLICATE_COMMAND)   # the key was used for another bill
+            return {**payment_dict(earlier, inv), "replayed": True}
+        balance = inv.total_minor - _credited(inv)
+        if inv.status != InvoiceStatus.ISSUED or balance <= 0:
+            raise _conflict()                                   # paid, cancelled or nothing owed
+        if PaymentAttempt.objects.filter(invoice=inv, status__in=_OPEN, **_scope()).exists():
+            raise _conflict()                                   # ask about the open one first
+        try:
+            with transaction.atomic():
+                attempt = PaymentAttempt.objects.create(
+                    invoice=inv, provider=provider.key, amount_minor=balance,
+                    currency=inv.currency, status=PaymentStatus.PENDING.value,
+                    idempotency_key=idempotency_key, started_by_ref=actor_public_id, **_scope())
+        except IntegrityError:
+            raise ZoikoError(ErrorCode.DUPLICATE_COMMAND) from None
+        record(actor_ref=actor_public_id, action="billing.payment_started", object_type="payment",
+               object_ref=attempt.public_id, outcome=AuditOutcome.ALLOWED,
+               reason_code=provider.key)
+    ref, status = _ask_start(provider, inv.public_id, balance, inv.currency, idempotency_key)
+    return {**_apply_answer(attempt.public_id, ref, status, actor_public_id, now),
+            "replayed": False}
+
+
+def refresh_payment(
+    *, payment_ref: str, person_ref: str, actor_public_id: str, clock: Clock | None = None,
+) -> dict[str, Any]:
+    """Ask the provider again about an attempt still pending or unknown. A final one is returned as
+    it is. Only the patient who owes the invoice may ask. Runs its own transactions."""
+    if not person_ref:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    now = utc_now(clock)
+    with tenant_transaction():
+        a = PaymentAttempt.objects.filter(public_id=payment_ref, **_scope()).first()
+        inv = Invoice.objects.filter(pk=a.invoice_id, **_scope()).first() if a else None
+        if a is None or inv is None or inv.person_ref != person_ref:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        if a.status not in _OPEN:
+            return payment_dict(a, inv)
+    provider = _provider()
+    if provider.key != a.provider:
+        raise _bad("payment_provider")                  # started with a provider no longer in use
+    if a.provider_ref:
+        ref, status = "", _ask_status(provider, a.provider_ref)
+    else:                                               # the first answer never came: same key
+        ref, status = _ask_start(provider, inv.public_id, a.amount_minor, a.currency,
+                                 a.idempotency_key)
+    return _apply_answer(a.public_id, ref, status, actor_public_id, now)
+
+
+def payer_payments(invoice_ref: str, person_ref: str) -> list[dict[str, Any]]:
+    """The attempts to pay one of the patient's own invoices, newest first."""
+    inv = Invoice.objects.filter(public_id=invoice_ref, person_ref=person_ref, **_scope()).exclude(
+        status=InvoiceStatus.DRAFT).first()
+    if inv is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    rows = PaymentAttempt.objects.filter(invoice=inv, **_scope()).order_by("-created_at")[:50]
+    return [payment_dict(a, inv) for a in rows]
+
+
+def list_payments(organization_ref: str, invoice_ref: str | None = None) -> list[dict[str, Any]]:
+    """For clinic staff: attempts to pay this clinic's invoices (optionally one invoice)."""
+    rows = PaymentAttempt.objects.select_related("invoice").filter(
+        invoice__organization_ref=organization_ref, **_scope())
+    if invoice_ref:
+        rows = rows.filter(invoice__public_id=invoice_ref)
+    return [payment_dict(a, a.invoice) for a in rows.order_by("-created_at")[:200]]

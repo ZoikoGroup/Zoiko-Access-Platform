@@ -1,6 +1,6 @@
 // The partner app menu. Which items a person sees depends on the kind of login they hold, because
 // the server decides what each role may reach; the menu only hides what would be refused.
-export type PageId = "home" | "services" | "team" | "programme" | "plans" | "requests" | "keys" | "webhooks" | "documents" | "account";
+export type PageId = "home" | "services" | "team" | "programme" | "plans" | "requests" | "claims" | "keys" | "webhooks" | "documents" | "account";
 
 export interface NavItem {
   id: PageId;
@@ -17,6 +17,7 @@ export const NAV: NavItem[] = [
   { id: "requests", label: "Incoming requests", icon: "referrals", live: true, areas: ["partner"] },
   { id: "programme", label: "Programme", icon: "reports", live: true, areas: ["employer"] },
   { id: "plans", label: "Plans and members", icon: "services", live: true, areas: ["payer"] },
+  { id: "claims", label: "Claims", icon: "reports", live: true, areas: ["payer"] },
   { id: "keys", label: "API keys", icon: "integrations", live: true, areas: ["developer"] },
   { id: "webhooks", label: "Webhooks", icon: "referrals", live: true, areas: ["developer"] },
   { id: "documents", label: "API documents", icon: "reports", live: true, areas: ["developer"] },

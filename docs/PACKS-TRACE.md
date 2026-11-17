@@ -2,7 +2,7 @@
 
 Written 2026-11-12 by the developer, from the specification's own acceptance cases. Each row is a judgement made by reading the case and the code, not an automatic result; "Met" means one of our own automated tests proves the behaviour. The cases have **not** been run as written. This is the developer's reading and nobody else has reviewed it.
 
-**Totals: 6 met, 19 partly, 11 not built (of 36).**
+**Totals: 7 met, 20 partly, 9 not built (of 36).**
 
 What exists is a recorded, reviewed and approved-on-record country pack with an expiry, a fingerprint and a veto, and one applied setting (the data-request deadline). The "not built" rows are mostly the signed manifest, cell staging, preflight, a run-time resolver and the transfer and market controls, none of which can be built without cells, signing keys and approvers.
 
@@ -17,7 +17,7 @@ What exists is a recorded, reviewed and approved-on-record country pack with an 
 | AT-07 | Verification | Employer payment alone cannot enable clinician or employee-record viewing. | Met | test_prohibitions.py: the employer role is barred from patient records whatever else is true; there is no employer payment to test. |
 | AT-08 | Verification | Unsigned/tampered manifest rejected by cell. | Partly | A pack's content has a fingerprint and approvals bind it (test_packs.py). There are no cells and no signatures, so nothing is rejected by a cell. |
 | AT-09 | Verification | Manifest with expired dates or wrong cell mapping rejected. | Partly | An expired pack gives nothing (test_packs.py, test_country_deadline.py). There is no cell mapping. |
-| AT-10 | Verification | Forged or replayed approval signature cannot activate a revision. | Not built | Approvals are rows in our own database, not signatures, so there is nothing to forge or replay. |
+| AT-10 | Verification | Forged or replayed approval signature cannot activate a revision. | Met | A pack is signed (Ed25519) when its second approval lands, and the signature is checked on every use. A row edited in the database, marked signed by hand, carrying another pack's signature, or signed with another key counts for nothing (test_pack_signing.py, DEV-210). The approvals themselves still follow the two-person rule (test_packs.py). The key is a server setting until decision 4 names a key service. |
 | AT-11 | Verification | Unknown fields and incompatible schema versions are rejected. | Partly | Unknown fields are refused (test_packs.py). Schema versions are not modelled. |
 | AT-12 | Verification | Author cannot self-approve mandatory Legal/DPO/CSO/CISO approvals. | Met | test_packs.py: the author cannot approve their own pack, and two different people must approve (support and safety officers stand in for the named roles). |
 | AT-13 | Verification | A material change invalidates affected signatures and produces a new immutable revision. | Met | test_packs.py: sending a pack back clears its approvals, only a draft can change, and a suspended pack returns only as a new revision. |
@@ -37,7 +37,7 @@ What exists is a recorded, reviewed and approved-on-record country pack with an 
 | AT-27 | Verification | Missing partner contract or disabled gateway blocks service with correct user notice. | Not built | No partner contract model. |
 | AT-28 | Verification | Expired evidence triggers alert ahead of deadline and suspension at required point. | Partly | An expired pack shows as expired and stops counting (test_packs.py). Nothing alerts ahead of the deadline. |
 | AT-29 | Verification | Locally authorized emergency disable succeeds without unsafe clinical case loss. | Partly | Either a support or a safety officer may suspend a pack with a reason (test_packs.py). No clinical cases are involved. |
-| AT-30 | Verification | Provider/tenant offboarding prevents new care, preserves required lawful records/rights. | Not built | No offboarding workflow. |
+| AT-30 | Verification | Provider/tenant offboarding prevents new care, preserves required lawful records/rights. | Partly | Suspension is the offboarding step: it takes two different support people, locks the customer out at once (no new care can be booked or given), keeps every record (nothing is deleted, and reinstating brings everything back), puts open partner requests on hold for the other side to decide, and needs a continuity plan when patients are mid-journey (test_suspensions.py, DEV-080, DEV-169, DEV-193). Patients of a suspended customer cannot sign in, so they cannot file data-rights requests until it is reinstated: that right is not preserved yet. |
 | AT-31 | Verification | Patient rights requests route to correct controlling entity and cell. | Partly | A data request goes to the patient's own clinic (test_rights.py). There are no other controlling entities or cells. |
 | AT-32 | Verification | Regional restore replays same signed policy and cannot revert to obsolete permissions. | Not built | No regional restore. |
 | AT-33 | Verification | Country support and accessibility/language obligations verified for approved journey. | Partly | The accessibility scan passes on every page of the four apps (browser robot 10). There is no language support. |

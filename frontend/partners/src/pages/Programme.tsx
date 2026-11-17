@@ -3,6 +3,7 @@ import { getProgram, programStep } from "../api";
 import type { Shown } from "../types";
 import { Card, StatCard } from "../ui";
 import { Gate, useLoad } from "../useLoad";
+import { ProgrammeLinks } from "./ProgrammeLinks";
 
 function count(s: Shown, k: number): { value: string; note?: string } {
   return s.hidden ? { value: "Hidden", note: `Fewer than ${k} people: hidden so no one can be picked out` } : { value: String(s.value) };
@@ -65,6 +66,7 @@ function ProgrammeInner({ onChanged, said }: { onChanged: (said?: string) => voi
               <Editor onDone={onChanged} />
               {said && <div className="success" role="status">{said}</div>}
             </Card>
+            <ProgrammeLinks />
           </div>
         )}
       </Gate>

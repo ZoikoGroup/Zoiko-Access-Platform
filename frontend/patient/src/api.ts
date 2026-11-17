@@ -445,6 +445,7 @@ export interface RightsRequest {
   decision_note: string;
   decided_at: string | null;
   due_at: string | null;
+  lawful_hold: boolean;
 }
 export const getRights = async () => (await request<{ requests: RightsRequest[] }>("rights")).body.requests;
 export const fileRights = async (type: string, note: string) =>
@@ -543,7 +544,8 @@ export async function resendVerification(): Promise<"sent" | "wait"> {
   }
 }
 
-export interface EmailNotices { enabled: boolean; can_email: boolean }
+export interface QuietHours { start: string; end: string; zone: string }
+export interface EmailNotices { enabled: boolean; can_email: boolean; quiet: QuietHours | null; texts: boolean; phone_verified: boolean }
 
 /** Does this patient get short emails about their care, and could one be sent (a confirmed address)? */
 export const getEmailNotices = async () => (await request<EmailNotices>("my/email-notices")).body;
@@ -569,6 +571,47 @@ export interface MyRequest {
   id: string; kind: "lab_order" | "pharmacy_request" | "homecare_referral"; partner: string; label: string;
   urgency: "routine" | "urgent";
   state: "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
+  consent: "pending" | "granted" | "declined" | "withdrawn" | "expired"; consent_expires_at: string | null;
   created_at: string; result_at: string | null; reviewed_at: string | null;
 }
+export const answerMyRequest = async (id: string, step: "agree" | "decline" | "withdraw") =>
+  (await request<{ request: MyRequest }>(`exchange/mine/${encodeURIComponent(id)}/${step}`, { method: "POST", body: "{}" })).body.request;
+export interface MyNote {
+  id: string; note_date: string; version: number; corrected: boolean; amend_reason: string | null;
+  author_name: string; signed_at: string | null; body?: string;
+  addenda?: { id: string; added_at: string; body: string }[];
+}
+export const getMyNotes = async () => (await request<{ notes: MyNote[]; enabled?: boolean }>("my/notes")).body;
+export const getMyNote = async (id: string) => (await request<{ note: MyNote }>(`my/notes/${encodeURIComponent(id)}`)).body.note;
+export interface MyClaim {
+  id: string; payer: string; label: string; category: string; amount_minor: number; currency: string;
+  service_date: string; state: "submitted" | "approved" | "declined" | "paid" | "withdrawn";
+  consent: "pending" | "granted" | "declined" | "withdrawn"; created_at: string;
+}
+export const getMyClaims = async () => (await request<{ claims: MyClaim[] }>("claims/mine")).body.claims;
+export const answerMyClaim = async (id: string, step: "agree" | "decline" | "withdraw") =>
+  (await request<{ claim: MyClaim }>(`claims/mine/${encodeURIComponent(id)}/${step}`, { method: "POST", body: "{}" })).body.claim;
+export interface MyProgramme { id: string; employer: string; linked_at: string | null }
+export const getMyProgrammes = async () => (await request<{ programmes: MyProgramme[] }>("programme/mine")).body.programmes;
+export const joinProgramme = async (code: string) =>
+  (await request<{ programme: MyProgramme }>("programme/redeem", { method: "POST", body: JSON.stringify({ code }) })).body.programme;
+export const leaveProgramme = async (id: string) =>
+  (await request<{ programme: MyProgramme }>(`programme/mine/${encodeURIComponent(id)}/leave`, { method: "POST", body: "{}" })).body.programme;
 export const getMyRequests = async () => (await request<{ requests: MyRequest[] }>("exchange/mine")).body.requests;
+
+/** Routine reminder emails wait until these quiet hours end; null clears them. */
+export const setQuietHours = async (quiet: QuietHours | null) =>
+  (await request<EmailNotices>("my/email-notices", { method: "POST", body: JSON.stringify({ quiet }) })).body;
+
+/** The local emergency number, only when a signed country pack states one for the clinic's country. */
+export const getEmergencyNumber = async () => (await request<{ number: string | null }>("my/emergency")).body.number;
+
+/** Also send a short text ("there is an update, sign in to see it"), never with care details. */
+export const setTexts = async (texts: boolean) =>
+  (await request<EmailNotices>("my/email-notices", { method: "POST", body: JSON.stringify({ texts }) })).body;
+
+/** Text a six-digit code to the number on the patient's profile, then confirm it (DEV-198). */
+export const sendPhoneCode = async () => { await request("my/phone-check", { method: "POST", body: "{}" }); };
+export const confirmPhoneCode = async (code: string) => {
+  await request("my/phone-check/confirm", { method: "POST", body: JSON.stringify({ code }) });
+};

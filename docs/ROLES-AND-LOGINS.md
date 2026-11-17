@@ -20,14 +20,14 @@ Sign-in asks for the organization (the customer), the login and the password. A 
 |---|---|---|---|
 | R01 Patient | Dashboard | Find care, book and change appointments, referrals and messages, tests and requests made for them (status only), bills, data requests, family and guardians, insurance sharing | Identity matching, emergency access, record exchange |
 | R02 Guardian | Patient app in proxy mode | The same, for the person they act for, after the clinic approves | Same as R01 |
-| R03 Clinician | My schedule | Schedule, my patients (only through a care relationship), referrals, messages with their own patients, marking a partner's result as reviewed, a stated reason for every look | Notes, orders and results (no clinical record service) |
+| R03 Clinician | My schedule | Schedule, my patients (only through a care relationship), referrals, messages with their own patients, placing orders to labs, pharmacies and home care, marking a partner's result as reviewed, consultation notes (encrypted, signed, corrected by a new version; switched off until the notes switch is set), a stated reason for every look | Orders and results (no clinical record service) |
 | R04 Clinic operations | Dashboard with what is waiting | Appointments, people, services and listings, messages, referrals, data requests, billing, waiting list, workflows, reports | Clinical judgments (by design) |
 | R13 Organization administrator | Same dashboard, plus admin screens | Everything R04 does, plus team, listing review and publishing, integrations (webhooks, partner keys), workflow definitions | Platform roles (by design) |
 | R11 Regional support | Platform overview | Onboard customers of every kind, set a customer's country, country packs, service levels, requests to suspend a customer | Standing clinical access (by design) |
 | R12 Clinical safety officer | Platform overview | Sign off country packs and hazards, readiness vetoes | Intended-purpose classification, result review, critical-result routing |
-| R05 Lab, R06 Pharmacy, R09 Home care | Overview with numbers | My services (add, ask for a listing, a colleague reviews it), incoming requests from clinics (accept, decline, start, mark a result available: status and references only), team | Patient identity and clinical content, a patient's consent to share |
-| R07 Payer | Overview with numbers | Plans, members, a cover check that says why not, team | Claims, a clinic asking the payer (same missing exchange) |
-| R08 Employer | Overview with numbers | Enrol people by an opaque reference, counts only with small groups hidden, team | Counts about visits and bookings (same missing link) |
+| R05 Lab, R06 Pharmacy, R09 Home care | Overview with numbers | My services (add, ask for a listing, a colleague reviews it), incoming requests from clinics (accept, decline, start, mark a result available; the patient's name and birth date once the patient agrees for that order), team | Clinical content beyond name and birth date |
+| R07 Payer | Overview with numbers | Plans, members, a cover check that says why not, claims from clinics (member id, service, amount and date only: approve, decline with a fixed reason, mark paid), team | Remittance advice, attachments |
+| R08 Employer | Overview with numbers | Enrol people by an opaque reference, one-time codes so people can join, monthly appointment and visit totals (groups of 10 or more only), team | Counts by kind of service |
 | R10 Partner developer | Overview with numbers | API keys (secret shown once), webhooks and the delivery log, the OpenAPI and AsyncAPI documents, team | A sandbox with synthetic patients, certification, onboarding checks |
 
 ## Rules that hold for every role

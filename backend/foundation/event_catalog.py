@@ -15,6 +15,9 @@ from typing import Any
 # type -> (what it is about, fields always present, fields sometimes present)
 _BOOKING = ("booking", ("booking_ref", "slot_ref", "service_ref", "status"), ("side", "actor_ref"))
 _REFERRAL = ("referral", ("referral_ref", "state"), ("actor_ref",))
+# A partner operation moved on: which one, what kind, what it is about, and where it now stands.
+_OPERATION = (
+    "external_operation", ("operation_ref", "operation_type", "subject_ref", "state"), ())
 
 EVENTS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "booking.requested.v1": _BOOKING,
@@ -35,9 +38,17 @@ EVENTS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "delegation.revoked.v1": ("delegation", ("grant_ref", "delegate_ref"), ()),
     "professional.privilege.revoked.v1": (
         "role_assignment", ("assignment_ref", "actor_ref", "role_code", "organization_ref"), ()),
+    "claim.consent_needed.v1": ("claim", ("claim_ref", "person_ref"), ()),
+    "exchange.consent_needed.v1": ("exchange_request", ("request_ref", "person_ref", "kind"), ()),
     "exchange.reviewed.v1": ("exchange_request", ("request_ref", "person_ref", "kind"), ()),
     "workflow.changed.v1": ("workflow", ("instance_ref", "kind", "state", "overlay"), ()),
     "access.denied.v1": ("access_decision", ("operation", "purpose", "reason"), ()),
+    "identity.subject.proofed.v1": ("person", ("person_ref", "outcome", "status"), ()),
+    "connector.operation.accepted.v1": _OPERATION,
+    "connector.operation.confirmed.v1": _OPERATION,
+    "connector.operation.rejected.v1": _OPERATION,
+    "connector.operation.unknown.v1": _OPERATION,
+    "connector.operation.dead.v1": _OPERATION,
 }
 
 # Sent straight to a partner when it is being verified, not through the outbox: listed so a partner

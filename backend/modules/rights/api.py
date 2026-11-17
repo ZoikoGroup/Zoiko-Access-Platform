@@ -7,12 +7,14 @@ from .services import (
     confirm_identity,
     file_request,
     get_case,
+    lift_hold,
     list_cases,
     open_count,
     overdue_count,
+    place_hold,
     start,
     withdraw,
 )
 
-__all__ = ["close", "confirm_identity", "file_request", "get_case", "list_cases", "open_count",
-           "overdue_count", "start", "withdraw"]
+__all__ = ["close", "confirm_identity", "file_request", "get_case", "lift_hold", "list_cases",
+           "open_count", "overdue_count", "place_hold", "start", "withdraw"]

@@ -14,3 +14,10 @@ class MessagingConfig(AppConfig):
         from .rotation import rotate
 
         rotation.register("messaging", rotate)
+
+        from foundation import retention
+
+        from .retention import count_older
+
+        retention.register("message_threads", "Closed message conversations",
+                           "the last message", count_older)

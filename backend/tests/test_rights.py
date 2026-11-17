@@ -224,3 +224,87 @@ def test_the_sealed_note_moves_to_a_new_key_with_the_rest(p, settings):
         row = RightsCase.objects.get(tenant_id=p.clinic.ctx.tenant_id)
     assert row.note_enc.startswith("zf1:t2:")
     assert mine(p)[0]["note"] == "Please correct my phone number"
+
+
+# ------------------------------------------------ WF-T35: a lawful hold stops an erasure completing
+def test_an_erasure_cannot_be_completed_while_a_lawful_hold_stands(p):
+    made = filed(p, type_="erasure")
+    step(p, made["id"], "verify")
+    held = step(p, made["id"], "hold", "boss", "Records must be kept for a regulator inquiry")
+    assert held.status_code == 200 and json.loads(held.content)["request"]["lawful_hold"] is True
+    assert step(p, made["id"], "complete", "boss", "Deleted").status_code == 422     # refused
+    assert mine(p)[0]["state"] != "completed"
+    declined = step(p, made["id"], "decline", "boss", "Kept because the law requires it for now")
+    assert declined.status_code == 200 and mine(p)[0]["state"] == "declined"         # the way out
+
+
+def test_lifting_the_hold_lets_the_erasure_be_completed(p):
+    made = filed(p, type_="erasure")
+    step(p, made["id"], "verify")
+    step(p, made["id"], "hold", "boss", "Under a legal hold")
+    assert step(p, made["id"], "release", "boss", "The hold ended on 1 March").status_code == 200
+    assert step(p, made["id"], "complete", "boss", "Deleted").status_code == 200
+
+
+def test_a_hold_does_not_stop_other_kinds_of_request(p):
+    made = filed(p, type_="access")
+    step(p, made["id"], "verify")
+    step(p, made["id"], "hold", "boss", "Under a legal hold")
+    assert step(p, made["id"], "complete", "boss", "Here is a copy").status_code == 200
+
+
+def test_the_patient_is_told_there_is_a_hold_but_never_why(p):
+    made = filed(p, type_="erasure")
+    step(p, made["id"], "hold", "boss", "Confidential regulator inquiry reference 42")
+    theirs = mine(p)[0]
+    assert theirs["lawful_hold"] is True and "hold_reason" not in theirs
+    assert "regulator" not in json.dumps(theirs)
+    staff = next(r for r in queue(p)["requests"] if r["id"] == made["id"])
+    assert "regulator inquiry" in staff["hold_reason"]
+
+
+def test_only_an_administrator_places_or_lifts_a_hold_with_a_reason_and_only_on_an_open_case(p):
+    made = filed(p, type_="erasure")
+    assert step(p, made["id"], "hold", "ops", "Under a legal hold").status_code == 403
+    assert step(p, made["id"], "hold", "boss", "").status_code == 422
+    assert step(p, made["id"], "hold", "boss", "ab").status_code == 422
+    assert step(p, made["id"], "release", "boss", "Nothing to lift").status_code == 409
+    assert step(p, made["id"], "hold", "boss", "Under a legal hold").status_code == 200
+    assert step(p, made["id"], "hold", "boss", "Again").status_code == 409
+    assert step(p, made["id"], "release", "ops", "The hold ended").status_code == 403
+    step(p, made["id"], "decline", "boss", "Kept for a legal reason")
+    assert step(p, made["id"], "release", "boss", "Too late").status_code == 409   # closed case
+
+
+def test_hold_changes_are_audited(p):
+    made = filed(p, type_="erasure")
+    step(p, made["id"], "hold", "boss", "Under a legal hold")
+    step(p, made["id"], "release", "boss", "The hold ended")
+    with tenant_transaction(p.clinic.ctx):
+        actions = set(AuditEvent.objects.values_list("action", flat=True))
+    assert {"rights.hold_placed", "rights.hold_lifted"} <= actions
+
+
+def test_request_numbers_are_random_unambiguous_and_unique_per_customer():
+    """DEV-218: no I, L, O, U, dash or underscore; the database refuses a second use."""
+    import re
+
+    from django.db import IntegrityError, transaction
+
+    from modules.rights import services as rights_services
+    from modules.rights.models import RightsCase
+    from tests.test_clinician import Practice
+
+    p = Practice()
+    with tenant_transaction(p.clinic.ctx):
+        numbers = {rights_services.new_ref_no() for _ in range(200)}
+        assert len(numbers) == 200
+        assert all(re.fullmatch(r"DSR-[0-9A-HJKMNP-TV-Z]{8}", n) for n in numbers)
+        scope = {"cell_id": p.clinic.ctx.cell_id, "tenant_id": p.clinic.ctx.tenant_id}
+        first = RightsCase.objects.create(ref_no="DSR-AAAA0000", person_ref=p.person,
+                                          organization_ref="o", requested_by_ref="a",
+                                          request_type="access", **scope)
+        with pytest.raises(IntegrityError), transaction.atomic():
+            RightsCase.objects.create(ref_no=first.ref_no, person_ref=p.person,
+                                      organization_ref="o", requested_by_ref="a",
+                                      request_type="erasure", **scope)

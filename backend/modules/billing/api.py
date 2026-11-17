@@ -8,10 +8,15 @@ from .services import (
     get_invoice,
     list_fees,
     list_invoices,
+    list_payments,
     patient_invoices,
+    payer_payments,
+    refresh_payment,
     set_fee,
+    start_payment,
     step,
 )
 
 __all__ = ["create_invoice", "credit_note", "get_invoice", "list_fees", "list_invoices",
-           "patient_invoices", "set_fee", "step"]
+           "list_payments", "patient_invoices", "payer_payments", "refresh_payment", "set_fee",
+           "start_payment", "step"]

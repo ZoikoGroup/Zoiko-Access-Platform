@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -27,6 +28,7 @@ from foundation.timeutil import get_zone, utc_now
 from modules.ai import api as ai
 from modules.billing import api as billing
 from modules.catalog import api as catalog
+from modules.claim import api as claim
 from modules.comms import api as comms
 from modules.coverage import api as coverage
 from modules.evidence import api as evidence
@@ -36,6 +38,7 @@ from modules.jurisdiction import api as jurisdiction
 from modules.messaging import api as messaging
 from modules.orchestration import api as orchestration
 from modules.policy import api as policy
+from modules.programme import api as programme
 from modules.readiness import api as readiness
 from modules.referral import api as referral
 from modules.rights import api as rights
@@ -913,9 +916,8 @@ def _evidence_block(auth: trust.Authenticated, org: str | None) -> dict[str, Any
 def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     org = _staff_only(auth)
     _authorize(auth, "read:analytics", organization_public_id=org)
-    partner_results = partner_on_hold = partner_held_mine = (
-        0  # results to review (DEV-165); held requests (DEV-169)
-    )
+    # results to review (DEV-165); held requests (DEV-169); held too long, for the administrator
+    partner_results = partner_on_hold = partner_held_mine = partner_escalated = 0
     if org is not None and any(
         t["type"] == "platform" and t["status"] == "active" for t in trust.list_tenants()
     ):
@@ -925,6 +927,8 @@ def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
             partner_held_mine = exchange.clinic_counts(_my_customer(auth), auth.actor_public_id)[
                 "on_hold_mine"
             ]
+            if "R13" in auth.roles:  # the administrator's own number (DEV-303)
+                partner_escalated = mine["escalated"]
     with tenant_transaction():
         numbers = trust.counts()
         attention = {
@@ -944,6 +948,7 @@ def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
             "partner_results": partner_results,
             "partner_on_hold": partner_on_hold,
             "partner_held_mine": partner_held_mine,
+            "partner_hold_escalated": partner_escalated,
             # an administrator's number: webhook deliveries that gave up and need a person
             "webhooks_gave_up": integration.gave_up_count() if "R13" in auth.roles else 0,
         }
@@ -1413,6 +1418,12 @@ def platform_releases(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
 
 
 # ------------------------------------------------------------------ service levels (DEV-130)
+def texts_health() -> dict[str, Any]:
+    from foundation.texts import circuit_state
+
+    return circuit_state()
+
+
 @endpoint("GET")
 def platform_slo(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """How the service is doing against its two proposed targets, as seen by THIS web process.
@@ -1428,6 +1439,7 @@ def platform_slo(request: HttpRequest, auth: trust.Authenticated) -> HttpRespons
                 "latency_seconds": metrics.LATENCY_THRESHOLD,
                 "latency_share": metrics.LATENCY_TARGET,
             },
+            "texts": texts_health(),
             "limits": [
                 "One web process only; a restart resets the numbers.",
                 "The longest window is one hour: the 30-day budget needs a metrics store.",
@@ -1723,6 +1735,7 @@ def _pack_json(p: dict[str, Any], labels: dict[str, str]) -> dict[str, Any]:
         },
         "missing": p["missing"],
         "expired": p["expired"],
+        "signature": p["signature"],  # DEV-210: null unless signed; "valid" is checked now
     }
 
 
@@ -1863,6 +1876,15 @@ def _incident_json(r: dict[str, Any], labels: dict[str, str]) -> dict[str, Any]:
         if r["assessed_by_ref"]
         else "",
         "assessment_note": r["assessment_note"],
+        "safety_impact": r["safety_impact"],
+        "handoff_note": r["handoff_note"],
+        "handoff_by": labels.get(r["handoff_by_ref"], "Zoiko staff") if r["handoff_by_ref"] else "",
+        # DEV-202: who is on call for it, and whether anyone has said "I have it".
+        "owner": labels.get(r["owner_ref"], "Zoiko staff") if r["owner_ref"] else "",
+        "deputy": labels.get(r["deputy_ref"], "Zoiko staff") if r["deputy_ref"] else "",
+        "owner_ref": r["owner_ref"], "deputy_ref": r["deputy_ref"],
+        "acknowledged_at": r["acknowledged_at"], "escalated_at": r["escalated_at"],
+        "restoration_notice": r["restoration_notice"],
     }
 
 
@@ -1884,6 +1906,7 @@ def platform_incidents(request: HttpRequest, auth: trust.Authenticated) -> HttpR
                 severity=body.get("severity"),
                 happened_on=day,
                 details=body.get("details", ""),
+                safety_impact=body.get("safety_impact", False),
                 actor_public_id=auth.actor_public_id,
                 decision=decision,
                 organization_public_id=org,
@@ -1904,6 +1927,58 @@ def _safety_officer(auth: trust.Authenticated) -> str | None:
     if "R12" not in auth.roles:
         raise ZoikoError(ErrorCode.POLICY_DENIED)
     return org
+
+
+@endpoint("GET", "POST")
+def platform_purposes(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: the intended-purpose statements. POST {capability, statement, classification,
+    intended_users, legal_manufacturer}: propose a new version (support or safety staff).
+    TEMPORARY RULE (DEV-184): only a safety officer who did not write it may approve."""
+    org = _platform_only(auth)
+    if request.method == "POST":
+        body = json_body(request)
+        safety_only = "R12" in auth.roles and "R11" not in auth.roles
+        _authorize(
+            auth,
+            "attest:platform" if safety_only else "write:platform",
+            organization_public_id=org,
+        )
+        capability = text(body, "capability")
+        if capability not in jurisdiction.CAPABILITIES:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["capability"])
+        with tenant_transaction():
+            made = safety.propose(
+                capability=capability,
+                statement=body.get("statement"),
+                classification=body.get("classification"),
+                intended_users=body.get("intended_users"),
+                legal_manufacturer=body.get("legal_manufacturer", ""),
+                actor_ref=auth.actor_public_id,
+            )
+        return JsonResponse({"purpose": made}, status=201)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        rows = safety.list_purposes()
+    return JsonResponse({"purposes": rows, "capabilities": list(jurisdiction.CAPABILITIES)})
+
+
+@endpoint("POST")
+def platform_purpose_step(
+    request: HttpRequest, auth: trust.Authenticated, purpose_id: str, step: str
+) -> HttpResponse:
+    """approve | retire {reason}: safety officers only."""
+    _safety_officer(auth)
+    if step not in ("approve", "retire"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    body = json_body(request)
+    with tenant_transaction():
+        if step == "approve":
+            made = safety.approve_purpose(purpose_id, actor_ref=auth.actor_public_id)
+        else:
+            made = safety.retire_purpose(
+                purpose_id, actor_ref=auth.actor_public_id, reason=body.get("reason")
+            )
+    return JsonResponse({"purpose": made})
 
 
 @endpoint("GET")
@@ -2011,6 +2086,7 @@ def platform_incident_resolve(
             actor_public_id=auth.actor_public_id,
             decision=decision,
             organization_public_id=org,
+            restoration_notice=body.get("restoration_notice", ""),   # G-10, DEV-202
         )
         labels = trust.actor_labels()
     return JsonResponse({"incident": _incident_json(made, labels)})
@@ -2030,6 +2106,22 @@ def platform_incident_assess(
             severity=body.get("severity"),
             note=body.get("note"),
             actor_public_id=auth.actor_public_id,
+        )
+        labels = trust.actor_labels()
+    return JsonResponse({"incident": _incident_json(made, labels)})
+
+
+@endpoint("POST")
+def platform_incident_handoff(
+    request: HttpRequest, auth: trust.Authenticated, incident_id: str
+) -> HttpResponse:
+    """TEMPORARY RULE (DEV-191): an incident that touches patient safety cannot be closed until a
+    safety officer (R12) records the hand-off or fallback that covers it (G-08)."""
+    _safety_officer(auth)
+    body = json_body(request)
+    with tenant_transaction():
+        made = trust.record_handoff(
+            incident_ref=incident_id, note=body.get("note"), actor_public_id=auth.actor_public_id
         )
         labels = trust.actor_labels()
     return JsonResponse({"incident": _incident_json(made, labels)})
@@ -2087,6 +2179,8 @@ def _suspension_json(
         "decided_at": r["decided_at"],
         "created_at": r["created_at"],
         "mine": r["requested_by_ref"] == me,
+        "continuity_plan": r["continuity_plan"],
+        "open_items": r["open_items"],
     }
 
 
@@ -2115,6 +2209,17 @@ def platform_customer_suspension(
     org = _platform_only(auth)
     body = json_body(request)
     decision = _authorize(auth, "write:platform", organization_public_id=org)
+    open_items = 0
+    if body.get("action") == "suspend":
+        # Patients still in the middle of something: referrals inside the customer, and partner
+        # requests in the platform's shared space (H-05, DEV-193). Read before the request.
+        try:
+            with tenant_transaction(trust.context_for(customer_id)):
+                open_items += referral.referral_counts()["open"]
+        except ZoikoError:
+            pass  # an unknown customer is refused below
+        with tenant_transaction():
+            open_items += exchange.open_count_for(customer_id)
     made = trust.request_change(
         customer_public_id=customer_id,
         kind=body.get("action"),
@@ -2122,6 +2227,8 @@ def platform_customer_suspension(
         actor_public_id=auth.actor_public_id,
         platform_organization_public_id=org,
         decision=decision,
+        open_items=open_items,
+        continuity_plan=body.get("continuity_plan", ""),
     )
     return JsonResponse({"id": made["public_id"], "status": made["status"]}, status=201)
 
@@ -2615,6 +2722,9 @@ def exchange_requests(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
                 object_ref=made["id"],
                 outcome=evidence.AuditOutcome.ALLOWED,
             )
+            exchange.announce_consent_needed(
+                request_ref=made["id"], person_ref=person, kind=made["kind"]
+            )
         out = [made]
         _add_names(auth, out, "patient")  # runs a policy check: outside a transaction
         return JsonResponse({"request": out[0]}, status=201)
@@ -2743,6 +2853,483 @@ def exchange_mine(request: HttpRequest, auth: trust.Authenticated) -> HttpRespon
     return JsonResponse({"requests": out})
 
 
+@endpoint("POST")
+def exchange_mine_step(
+    request: HttpRequest, auth: trust.Authenticated, request_id: str, step: str
+) -> HttpResponse:
+    """The patient (or a guardian) answers a request made for them: agree (to tell the partner
+    their name and birth date, for this order only), decline, or withdraw an agreement."""
+    if step not in ("agree", "decline", "withdraw"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    mine = _my_customer(auth)
+    with tenant_transaction():
+        reachable = set(trust.reachable_persons(auth.actor_public_id))
+    with tenant_transaction(_platform_context()):
+        person = exchange.person_of(request_id, mine)
+        kind = exchange.sent_kind_of(request_id, mine)
+    if person not in reachable:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if not is_allowed(auth, _EXCHANGE_READ[kind], subject_ref=person):
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    profile: dict[str, str] = {}
+    if step == "agree":
+        with tenant_transaction():
+            profile = trust.get_person_profiles([person]).get(person, {})
+    with tenant_transaction(_platform_context()):
+        if step == "agree":
+            done = exchange.grant_consent(
+                request_ref=request_id,
+                tenant_ref=mine,
+                actor_ref=auth.actor_public_id,
+                name=profile.get("name", ""),
+                birth_date=profile.get("birth_date", ""),
+            )
+        elif step == "decline":
+            done = exchange.decline_consent(
+                request_ref=request_id, tenant_ref=mine, actor_ref=auth.actor_public_id
+            )
+        else:
+            done = exchange.withdraw_consent(
+                request_ref=request_id, tenant_ref=mine, actor_ref=auth.actor_public_id
+            )
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id,
+            action=f"exchange.consent_{step}",
+            object_type="exchange_request",
+            object_ref=request_id,
+            outcome=evidence.AuditOutcome.ALLOWED,
+        )
+    return JsonResponse({"request": {k: v for k, v in done.items() if k != "person"}})
+
+
+@endpoint("GET")
+def exchange_request_result(
+    request: HttpRequest, auth: trust.Authenticated, request_id: str
+) -> HttpResponse:
+    """The lab's summary of a delivered result and its rating (normal, abnormal, critical). A
+    treating doctor of that patient only: not clinic staff, not the patient. Every read is
+    recorded."""
+    org = _clinic_org(auth)
+    _clinician_only(auth)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        person = exchange.person_of(request_id, mine)
+    _authorize(auth, "read:diagnostic", organization_public_id=org, subject_ref=person)
+    with tenant_transaction(_platform_context()):
+        got = exchange.read_result(
+            request_ref=request_id, tenant_ref=mine, actor_ref=auth.actor_public_id
+        )
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id,
+            action="exchange.result_read",
+            object_type="exchange_request",
+            object_ref=request_id,
+            outcome=evidence.AuditOutcome.ALLOWED,
+        )
+    return JsonResponse({"result": got})
+
+
+# -------------------------------------------------------- employer programme links (DEV-312)
+@endpoint("GET", "POST")
+def programme_codes(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: where each member's code stands (no codes, no people). POST {member_ref}: make a
+    one-time code for an enrolled member; it is shown once."""
+    org = _portal_org(auth, "employer")
+    mine = _my_customer(auth)
+    if request.method == "POST":
+        body = json_body(request)
+        _authorize(auth, "write:program", organization_public_id=org)
+        member = text(body, "member_ref")
+        with tenant_transaction():
+            enrolled = sponsor.member_active(organization_ref=org, member_ref=member)
+        if not enrolled:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["member_ref"])
+        with tenant_transaction(_platform_context()):
+            made = programme.issue(
+                employer_tenant_ref=mine, employer_name=auth.tenant_name, member_ref=member,
+                actor_ref=auth.actor_public_id,
+            )
+        with tenant_transaction():
+            evidence.record(
+                actor_ref=auth.actor_public_id,
+                action="programme.code_issued",
+                object_type="programme_link",
+                object_ref=made["id"],
+                outcome=evidence.AuditOutcome.ALLOWED,
+            )
+        return JsonResponse({"code": made}, status=201)
+    _authorize(auth, "read:program", organization_public_id=org)
+    with tenant_transaction(_platform_context()):
+        rows = programme.list_for_employer(employer_tenant_ref=mine)
+    return JsonResponse({"codes": rows})
+
+
+@endpoint("POST")
+def programme_code_revoke(
+    request: HttpRequest, auth: trust.Authenticated, member_ref: str
+) -> HttpResponse:
+    """Cancel an unused code, or end a link. That person stops being counted at once."""
+    org = _portal_org(auth, "employer")
+    _authorize(auth, "write:program", organization_public_id=org)
+    with tenant_transaction(_platform_context()):
+        done = programme.revoke(
+            employer_tenant_ref=_my_customer(auth), member_ref=member_ref,
+            actor_ref=auth.actor_public_id,
+        )
+    return JsonResponse({"code": done})
+
+
+@endpoint("GET")
+def programme_activity(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Appointments and visits by month for the people linked to this programme: totals only. A
+    month is shown only when at least the minimum group of DIFFERENT people contributed (10 by
+    default); otherwise it is hidden, never shown as a small number. Never a person, a service or
+    a clinic."""
+    org = _portal_org(auth, "employer")
+    _authorize(auth, "read:program", organization_public_id=org)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        linked = programme.linked_by_clinic(employer_tenant_ref=mine)
+    months: dict[str, dict[str, Any]] = {}
+    people: set[tuple[str, str]] = set()
+    for clinic_ref, persons in linked.items():
+        people |= {(clinic_ref, p) for p in persons}
+        with tenant_transaction(trust.context_for(clinic_ref)):
+            activity = scheduling.monthly_activity(persons)
+        for month, per_person in activity.items():
+            row = months.setdefault(month, {"who": set(), "bookings": 0, "visits": 0})
+            for person, (bookings, visits) in per_person.items():
+                row["who"].add((clinic_ref, person))
+                row["bookings"] += bookings
+                row["visits"] += visits
+    k = sponsor.min_group()
+    shown = [
+        {
+            "month": month,
+            "bookings": row["bookings"] if len(row["who"]) >= k else None,
+            "visits": row["visits"] if len(row["who"]) >= k else None,
+            "hidden": len(row["who"]) < k,
+        }
+        for month, row in sorted(months.items(), reverse=True)[:12]
+    ]
+    return JsonResponse(
+        {
+            "min_group": k,
+            "linked": len(people) if len(people) >= k else None,
+            "linked_hidden": 0 < len(people) < k,
+            "months": shown,
+        }
+    )
+
+
+@endpoint("GET")
+def programme_mine(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The employer programmes this patient is linked to."""
+    with tenant_transaction():
+        reachable = trust.reachable_persons(auth.actor_public_id)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        rows = programme.list_for_patients(clinic_tenant_ref=mine, person_refs=reachable)
+    shown = []
+    for r in rows:
+        if is_allowed(auth, "read:person", subject_ref=r["person"]):
+            shown.append({k: v for k, v in r.items() if k != "person"})
+    return JsonResponse({"programmes": shown})
+
+
+@endpoint("POST")
+def programme_redeem(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The patient types the one-time code their employer gave them and agrees to be counted. Only
+    for their own record."""
+    body = json_body(request)
+    with tenant_transaction():
+        person = trust.own_person_of(auth.actor_public_id)
+    if not person:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "write:person", subject_ref=person)
+    with tenant_transaction(_platform_context()):
+        made = programme.redeem(
+            code=body.get("code"), clinic_tenant_ref=_my_customer(auth), person_ref=person,
+            actor_ref=auth.actor_public_id,
+        )
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id,
+            action="programme.linked",
+            object_type="programme_link",
+            object_ref=made["id"],
+            outcome=evidence.AuditOutcome.ALLOWED,
+        )
+    return JsonResponse({"programme": {k: v for k, v in made.items() if k != "person"}}, status=201)
+
+
+@endpoint("POST")
+def programme_leave(
+    request: HttpRequest, auth: trust.Authenticated, link_id: str
+) -> HttpResponse:
+    """The patient stops being counted for that employer."""
+    with tenant_transaction():
+        reachable = trust.reachable_persons(auth.actor_public_id)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        person = programme.person_of(link_id, mine)
+    if person not in reachable:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    _authorize(auth, "write:person", subject_ref=person)
+    with tenant_transaction(_platform_context()):
+        done = programme.leave(
+            link_ref=link_id, clinic_tenant_ref=mine, person_refs=[person],
+            actor_ref=auth.actor_public_id,
+        )
+    return JsonResponse({"programme": {k: v for k, v in done.items() if k != "person"}})
+
+
+# ------------------------------------------------------------------ claims to a payer (DEV-308)
+@endpoint("GET")
+def claim_payers(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The payers a clinic may send a claim to (name and id only)."""
+    _clinic_org(auth)
+    payers = [
+        {"id": t["public_id"], "name": t["name"]}
+        for t in trust.list_tenants()
+        if t["type"] == "payer" and t["status"] == "active"
+    ]
+    return JsonResponse({"payers": payers})
+
+
+@endpoint("GET", "POST")
+def claims_sent(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: the claims this clinic sent. POST {payer, patient, member_id, category, label, amount,
+    currency, service_date}: send one. The payer sees the member id, the service, the amount and
+    the date, and nothing about the patient."""
+    org = _clinic_org(auth)
+    mine = _my_customer(auth)
+    if request.method == "POST":
+        body = json_body(request)
+        person = text(body, "patient")
+        _authorize(auth, "write:coverage", organization_public_id=org, subject_ref=person)
+        target = next(
+            (
+                t
+                for t in trust.list_tenants()
+                if t["type"] == "payer"
+                and t["status"] == "active"
+                and t["public_id"] == body.get("payer")
+            ),
+            None,
+        )
+        if target is None:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["payer"])
+        with tenant_transaction(_platform_context()):
+            made = claim.send(
+                from_tenant_ref=mine,
+                from_name=auth.tenant_name,
+                to_tenant_ref=target["public_id"],
+                to_name=target["name"],
+                person_ref=person,
+                member_id=body.get("member_id"),
+                category=body.get("category"),
+                label=body.get("label"),
+                amount_minor=body.get("amount"),
+                currency=body.get("currency"),
+                service_date=body.get("service_date"),
+                actor_ref=auth.actor_public_id,
+            )
+        with tenant_transaction():
+            evidence.record(
+                actor_ref=auth.actor_public_id,
+                action="claim.send",
+                object_type="claim",
+                object_ref=made["id"],
+                outcome=evidence.AuditOutcome.ALLOWED,
+            )
+            claim.announce_consent_needed(claim_ref=made["id"], person_ref=person)
+        out = [made]
+        _add_names(auth, out, "patient")  # runs a policy check: outside a transaction
+        return JsonResponse({"claim": out[0]}, status=201)
+    _authorize(auth, "read:coverage", organization_public_id=org)
+    paged = "limit" in request.GET or "cursor" in request.GET
+    next_cursor: str | None = None
+    with tenant_transaction(_platform_context()):
+        if paged:
+            rows, next_cursor = claim.page_sent(
+                tenant_ref=mine,
+                limit=pagination.limit_from(request.GET.get("limit")),
+                cursor=request.GET.get("cursor") or None,
+                actor_ref=auth.actor_public_id,
+            )
+        else:
+            rows = claim.list_sent(tenant_ref=mine)
+    _add_names(auth, rows, "patient")
+    return JsonResponse({"claims": rows, **({"next_cursor": next_cursor} if paged else {})})
+
+
+@endpoint("POST")
+def claim_withdraw(
+    request: HttpRequest, auth: trust.Authenticated, claim_id: str
+) -> HttpResponse:
+    """The clinic takes back a claim the payer has not decided."""
+    org = _clinic_org(auth)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        person = claim.person_of(claim_id, mine)
+    _authorize(auth, "write:coverage", organization_public_id=org, subject_ref=person)
+    with tenant_transaction(_platform_context()):
+        done = claim.withdraw(claim_ref=claim_id, tenant_ref=mine, actor_ref=auth.actor_public_id)
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id,
+            action="claim.withdraw",
+            object_type="claim",
+            object_ref=claim_id,
+            outcome=evidence.AuditOutcome.ALLOWED,
+        )
+    return JsonResponse({"claim": done})
+
+
+@endpoint("GET")
+def claim_history(request: HttpRequest, auth: trust.Authenticated, claim_id: str) -> HttpResponse:
+    """The steps of a claim, for the clinic that sent it or the payer it went to."""
+    area = home_for(auth.actor_type, list(auth.roles), auth.tenant_type)
+    if area == "payer":
+        org = _portal_org(auth, "payer")
+    else:
+        org = _clinic_org(auth)
+    _authorize(auth, "read:coverage", organization_public_id=org)
+    with tenant_transaction(_platform_context()):
+        steps = claim.history(claim_ref=claim_id, tenant_ref=_my_customer(auth))
+    return JsonResponse({"history": steps})
+
+
+@endpoint("GET")
+def claims_mine(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The claims made for the patient (or for a person a guardian acts for): what is claimed,
+    from whom, how much and when, and whether they have agreed to it being sent."""
+    with tenant_transaction():
+        reachable = trust.reachable_persons(auth.actor_public_id)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        rows = claim.list_for_patients(tenant_ref=mine, person_refs=reachable)
+    allowed: dict[str, bool] = {}
+    out = []
+    for r in rows:
+        if r["person"] not in allowed:
+            allowed[r["person"]] = is_allowed(auth, "read:coverage", subject_ref=r["person"])
+        if allowed[r["person"]]:
+            out.append({k: v for k, v in r.items() if k != "person"})
+    return JsonResponse({"claims": out})
+
+
+@endpoint("POST")
+def claim_mine_step(
+    request: HttpRequest, auth: trust.Authenticated, claim_id: str, step: str
+) -> HttpResponse:
+    """agree | decline | withdraw. Only the patient, or a guardian acting for them."""
+    if step not in ("agree", "decline", "withdraw"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    with tenant_transaction():
+        reachable = trust.reachable_persons(auth.actor_public_id)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        person = claim.person_of(claim_id, mine)
+    if person not in reachable:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    _authorize(auth, "read:coverage", subject_ref=person)
+    with tenant_transaction(_platform_context()):
+        done = claim.answer(
+            claim_ref=claim_id,
+            tenant_ref=mine,
+            person_refs=[person],
+            step=step,
+            actor_ref=auth.actor_public_id,
+        )
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id,
+            action=f"claim.consent_{step}",
+            object_type="claim",
+            object_ref=claim_id,
+            outcome=evidence.AuditOutcome.ALLOWED,
+        )
+    return JsonResponse({"claim": {k: v for k, v in done.items() if k != "person"}})
+
+
+@endpoint("GET")
+def claims_incoming(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The claims sent to this payer: member id, service, amount, date. Never the patient."""
+    org = _portal_org(auth, "payer")
+    _authorize(auth, "read:coverage", organization_public_id=org)
+    paged = "limit" in request.GET or "cursor" in request.GET
+    next_cursor: str | None = None
+    with tenant_transaction(_platform_context()):
+        if paged:
+            rows, next_cursor = claim.page_incoming(
+                tenant_ref=_my_customer(auth),
+                state=request.GET.get("state") or None,
+                limit=pagination.limit_from(request.GET.get("limit")),
+                cursor=request.GET.get("cursor") or None,
+                actor_ref=auth.actor_public_id,
+            )
+        else:
+            rows = claim.list_incoming(
+                tenant_ref=_my_customer(auth), state=request.GET.get("state") or None
+            )
+    return JsonResponse({"claims": rows, **({"next_cursor": next_cursor} if paged else {})})
+
+
+@endpoint("GET")
+def claim_cover_check(
+    request: HttpRequest, auth: trust.Authenticated, claim_id: str
+) -> HttpResponse:
+    """Is the claim's member covered for that kind of service on that day? Uses the payer's own
+    plans and members, and always answers with a reason."""
+    org = _portal_org(auth, "payer")
+    decision = _authorize(auth, "read:coverage", organization_public_id=org)
+    with tenant_transaction(_platform_context()):
+        found = claim.member_of(claim_id, _my_customer(auth))
+    with tenant_transaction():
+        answer = sponsor.check_entitlement(
+            organization_ref=org,
+            member_id=found["member_id"],
+            category=found["category"],
+            on=found["service_date"],
+            actor_public_id=auth.actor_public_id,
+            decision=decision,
+        )
+    return JsonResponse({"check": answer})
+
+
+@endpoint("POST")
+def claim_payer_step(
+    request: HttpRequest, auth: trust.Authenticated, claim_id: str, step: str
+) -> HttpResponse:
+    """approve | decline {reason} | pay {payment_ref}. Reasons: not_covered, member_not_found,
+    duplicate, missing_information, other."""
+    org = _portal_org(auth, "payer")
+    _authorize(auth, "attest:coverage", organization_public_id=org)
+    body = json_body(request)
+    with tenant_transaction(_platform_context()):
+        done = claim.payer_step(
+            claim_ref=claim_id,
+            tenant_ref=_my_customer(auth),
+            step=step,
+            actor_ref=auth.actor_public_id,
+            reason=body.get("reason"),
+            payment_ref=body.get("payment_ref"),
+        )
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id,
+            action=f"claim.{step}",
+            object_type="claim",
+            object_ref=claim_id,
+            outcome=evidence.AuditOutcome.ALLOWED,
+        )
+    return JsonResponse({"claim": done})
+
+
 @endpoint("GET")
 def exchange_incoming(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """The requests sent to this partner. Never shows the clinic's patient reference."""
@@ -2764,6 +3351,19 @@ def exchange_incoming(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
                 tenant_ref=_my_customer(auth), state=request.GET.get("state") or None
             )
     return JsonResponse({"requests": rows, **({"next_cursor": next_cursor} if paged else {})})
+
+
+def _alert_critical(request_id: str, partner_ref: str) -> None:
+    """A critical result tells the person who ordered it, by email to a confirmed address. The
+    delivery is already done: a failure here is logged by class only and never undoes it."""
+    try:
+        with tenant_transaction(_platform_context()):
+            target = exchange.critical_target(request_ref=request_id, tenant_ref=partner_ref)
+        if target is not None:
+            with tenant_transaction(trust.context_for(target["clinic"])):
+                comms.alert_critical_result(target["orderer"])
+    except Exception as exc:  # noqa: BLE001 - never let an alert undo a delivery
+        logging.getLogger("zoiko.alerts").warning("critical alert failed: %s", type(exc).__name__)
 
 
 @endpoint("POST")
@@ -2788,6 +3388,8 @@ def exchange_incoming_step(
             actor_ref=auth.actor_public_id,
             note=body.get("note"),
             result_ref=body.get("result_ref"),
+            summary=body.get("summary"),
+            flag=body.get("flag"),
         )
     with tenant_transaction():
         evidence.record(
@@ -2797,6 +3399,9 @@ def exchange_incoming_step(
             object_ref=request_id,
             outcome=evidence.AuditOutcome.ALLOWED,
         )
+    changed = done.pop("changed", True)
+    if changed and step == "deliver" and done.get("result_flag") == "critical":
+        _alert_critical(request_id, mine)
     return JsonResponse({"request": done})
 
 
@@ -3066,11 +3671,32 @@ def my_email_notices(request: HttpRequest, auth: trust.Authenticated) -> HttpRes
     if home_for(auth.actor_type, list(auth.roles), auth.tenant_type) != "patient":
         raise ZoikoError(ErrorCode.POLICY_DENIED)
     if request.method == "POST":
-        enabled = json_body(request).get("enabled")
-        if not isinstance(enabled, bool):
+        body = json_body(request)
+        if "enabled" not in body and "quiet" not in body and "texts" not in body:
             raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["enabled"])
-        with tenant_transaction():
-            comms.set_email_notices(auth.actor_public_id, enabled)
+        if "texts" in body:
+            texts = body.get("texts")
+            if not isinstance(texts, bool):
+                raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["texts"])
+            with tenant_transaction():
+                comms.set_texts(auth.actor_public_id, texts)
+        if "enabled" in body:
+            enabled = body.get("enabled")
+            if not isinstance(enabled, bool):
+                raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["enabled"])
+            with tenant_transaction():
+                comms.set_email_notices(auth.actor_public_id, enabled)
+        if "quiet" in body:  # {"start": "22:00", "end": "07:00", "zone": "Europe/London"} or null
+            window = body.get("quiet")
+            if window is not None and not isinstance(window, dict):
+                raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["quiet"])
+            with tenant_transaction():
+                comms.set_quiet_hours(
+                    auth.actor_public_id,
+                    (window or {}).get("start") if window else None,
+                    (window or {}).get("end") if window else None,
+                    (window or {}).get("zone") if window else None,
+                )
     with tenant_transaction():
         persons = trust.reachable_persons(auth.actor_public_id)
         own = [
@@ -3082,8 +3708,53 @@ def my_email_notices(request: HttpRequest, auth: trust.Authenticated) -> HttpRes
             {
                 "enabled": comms.email_notices_enabled(auth.actor_public_id),
                 "can_email": bool(own),
+                "quiet": comms.quiet_hours_of(auth.actor_public_id),
+                "texts": comms.texts_enabled(auth.actor_public_id),
+                "phone_verified": comms.phone_verified(
+                    auth.actor_public_id, _own_phone(auth.actor_public_id)
+                ),
             }
         )
+
+
+def _own_phone(actor_ref: str) -> str:
+    """The phone number on this login's own patient profile ("" if none). Bound tenant needed."""
+    own = trust.own_person_of(actor_ref)
+    if not own:
+        return ""
+    return (trust.get_person_profiles([own]).get(own) or {}).get("phone", "")
+
+
+def _patient_only(auth: trust.Authenticated) -> None:
+    if home_for(auth.actor_type, list(auth.roles), auth.tenant_type) != "patient":
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+
+
+@endpoint("POST")
+def my_phone_check(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Text a six-digit code to the number on the patient's own profile (DEV-198). It must start
+    with + and the country code. At most three codes an hour."""
+    _patient_only(auth)
+    with tenant_transaction():
+        phone = _own_phone(auth.actor_public_id)
+        if not phone:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["phone"])
+        sent = comms.send_code(auth.actor_public_id, phone)
+    return JsonResponse({"sent": True, **sent}, status=201)
+
+
+@endpoint("POST")
+def my_phone_confirm(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The patient types the code back: their number is then verified for texts."""
+    _patient_only(auth)
+    body = json_body(request)
+    with tenant_transaction():
+        right = comms.confirm_code(
+            auth.actor_public_id, _own_phone(auth.actor_public_id), body.get("code")
+        )
+    if not right:  # raised only now, so the used-up try stays counted
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["code"])
+    return JsonResponse({"phone_verified": True})
 
 
 def _export_history(auth: trust.Authenticated, booking_id: str) -> dict[str, Any]:
@@ -3647,18 +4318,31 @@ def my_profiles(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse
         own = trust.own_person_of(auth.actor_public_id)
         orgs = trust.organization_names()
         identity = {p: trust.identity_status_of(p) for p in persons}
-    return JsonResponse({"profiles": [
-        {"person": p, "own": p == own, "editable": p in editable,
-         "name": found.get(p, {}).get("name", ""),
-         "birth_date": found.get(p, {}).get("birth_date", ""),
-         "phone": found.get(p, {}).get("phone", ""),
-         # Whether a clinic has checked who this patient is. Never whether a possible duplicate is
-         # being reviewed: a patient is not told while it is unresolved (GHE-06).
-         "identity": {
-             "status": identity[p]["status"], "checked_on": identity[p]["checked_on"],
-             "valid_until": identity[p]["valid_until"],
-             "clinic": orgs.get(identity[p]["clinic_ref"], ""), "why_not": identity[p]["why_not"]}}
-        for p in persons]})
+    return JsonResponse(
+        {
+            "profiles": [
+                {
+                    "person": p,
+                    "own": p == own,
+                    "editable": p in editable,
+                    "name": found.get(p, {}).get("name", ""),
+                    "birth_date": found.get(p, {}).get("birth_date", ""),
+                    "phone": found.get(p, {}).get("phone", ""),
+                    # Whether a clinic has checked who this patient is. Never whether a
+                    # possible duplicate is being reviewed: a patient is not told while it is
+                    # unresolved (GHE-06).
+                    "identity": {
+                        "status": identity[p]["status"],
+                        "checked_on": identity[p]["checked_on"],
+                        "valid_until": identity[p]["valid_until"],
+                        "clinic": orgs.get(identity[p]["clinic_ref"], ""),
+                        "why_not": identity[p]["why_not"],
+                    },
+                }
+                for p in persons
+            ]
+        }
+    )
 
 
 @endpoint("GET", "POST")
@@ -4096,8 +4780,8 @@ def clinician_referral_inbox(request: HttpRequest, auth: trust.Authenticated) ->
 
 
 # ------------------------------------------------------------------ data-rights requests (DEV-126)
-def _rights_json(c: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _rights_json(c: dict[str, Any], staff: bool = False) -> dict[str, Any]:
+    out = {
         "id": c["public_id"],
         "ref": c["ref_no"],
         "type": c["request_type"],
@@ -4110,21 +4794,18 @@ def _rights_json(c: dict[str, Any]) -> dict[str, Any]:
         "patient": c["person_ref"],
         "due_at": c["due_at"],
         "due_basis": c["due_basis"],
+        # The patient is told only THAT some data is kept for a legal reason; why is for staff.
+        "lawful_hold": c["lawful_hold"],
     }
+    if staff:
+        out["hold_reason"] = c["hold_reason"]
+    return out
 
 
 def _enabled_capabilities(auth: trust.Authenticated) -> frozenset[str]:
     """What the signed country packs for this customer's country switch on (none if no country or
     no pack). Read in the platform tenant, outside the customer's own transaction."""
-    country = trust.tenant_country(auth.context.tenant_id)
-    platform = next(
-        (t for t in trust.list_tenants() if t["type"] == "platform" and t["status"] == "active"),
-        None,
-    )
-    if not country or platform is None:
-        return frozenset()
-    with tenant_transaction(trust.context_for(platform["public_id"])):
-        return jurisdiction.enabled_capabilities(country)
+    return jurisdiction.customer_capabilities(auth.context.tenant_id)
 
 
 def _data_request_deadline(auth: trust.Authenticated) -> tuple[int, str] | None:
@@ -4140,6 +4821,25 @@ def _data_request_deadline(auth: trust.Authenticated) -> tuple[int, str] | None:
         return None
     with tenant_transaction(trust.context_for(platform["public_id"])):
         return jurisdiction.data_request_days(country)
+
+
+@endpoint("GET")
+def my_emergency(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The local emergency number for this patient's country, only when a signed, current country
+    pack states one (DEV-185). Otherwise `number` is null and the app says nothing more than its
+    general wording: a number is never invented or guessed. Patients only."""
+    if home_for(auth.actor_type, list(auth.roles), auth.tenant_type) != "patient":
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    country = trust.tenant_country(auth.context.tenant_id)
+    platform = next(
+        (t for t in trust.list_tenants() if t["type"] == "platform" and t["status"] == "active"),
+        None,
+    )
+    found = None
+    if country and platform is not None:
+        with tenant_transaction(trust.context_for(platform["public_id"])):
+            found = jurisdiction.emergency_number(country)
+    return JsonResponse({"number": found[0] if found else None})
 
 
 @endpoint("GET", "POST")
@@ -4199,7 +4899,7 @@ def staff_rights(request: HttpRequest, auth: trust.Authenticated) -> HttpRespons
     _authorize(auth, "read:rights", organization_public_id=org)
     with tenant_transaction():
         rows = rights.list_cases(organization_ref=org)
-    out = [_rights_json(c) for c in rows]
+    out = [_rights_json(c, staff=True) for c in rows]
     _add_names(auth, out, "patient")
     return JsonResponse({"requests": out, "can_close": "R13" in auth.roles})
 
@@ -4210,7 +4910,7 @@ def staff_rights_step(
 ) -> HttpResponse:
     """A staff step: start, verify (the identity check), complete or decline (administrator)."""
     _staff_only(auth)
-    if step not in ("start", "verify", "complete", "decline"):
+    if step not in ("start", "verify", "complete", "decline", "hold", "release"):
         raise ZoikoError(ErrorCode.NOT_FOUND)
     body = json_body(request)
     with tenant_transaction():
@@ -4227,6 +4927,20 @@ def staff_rights_step(
             done = rights.start(case_ref=case_id, actor_public_id=me, decision=decision)
         elif step == "verify":
             done = rights.confirm_identity(case_ref=case_id, actor_public_id=me, decision=decision)
+        elif step == "hold":
+            done = rights.place_hold(
+                case_ref=case_id,
+                reason=text(body, "note", required=False),
+                actor_public_id=me,
+                decision=decision,
+            )
+        elif step == "release":
+            done = rights.lift_hold(
+                case_ref=case_id,
+                note=text(body, "note", required=False),
+                actor_public_id=me,
+                decision=decision,
+            )
         else:
             done = rights.close(
                 case_ref=case_id,
@@ -4235,7 +4949,7 @@ def staff_rights_step(
                 actor_public_id=me,
                 decision=decision,
             )
-    return JsonResponse({"request": _rights_json(done)})
+    return JsonResponse({"request": _rights_json(done, staff=True)})
 
 
 # ------------------------------------------------------------------ workflow engine (DEV-132)
@@ -4640,6 +5354,21 @@ def staff_inbound_events(request: HttpRequest, auth: trust.Authenticated) -> Htt
 
 @csrf_exempt
 @require_POST
+def twilio_status(request: HttpRequest) -> HttpResponse:
+    """Twilio's delivery receipt for a text (DEV-199). No sign-in: Twilio's signature over the
+    exact public address and the form fields is the credential, checked before anything is used.
+    The address must be the one Twilio was given (TWILIO_STATUS_URL), not one rebuilt here."""
+    from foundation.texts import record_receipt
+
+    url = settings.TWILIO_STATUS_URL or request.build_absolute_uri()
+    status = record_receipt(
+        url=url, params=request.POST.dict(), signature=request.headers.get("X-Twilio-Signature", "")
+    )
+    return HttpResponse(status=status)
+
+
+@csrf_exempt
+@require_POST
 def partner_events(request: HttpRequest) -> HttpResponse:
     """A partner's signed message (GHE-13 WF-08). No sign-in: the signature IS the credential, and
     it is checked before anything in the body is read. Every identity failure is the same 401."""
@@ -4796,3 +5525,669 @@ def staff_ai_permit_advance(
             expiry=expiry,
         )
     return JsonResponse({"permit": done})
+
+
+# --------------------------------------------------------------------------- retention (DEV-213)
+def _retention_org(auth: trust.Authenticated, write: bool) -> str:
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "read:analytics", organization_public_id=org)
+    if write:
+        # Only the clinic's administrators set retention, and a second one must approve it.
+        if "R13" not in auth.roles:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        _authorize(auth, "write:staff", organization_public_id=org)
+    return org
+
+
+@endpoint("GET", "POST")
+def staff_retention(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """How long this clinic keeps each kind of data, and how many records are past it. Counts only:
+    the product deletes nothing. POST proposes a rule (period_days null means no limit)."""
+    from modules.retention import api as retention
+
+    org = _retention_org(auth, write=request.method == "POST")
+    status = 200
+    if request.method == "POST":
+        body = json_body(request)
+        with tenant_transaction():
+            retention.propose(
+                organization_ref=org,
+                data_class=text(body, "data_class"),
+                period_days=body.get("period_days"),
+                basis=body.get("basis"),
+                by=auth.actor_public_id,
+            )
+        status = 201
+    with tenant_transaction():
+        found = retention.report(org)
+    found["can_set"] = "R13" in auth.roles
+    return JsonResponse(found, status=status)
+
+
+@endpoint("POST")
+def staff_retention_step(
+    request: HttpRequest, auth: trust.Authenticated, rule_id: str, step: str
+) -> HttpResponse:
+    """A second administrator approves a proposed rule, or anyone of them withdraws it."""
+    from modules.retention import api as retention
+
+    actions = {"approve": retention.approve, "withdraw": retention.withdraw}
+    if step not in actions:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    org = _retention_org(auth, write=True)
+    with tenant_transaction():
+        rule = actions[step](organization_ref=org, rule_ref=rule_id, by=auth.actor_public_id)
+    return JsonResponse({"rule": rule})
+
+
+# ------------------------------------------------------------------ partner booking system
+# A clinic may choose a partner connector as its booking system (modules/bookingflow). Then a
+# booking stays "requested" until that system itself confirms it. These endpoints choose the
+# system, ask it, show where a booking stands, and let staff look after the connector operations.
+CONNECTOR_ATTENTION = ("unknown", "dead")
+CONNECTOR_WAITING = ("pending", "sent", "accepted")
+CONNECTOR_RECENT = 20
+
+
+def _connector_org(auth: trust.Authenticated) -> str:
+    """The organization this staff-console (or platform) account acts in."""
+    org = _staff_only(auth)
+    if not org:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    return org
+
+
+@endpoint("GET", "POST")
+def staff_booking_system(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Which partner connector confirms this clinic's bookings ("" = the clinic confirms by hand).
+
+    Anyone on the clinic's staff may read it; only the administrator (R13) changes it."""
+    from modules.bookingflow import api as bookingflow
+
+    org = _connector_org(auth)
+    _authorize(auth, "read:booking", organization_public_id=org)
+    if request.method == "POST":
+        if "R13" not in auth.roles:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        _authorize(auth, "write:staff", organization_public_id=org)
+        system = json_body(request).get("system", "")
+        if not isinstance(system, str):
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["system"])
+        allowed = _enabled_capabilities(auth)  # read in the platform's space, first
+        with tenant_transaction():
+            bookingflow.choose_system(org, system, by=auth.actor_public_id, capabilities=allowed)
+    with tenant_transaction():
+        chosen = bookingflow.system_of(org)
+        decides = bookingflow.partner_decides(org)
+    return JsonResponse(
+        {"system": chosen, "options": bookingflow.options(), "can_set": "R13" in auth.roles,
+         # False when no system, or it is down or no longer allowed: staff confirm by hand.
+         "partner_decides": decides}
+    )
+
+
+@endpoint("POST")
+def booking_ask_provider(
+    request: HttpRequest, auth: trust.Authenticated, booking_id: str
+) -> HttpResponse:
+    """Clinic staff ask the clinic's booking system to confirm a requested booking.
+
+    The booking stays "requested" until the system itself answers; asking again while a question
+    is still open asks nothing new."""
+    from modules.bookingflow import api as bookingflow
+
+    with tenant_transaction():
+        booking = scheduling.get_booking(booking_id)
+    org = booking["slot"]["organization_ref"]
+    decision = _authorize(
+        auth, "write:booking", organization_public_id=org, subject_ref=booking["person_ref"]
+    )
+    with tenant_transaction():
+        stage = bookingflow.ask_provider(
+            booking_ref=booking_id, actor_public_id=auth.actor_public_id, decision=decision
+        )
+        out = _booking_json(scheduling.get_booking(booking_id), {}, {}, trust.organization_names())
+    out["provider_stage"] = stage
+    return JsonResponse({"booking": out})
+
+
+@endpoint("GET")
+def booking_provider_stage(
+    request: HttpRequest, auth: trust.Authenticated, booking_id: str
+) -> HttpResponse:
+    """Where a booking stands with its clinic's booking system (null if it was never asked).
+
+    The clinic's staff see the state of the latest question too; the patient sees only the
+    stage."""
+    from modules.bookingflow import api as bookingflow
+
+    with tenant_transaction():
+        booking = scheduling.get_booking(booking_id)
+    org = booking["slot"]["organization_ref"]
+    _authorize(auth, "read:booking", organization_public_id=org, subject_ref=booking["person_ref"])
+    staff = org in held_organizations(auth) and is_allowed(
+        auth, "read:booking", organization_public_id=org
+    )
+    with tenant_transaction():
+        stage = bookingflow.stages([booking_id]).get(booking_id)
+    if stage and not staff:
+        stage = {"stage": stage["stage"], "operation": ""}
+    return JsonResponse({"booking": booking_id, "provider_stage": stage})
+
+
+@endpoint("GET")
+def staff_connector(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """This clinic's partner operations: those that need a person, those in flight, recent ones.
+
+    Needing a person means the outcome is unknown or the connector gave up. References, states
+    and codes only."""
+    from modules.connector import api as connector
+
+    org = _connector_org(auth)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    can_act = is_allowed(auth, "write:workflow", organization_public_id=org)
+    with tenant_transaction():
+        operations = connector.list_operations(organization_ref=org, limit=200)
+    return JsonResponse(
+        {
+            "can_act": can_act,
+            "attention": [o for o in operations if o["state"] in CONNECTOR_ATTENTION],
+            "waiting": [o for o in operations if o["state"] in CONNECTOR_WAITING],
+            "recent": [o for o in operations if o["state"] in ("confirmed", "rejected")][
+                :CONNECTOR_RECENT
+            ],
+        }
+    )
+
+
+@endpoint("GET")
+def staff_connector_history(
+    request: HttpRequest, auth: trust.Authenticated, operation_id: str
+) -> HttpResponse:
+    """The steps of one partner operation of this clinic, oldest first, and the chain check."""
+    from modules.connector import api as connector
+
+    org = _connector_org(auth)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    with tenant_transaction():
+        history = connector.operation_history(operation_id, org)
+        labels = trust.actor_labels()
+    for event in history["events"]:
+        ref = event.pop("actor_ref")
+        event["by"] = "System" if ref == "system" else labels.get(ref, "Someone")
+    return JsonResponse({"history": history})
+
+
+@endpoint("POST")
+def staff_connector_redrive(
+    request: HttpRequest, auth: trust.Authenticated, operation_id: str
+) -> HttpResponse:
+    """Put a partner operation that gave up back in the queue (its attempts start again)."""
+    from modules.connector import api as connector
+
+    org = _connector_org(auth)
+    _authorize(auth, "write:workflow", organization_public_id=org)
+    with tenant_transaction():
+        done = connector.redrive(
+            operation_ref=operation_id, actor_ref=auth.actor_public_id, organization_ref=org
+        )
+    return JsonResponse({"operation": done})
+
+
+@endpoint("POST")
+def staff_connector_resolve(
+    request: HttpRequest, auth: trust.Authenticated, operation_id: str
+) -> HttpResponse:
+    """Record, after checking with the partner, how an unknown or given-up operation ended.
+
+    The record keeps who settled it, and it never counts as the partner's own confirmation: a
+    booking it was about stays "requested"."""
+    from modules.connector import api as connector
+
+    org = _connector_org(auth)
+    _authorize(auth, "write:workflow", organization_public_id=org)
+    outcome = text(json_body(request), "outcome")
+    with tenant_transaction():
+        done = connector.resolve_by_hand(
+            operation_ref=operation_id,
+            outcome=outcome,
+            actor_ref=auth.actor_public_id,
+            organization_ref=org,
+        )
+    return JsonResponse({"operation": done})
+
+
+# ------------------------------------------------------------------ clinical references (DEV-041)
+def _clinical_references_on() -> None:
+    """Clinical references are switched off unless CLINICAL_REFERENCES_ENABLED is True. While off,
+    every endpoint below answers "not found", the same for everyone, before anything else."""
+    from modules.clinicalref import api as clinicalref
+
+    if not clinicalref.enabled():
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+
+
+def _reference_json(row: dict[str, Any], orgs: dict[str, str]) -> dict[str, Any]:
+    """A reference with the clinic's name added, so the patient knows whom to ask."""
+    return {
+        **row,
+        "organization": {"id": row["organization"], "name": orgs.get(row["organization"], "")},
+    }
+
+
+@endpoint("GET", "POST")
+def clinician_patient_references(
+    request: HttpRequest, auth: trust.Authenticated, person_id: str
+) -> HttpResponse:
+    """Pointers to a patient's records kept in a clinic's OWN clinical system: never the record.
+
+    GET: every reference for the patient, withdrawn ones included, with the record's id in that
+    system (a doctor with a care relationship; reading for continuity of care is enough).
+    POST `{"system", "external_id", "kind", "refers_to"}`: a doctor treating the patient, for
+    direct care, records that such a record exists at their clinic. No text, no values, no file."""
+    from modules.clinicalref import api as clinicalref
+
+    _clinical_references_on()
+    _clinician_only(auth)
+    if request.method == "GET":
+        _authorize(auth, "read:diagnostic", subject_ref=person_id)
+        with tenant_transaction():
+            rows = clinicalref.list_for_person(
+                person_id, viewer_ref=auth.actor_public_id, care_team=True
+            )
+            orgs = trust.organization_names()
+        return JsonResponse({"references": [_reference_json(r, orgs) for r in rows]})
+    org = _catalog_org(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    body = json_body(request)
+    decision = _authorize(
+        auth, clinicalref.OPERATION, organization_public_id=org, subject_ref=person_id
+    )
+    with tenant_transaction():
+        made = clinicalref.add(
+            person_ref=person_id,
+            organization_ref=org,
+            system=body.get("system"),
+            external_id=body.get("external_id"),
+            kind=body.get("kind"),
+            refers_to=body.get("refers_to"),
+            by=auth.actor_public_id,
+            decision=decision,
+        )
+        orgs = trust.organization_names()
+    return JsonResponse({"reference": _reference_json(made, orgs)}, status=201)
+
+
+@endpoint("POST")
+def clinician_reference_withdraw(
+    request: HttpRequest, auth: trust.Authenticated, reference_id: str
+) -> HttpResponse:
+    """Withdraw a reference `{"reason": "entered_in_error" | "wrong_patient" |
+    "removed_at_source" | "other"}`. A doctor of the clinic that added it, treating the patient,
+    for direct care. The reference stays, marked withdrawn; nothing is deleted."""
+    from modules.clinicalref import api as clinicalref
+
+    _clinical_references_on()
+    _clinician_only(auth)
+    with tenant_transaction():
+        found = clinicalref.get(reference_id)
+    if found["organization"] not in held_organizations(auth):
+        raise ZoikoError(ErrorCode.NOT_FOUND)  # another clinic's pointer: not theirs to see
+    reason = json_body(request).get("reason")
+    decision = _authorize(
+        auth,
+        clinicalref.OPERATION,
+        organization_public_id=found["organization"],
+        subject_ref=found["person"],
+    )
+    with tenant_transaction():
+        done = clinicalref.withdraw(
+            reference_ref=reference_id, reason=reason, by=auth.actor_public_id, decision=decision
+        )
+        orgs = trust.organization_names()
+    return JsonResponse({"reference": _reference_json(done, orgs)})
+
+
+# ------------------------------------------------------------------ consultation notes (DEV-304)
+def _notes_on() -> Any:
+    from modules.clinicalnote import api as clinicalnote
+
+    if not clinicalnote.enabled():
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    return clinicalnote
+
+
+def _note_json(note: dict[str, Any], names: dict[str, str]) -> dict[str, Any]:
+    out = dict(note)
+    out["author_name"] = names.get(str(note.get("author", "")), "")
+    out["mine"] = False
+    return out
+
+
+@endpoint("GET", "POST")
+def clinician_notes(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET ?patient=: this patient's notes (no text). POST {patient, note_date, body}: start a
+    draft. A doctor treating the patient only, for direct care."""
+    notes = _notes_on()
+    _clinician_only(auth)
+    org = _catalog_org(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    if request.method == "POST":
+        body = json_body(request)
+        person = text(body, "patient")
+        decision = _authorize(
+            auth, notes.WRITE, organization_public_id=org, subject_ref=person
+        )
+        with tenant_transaction():
+            made = notes.create_draft(
+                person_ref=person,
+                organization_ref=org,
+                body=body.get("body"),
+                note_date=body.get("note_date"),
+                by=auth.actor_public_id,
+                decision=decision,
+            )
+            names = trust.actor_labels()
+        out = _note_json(made, names)
+        out["mine"] = True
+        return JsonResponse({"note": out}, status=201)
+    person = request.GET.get("patient") or ""
+    if not person:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["patient"])
+    decision = _authorize(auth, notes.READ, organization_public_id=org, subject_ref=person)
+    with tenant_transaction():
+        rows = notes.list_for_person(
+            person_ref=person,
+            by=auth.actor_public_id,
+            decision=decision,
+            organization_ref=org,
+        )
+        names = trust.actor_labels()
+    shown = []
+    for row in rows:
+        item = _note_json(row, names)
+        item["mine"] = row["author"] == auth.actor_public_id
+        shown.append(item)
+    return JsonResponse({"notes": shown})
+
+
+def _note_found(notes: Any, auth: trust.Authenticated, note_id: str) -> dict[str, Any]:
+    with tenant_transaction():
+        found = notes.get(note_id)
+    if found["organization"] not in held_organizations(auth):
+        raise ZoikoError(ErrorCode.NOT_FOUND)  # another clinic's note: not theirs to see
+    return found
+
+
+@endpoint("GET")
+def clinician_note(request: HttpRequest, auth: trust.Authenticated, note_id: str) -> HttpResponse:
+    """One note with its text. Every read is recorded."""
+    notes = _notes_on()
+    _clinician_only(auth)
+    found = _note_found(notes, auth, note_id)
+    if found["state"] == "draft" and found["author"] != auth.actor_public_id:
+        raise ZoikoError(ErrorCode.NOT_FOUND)  # a draft is its author's alone
+    decision = _authorize(
+        auth, notes.READ, organization_public_id=found["organization"],
+        subject_ref=found["person"],
+    )
+    with tenant_transaction():
+        got = notes.read(note_ref=note_id, by=auth.actor_public_id, decision=decision)
+        names = trust.actor_labels()
+    out = _note_json(got, names)
+    out["mine"] = got["author"] == auth.actor_public_id
+    return JsonResponse({"note": out})
+
+
+@endpoint("POST")
+def clinician_note_step(
+    request: HttpRequest, auth: trust.Authenticated, note_id: str, step: str
+) -> HttpResponse:
+    """edit {body} (a draft you wrote) | sign | amend {reason}. A signed note is never edited:
+    amend starts a new version that replaces it once signed."""
+    notes = _notes_on()
+    _clinician_only(auth)
+    if step not in ("edit", "sign", "amend", "addendum"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    found = _note_found(notes, auth, note_id)
+    body = json_body(request)
+    op = notes.ATTEST if step == "sign" else notes.WRITE
+    decision = _authorize(
+        auth, op, organization_public_id=found["organization"], subject_ref=found["person"]
+    )
+    with tenant_transaction():
+        if step == "edit":
+            done = notes.edit_draft(
+                note_ref=note_id, body=body.get("body"), by=auth.actor_public_id,
+                decision=decision,
+            )
+        elif step == "addendum":
+            done = notes.add_addendum(
+                note_ref=note_id, body=body.get("body"), by=auth.actor_public_id,
+                decision=decision,
+            )
+        elif step == "sign":
+            done = notes.sign(note_ref=note_id, by=auth.actor_public_id, decision=decision)
+        else:
+            done = notes.amend(
+                note_ref=note_id, reason=body.get("reason"), by=auth.actor_public_id,
+                decision=decision,
+            )
+        names = trust.actor_labels()
+    out = _note_json(done, names)
+    out["mine"] = True
+    return JsonResponse({"note": out}, status=201 if step == "amend" else 200)
+
+
+@endpoint("GET")
+def my_notes(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The patient's own signed consultation notes, once the delay has passed (no text here).
+    Drafts are never shown. A guardian gets none: "records" is not granted to them yet.
+    With the notes switch off the answer is an empty list marked `enabled: false`, so the app can
+    say so without an error."""
+    from modules.clinicalnote import api as clinicalnote
+
+    if not clinicalnote.enabled():
+        return JsonResponse({"notes": [], "enabled": False})
+    notes = _notes_on()
+    people = _my_people(auth, notes.READ)
+    rows: list[dict[str, Any]] = []
+    for person in people:
+        decision = _authorize(auth, notes.READ, subject_ref=person)
+        with tenant_transaction():
+            rows += notes.patient_list(
+                person_ref=person, by=auth.actor_public_id, decision=decision
+            )
+    with tenant_transaction():
+        names = trust.actor_labels()
+    for row in rows:
+        row["author_name"] = names.get(str(row["author"]), "")
+        row.pop("author", None)
+    rows.sort(key=lambda r: (r["note_date"], r["version"]), reverse=True)
+    return JsonResponse({"notes": rows})
+
+
+@endpoint("GET")
+def my_note(request: HttpRequest, auth: trust.Authenticated, note_id: str) -> HttpResponse:
+    """One of the patient's own notes, with its text. Recorded."""
+    notes = _notes_on()
+    with tenant_transaction():
+        found = notes.get(note_id)
+    if found["person"] not in _my_people(auth, notes.READ):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    decision = _authorize(auth, notes.READ, subject_ref=found["person"])
+    with tenant_transaction():
+        got = notes.patient_read(
+            note_ref=note_id, person_ref=found["person"], by=auth.actor_public_id,
+            decision=decision,
+        )
+        names = trust.actor_labels()
+    got["author_name"] = names.get(str(got["author"]), "")
+    got.pop("author", None)
+    return JsonResponse({"note": got})
+
+
+@endpoint("GET")
+def my_references(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The patient's own references: what kind of record, its date, which clinic and system holds
+    it, and whether it was withdrawn, so they know whom to ask. Never the record's id in that
+    system. A guardian needs the "records" part of their grant, which is not granted yet."""
+    from modules.clinicalref import api as clinicalref
+
+    _clinical_references_on()
+    people = _my_people(auth, "read:diagnostic")
+    with tenant_transaction():
+        rows = [
+            row
+            for person in people
+            for row in clinicalref.list_for_person(
+                person, viewer_ref=auth.actor_public_id, care_team=False
+            )
+        ]
+        orgs = trust.organization_names()
+    return JsonResponse({"references": [_reference_json(r, orgs) for r in rows]})
+
+
+# ------------------------------------------------------------------ paying a bill online (skeleton)
+def _payer(auth: trust.Authenticated) -> str:
+    """The patient this login IS, after the policy engine allows them their own billing. Paying is
+    for the person who owes the bill: a guardian or staff login gets 403."""
+    org = _catalog_org(auth)
+    with tenant_transaction():
+        person = trust.own_person_of(auth.actor_public_id)
+    if not person or org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "read:billing", organization_public_id=org, subject_ref=person)
+    return person
+
+
+@endpoint("GET", "POST")
+def my_invoice_payments(
+    request: HttpRequest, auth: trust.Authenticated, invoice_id: str
+) -> HttpResponse:
+    """GET: the attempts to pay one of my invoices. POST {idempotency_key} (or an Idempotency-Key
+    header): pay its balance through the deployment's payment provider. Refused with 422
+    (field payment_provider) while payments are switched off, which is the default."""
+    person = _payer(auth)
+    if request.method == "POST":
+        body = json_body(request)
+        key = text(body, "idempotency_key", required=False) or request.headers.get(
+            "Idempotency-Key", ""
+        )
+        made = billing.start_payment(
+            invoice_ref=invoice_id,
+            person_ref=person,
+            idempotency_key=key,
+            actor_public_id=auth.actor_public_id,
+        )  # runs its own transactions
+        return JsonResponse({"payment": made}, status=200 if made["replayed"] else 201)
+    with tenant_transaction():
+        rows = billing.payer_payments(invoice_id, person)
+    return JsonResponse({"payments": rows})
+
+
+@endpoint("POST")
+def my_payment_refresh(
+    request: HttpRequest, auth: trust.Authenticated, payment_id: str
+) -> HttpResponse:
+    """Ask the payment provider again about one of my payments that is pending or unknown."""
+    person = _payer(auth)
+    done = billing.refresh_payment(
+        payment_ref=payment_id, person_ref=person, actor_public_id=auth.actor_public_id
+    )
+    return JsonResponse({"payment": done})
+
+
+@endpoint("GET")
+def staff_billing_payments(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Attempts to pay this clinic's invoices through a provider (?invoice= for one invoice)."""
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "read:billing", organization_public_id=org)
+    with tenant_transaction():
+        rows = billing.list_payments(org, request.GET.get("invoice") or None)
+    return JsonResponse({"payments": rows})
+
+
+# --------------------------------------------------------------------------- circuits (DEV-221)
+@endpoint("GET")
+def staff_connector_circuits(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Which of this customer's partner connectors are paused or halted, and since when."""
+    from modules.connector import api as connector
+
+    org = _connector_org(auth)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    with tenant_transaction():
+        found = connector.circuits()
+    return JsonResponse(
+        {
+            "circuits": found,
+            "can_act": is_allowed(auth, "write:workflow", organization_public_id=org),
+        }
+    )
+
+
+@endpoint("POST")
+def staff_connector_circuit_reset(
+    request: HttpRequest, auth: trust.Authenticated, connector_key: str
+) -> HttpResponse:
+    """A person starts a paused or halted connector again (after the partner fixed it)."""
+    from modules.connector import api as connector
+
+    org = _connector_org(auth)
+    _authorize(auth, "write:workflow", organization_public_id=org)
+    with tenant_transaction():
+        done = connector.reset_circuit(connector_key, actor_ref=auth.actor_public_id)
+    return JsonResponse({"circuit": done})
+
+
+# ------------------------------------------------------------------ certification (DEV-230)
+@endpoint("GET")
+def platform_connectors(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Every partner system this deployment has, and how far its current version is approved."""
+    from modules.connector import api as connector
+
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        found = connector.certification.overview()
+        labels = trust.actor_labels()
+    for item in found:
+        cert = item["certification"]
+        if cert:
+            for field in ("enrolled_by", "certified_by", "live_by"):
+                cert[field] = labels.get(cert[field], "Zoiko staff") if cert[field] else ""
+    return JsonResponse({"connectors": found, "can_write": "R11" in auth.roles,
+                         "can_attest": "R12" in auth.roles})
+
+
+@endpoint("POST")
+def platform_connector_step(
+    request: HttpRequest, auth: trust.Authenticated, connector_key: str, step: str
+) -> HttpResponse:
+    """enrol | certify | live | suspend, each by the person the rules allow."""
+    from modules.connector import api as connector
+
+    org = _platform_only(auth)
+    steps = {"enrol": connector.certification.enrol, "certify": connector.certification.certify,
+             "live": connector.certification.go_live}
+    if step not in (*steps, "suspend"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    safety = "R12" in auth.roles and "R11" not in auth.roles
+    attesting = step == "certify" or (step == "suspend" and safety)
+    decision = _authorize(
+        auth, "attest:platform" if attesting else "write:platform", organization_public_id=org)
+    with tenant_transaction():
+        if step == "suspend":
+            done = connector.certification.suspend(
+                key=connector_key, note=text(json_body(request), "note"),
+                actor_public_id=auth.actor_public_id, decision=decision, organization_ref=org)
+        else:
+            done = steps[step](key=connector_key, actor_public_id=auth.actor_public_id,
+                               decision=decision, organization_ref=org)
+    return JsonResponse({"certification": done}, status=201 if step == "enrol" else 200)

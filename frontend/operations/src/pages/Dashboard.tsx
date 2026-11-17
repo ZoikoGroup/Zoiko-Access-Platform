@@ -25,6 +25,7 @@ const ATTENTION: { key: keyof DashboardData["attention"]; text: (n: number) => s
   { key: "messages", page: "messages", text: (n) => `${n} conversation${n === 1 ? "" : "s"} with a new message from a patient` },
   { key: "referrals_to_decide", page: "referrals", text: (n) => `${n} referral${n === 1 ? "" : "s"} waiting for a decision` },
   { key: "data_requests", page: "rights", text: (n) => `${n} data request${n === 1 ? "" : "s"} from patients waiting for the clinic` },
+  { key: "partner_hold_escalated", page: "exchange", text: (n) => `${n} held partner request${n === 1 ? " has" : "s have"} waited over 3 days: please decide` },
   { key: "partner_held_mine", page: "exchange", text: (n) => `${n} held request${n === 1 ? " is" : "s are"} yours to decide` },
   { key: "partner_on_hold", page: "exchange", text: (n) => `${n} request${n === 1 ? "" : "s"} on hold because the partner is unavailable: cancel or wait` },
   { key: "partner_results", page: "exchange", text: (n) => `${n} result${n === 1 ? "" : "s"} from a partner waiting for a doctor to review` },

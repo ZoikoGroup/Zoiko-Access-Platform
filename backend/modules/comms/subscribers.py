@@ -15,6 +15,8 @@ from foundation.dispatch import subscribe, subscriptions
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.mail import queue_email
 from foundation.outbox import PublishedEvent
+from foundation.texts import queue_text
+from foundation.timeutil import utc_now
 from modules.catalog import api as catalog
 from modules.messaging import api as messaging
 from modules.referral import api as referral
@@ -22,8 +24,10 @@ from modules.scheduling import api as scheduling
 from modules.trust import api as trust
 from modules.waitlist import api as waitlist
 
+from .market import texts_allowed
 from .models import Notification
-from .services import email_notices_enabled
+from .phone import phone_verified
+from .services import email_notices_enabled, next_allowed_send, texts_enabled
 
 CONSUMER = "comms.notifier"
 
@@ -61,7 +65,14 @@ _EMAIL_HEADLINE = {
     "booking_reminder": "You have an appointment coming up.",
     "message_received": "You have a new message from your clinic.",
     "exchange_reviewed": "Your doctor reviewed a result.",
+    "exchange_consent": "A request is waiting for your agreement.",
+    "claim_consent": "A claim is waiting for your agreement.",
 }
+
+
+# Only these wait for the end of the patient's quiet hours (DEV-181). A cancelled, moved or
+# confirmed appointment, a message from the clinic and a reviewed result go out at once.
+_ROUTINE = frozenset({"booking_reminder"})
 
 
 def _email_the_patient(person_ref: str, kind: str) -> None:
@@ -76,12 +87,38 @@ def _email_the_patient(person_ref: str, kind: str) -> None:
     actor_ref, address = target
     if not email_notices_enabled(actor_ref):
         return
-    queue_email(
+    mail = queue_email(
         kind="patient_update", to_address=address, subject="An update on Zoiko Access",
         body=(f"Hello,\n\n{headline}\n\nSign in to see the details: "
               f"{settings.PATIENT_APP_URL}/?page=notifications\n\n"
               "You are getting this because you turned on email updates. You can turn them off "
               "on the Notifications page.\n\nZoiko Access\n"))
+    if kind in _ROUTINE:                      # TC30: a routine reminder waits out quiet hours
+        mail.next_attempt_at = next_allowed_send(actor_ref, utc_now())
+        mail.save(update_fields=["next_attempt_at"])
+    _text_the_patient(person_ref, actor_ref, kind)
+
+
+def _text_the_patient(person_ref: str, actor_ref: str, kind: str) -> None:
+    """If this patient also asked for texts and their own phone number is in international form,
+    queue the generic "there is an update" text: never a care detail (DEV-194)."""
+    if not texts_enabled(actor_ref):
+        return
+    phone = (trust.get_person_profiles([person_ref]).get(person_ref) or {}).get("phone", "")
+    number = phone.replace(" ", "")
+    if not number.startswith("+"):
+        return                                # only an international number can be texted
+    if not phone_verified(actor_ref, number):
+        return                                # only a number the patient proved they hold
+    if not texts_allowed():
+        return                                # DEV-228: this market is not switched on
+    try:
+        text = queue_text(kind="patient_update", to_number=number, template="update")
+    except ZoikoError:
+        return                                # a number of the wrong shape: nothing is sent
+    if kind in _ROUTINE:
+        text.next_attempt_at = next_allowed_send(actor_ref, utc_now())
+        text.save(update_fields=["next_attempt_at"])
 
 
 def _when(local_start: str) -> str:
@@ -176,6 +213,25 @@ def on_referral_event(event: PublishedEvent) -> None:
         source_event_id=event.event_id)
 
 
+CLAIM_CONSUMER = "comms.claim_notifier"
+
+
+def on_claim_event(event: PublishedEvent) -> None:
+    """Tell the patient a claim is waiting for their agreement. Worded from the event alone: no
+    payer, no amount and no service (DEV-313)."""
+    if event.event_type != "claim.consent_needed.v1":
+        return
+    person = str(event.payload.get("person_ref", ""))
+    if not person:
+        return
+    Notification.objects.create(
+        person_ref=person, kind="claim_consent", title="A claim needs your agreement",
+        body="Your clinic has asked your insurer to cover something. It can only be sent if "
+             "you agree. Open My Claims to see what would be sent and answer."[:300],
+        source_event_id=event.event_id)
+    _email_the_patient(person, "claim_consent")
+
+
 EXCHANGE_CONSUMER = "comms.exchange_notifier"
 _EXCHANGE_THING = {"lab_order": "test or scan", "pharmacy_request": "pharmacy request",
                    "homecare_referral": "home-care request"}
@@ -184,12 +240,22 @@ _EXCHANGE_THING = {"lab_order": "test or scan", "pharmacy_request": "pharmacy re
 def on_exchange_event(event: PublishedEvent) -> None:
     """Tell the patient their doctor has reviewed a result. Worded from the event alone: it says
     nothing about what the result was (DEV-166)."""
-    if event.event_type != "exchange.reviewed.v1":
+    if event.event_type not in ("exchange.reviewed.v1", "exchange.consent_needed.v1"):
         return
     person = str(event.payload.get("person_ref", ""))
     if not person:
         return
     thing = _EXCHANGE_THING.get(str(event.payload.get("kind")), "request")
+    if event.event_type == "exchange.consent_needed.v1":
+        # said from the event alone: no partner name, no order, nothing about the person (DEV-302)
+        Notification.objects.create(
+            person_ref=person, kind="exchange_consent", title="A request needs your agreement",
+            body=f"Your clinic asked for a {thing} for you. It can only go ahead if you agree to "
+                 "tell the service your name and date of birth. Open My Tests & Requests to "
+                 "answer."[:300],
+            source_event_id=event.event_id)
+        _email_the_patient(person, "exchange_consent")
+        return
     Notification.objects.create(
         person_ref=person, kind="exchange_reviewed", title="Your doctor reviewed a result",
         body=f"Your doctor has reviewed the result of your {thing}. "
@@ -289,4 +355,6 @@ def register_subscribers() -> None:
         subscribe(MESSAGE_CONSUMER, "message.", on_message_event)
     if not any(s.consumer == EXCHANGE_CONSUMER for s in subscriptions()):
         subscribe(EXCHANGE_CONSUMER, "exchange.", on_exchange_event)
+    if not any(s.consumer == CLAIM_CONSUMER for s in subscriptions()):
+        subscribe(CLAIM_CONSUMER, "claim.", on_claim_event)
 

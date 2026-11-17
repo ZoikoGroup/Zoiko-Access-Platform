@@ -17,6 +17,14 @@ export interface Appointment {
   patient_name?: string | null;
 }
 
+export interface Note {
+  id: string; person: string; author: string; author_name: string; mine: boolean;
+  note_date: string; state: "draft" | "signed" | "superseded"; version: number;
+  supersedes: string | null; superseded_by: string | null; amend_reason: string | null;
+  signed_at: string | null; created_at: string; body?: string;
+  addenda?: { id: string; author: string; added_at: string; body: string }[];
+}
+
 export interface PatientRow {
   id: string;
   patient_name?: string | null;
@@ -67,5 +75,8 @@ export interface PartnerRequest {
   partner: string; token: string; patient: string; patient_name?: string | null; label: string;
   urgency: "routine" | "urgent";
   state: "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
-  decision_note: string; result_ref: string; created_at: string; result_at: string | null; reviewed_at: string | null;
+  decision_note: string; result_ref: string; result_flag?: "" | "normal" | "abnormal" | "critical"; has_summary?: boolean;
+  created_at: string; result_at: string | null; reviewed_at: string | null;
 }
+
+export interface ResultSummary { id: string; flag: string; summary: string; result_ref: string; delivered_at: string | null }

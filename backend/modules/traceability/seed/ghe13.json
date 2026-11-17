@@ -37,7 +37,7 @@
   "group": "Contract and version",
   "title": "Unsupported API major version returns documented safe response with deprecation guidance.",
   "status": "partly",
-  "evidence": "An unknown major version under /api/ gets the standard not-found body, the list of versions we serve and a link to v1 (test_api_versions.py). There is no deprecation schedule or sunset header because only v1 exists."
+  "evidence": "An unknown major version under /api/ gets the standard not-found body, the versions we serve and a link to v1 (test_api_versions.py); no deprecation schedule, as only v1 exists."
  },
  {
   "source": "GHE-13",
@@ -93,7 +93,7 @@
   "group": "Authentication and authorization",
   "title": "Partner cannot change tenant, patient ID, object property or region to escalate privileges.",
   "status": "met",
-  "evidence": "test_partner_events.py: the customer comes from the key, never the body, and extra body fields are held. Bodies naming another tenant, cell or patient are held, not obeyed (test_partner_events.py)."
+  "evidence": "The customer comes from the key; bodies naming another tenant, cell or patient are held, not obeyed (test_partner_events.py)."
  },
  {
   "source": "GHE-13",
@@ -252,8 +252,8 @@
   "req_id": "T-32",
   "group": "Healthcare interoperability",
   "title": "Partner unsupported profile/version halts only affected adapter and triggers visible exception.",
-  "status": "not_built",
-  "evidence": "No partner profiles or adapters."
+  "status": "met",
+  "evidence": "An adapter that reports an unsupported profile or version halts only that connector; others carry on; its work waits; the halt is audited and shown on the staff Partner systems page until a person starts it again (test_connector_circuit.py, DEV-221). No real partner adapter exists yet."
  },
  {
   "source": "GHE-13",
@@ -276,16 +276,16 @@
   "req_id": "T-35",
   "group": "Idempotency and consistency",
   "title": "Network failure after outbound POST cannot automatically repeat a non-idempotent clinical order.",
-  "status": "not_built",
-  "evidence": "No outbound clinical orders. Webhook deliveries are retried by design because they are notifications."
+  "status": "partly",
+  "evidence": "A partner operation whose call may have arrived (timeout, lost answer, dead worker) becomes \"unknown\" and is never simply sent again: the partner is asked, and a partner that cannot promise idempotence is never resent blindly, by the worker or by a person (test_connector.py, DEV-217, DEV-223). Lab and pharmacy orders (exchange) do not go through a connector yet."
  },
  {
   "source": "GHE-13",
   "req_id": "T-36",
   "group": "Idempotency and consistency",
   "title": "Source query finds previously accepted order, reconciles status without duplicate order.",
-  "status": "not_built",
-  "evidence": "No source query or order reconciliation."
+  "status": "partly",
+  "evidence": "Reconciliation asks the partner about an unknown operation and takes its answer (done, refused, or no record, which is resent only to a partner that honours our key) without a second order (test_connector.py, DEV-217). Lab and pharmacy orders (exchange) do not go through a connector yet."
  },
  {
   "source": "GHE-13",
@@ -324,8 +324,8 @@
   "req_id": "T-41",
   "group": "Sandbox and certification",
   "title": "Sandbox exercises synthetic patients only and cannot reach production sources or tokens.",
-  "status": "not_built",
-  "evidence": "No sandbox."
+  "status": "partly",
+  "evidence": "The only sandbox is the pretend partner, used in development and tests with synthetic data; it cannot be registered unless those settings allow it, and production refuses to start with it on (DEV-217, DEV-227). There is no partner-facing sandbox environment."
  },
  {
   "source": "GHE-13",
@@ -340,8 +340,8 @@
   "req_id": "T-43",
   "group": "Sandbox and certification",
   "title": "Partner onboarding blocks client credential issuance before identity/legal/security validation.",
-  "status": "not_built",
-  "evidence": "A clinic administrator can issue a credential at once; there is no identity, legal or security validation first."
+  "status": "partly",
+  "evidence": "A new partner has no secret. A Zoiko support person records identity, legal and security checks with notes, and only then can the clinic issue the secret (DEV-174, test_partner_events.py, robot 19). One person may record each check, and nothing is proved or verified."
  },
  {
   "source": "GHE-13",
@@ -364,24 +364,24 @@
   "req_id": "T-46",
   "group": "Sandbox and certification",
   "title": "Failed privacy/DPIA/country pack check blocks production enablement.",
-  "status": "not_built",
-  "evidence": "No privacy or country-pack check gates enabling a connector."
+  "status": "partly",
+  "evidence": "A real partner's booking system can be switched on for a clinic only while a signed, current, unsuspended country pack for the customer's country allows partner bookings; a pack is signed only with legal, privacy (DPIA) and security evidence recorded (test_partner_pack_gate.py, DEV-224); when the pack lapses later, the partner is no longer asked and staff confirm by hand (DEV-229). There are no certification stages for a partner."
  },
  {
   "source": "GHE-13",
   "req_id": "T-47",
   "group": "Sandbox and certification",
   "title": "Only signed authorized approvers can progress SANDBOX to CERTIFIED and LIVE.",
-  "status": "not_built",
-  "evidence": "No sandbox, certified and live stages, and no signed approvers."
+  "status": "partly",
+  "evidence": "A partner's interface goes sandbox, certified, live: a support officer enrols it, a safety officer who did not enrol it certifies it, and a support officer who did neither puts it live; either may suspend it with a reason; every step is audited, and no clinic can use a partner that is not live (test_connector_certification.py, DEV-230). Support and safety officers stand in for the real approvers, and a step is an approval on record, not a cryptographic signature."
  },
  {
   "source": "GHE-13",
   "req_id": "T-48",
   "group": "Sandbox and certification",
   "title": "Material profile or auth change requires compatibility check and risk-based recertification.",
-  "status": "not_built",
-  "evidence": "No recertification on profile or auth changes."
+  "status": "partly",
+  "evidence": "A certification belongs to one profile version of the partner's interface: when the adapter reports a new version, the partner counts as not live, staff confirm bookings by hand, and the new version starts again in the sandbox (test_connector_certification.py, DEV-230). There is no automated compatibility test, and a change of authentication is not detected."
  },
  {
   "source": "GHE-13",
@@ -429,15 +429,15 @@
   "group": "Observability, incident and offboarding",
   "title": "Regional support can inspect attempts without reading unauthorized clinical payload.",
   "status": "partly",
-  "evidence": "Delivery and message lists show status, counts and fingerprints but not bodies. No test asserts that, and there is no separate regional support role."
+  "evidence": "The delivery attempt list shows status, counts, owner and a fingerprint of the message but never the message itself (test_support_view.py asserts the exact fields), and Zoiko's own support staff cannot open a clinic's attempts or inbound events at all (403). There is no separate regional support view of attempts."
  },
  {
   "source": "GHE-13",
   "req_id": "T-55",
   "group": "Observability, incident and offboarding",
   "title": "On connector suspension, in-flight healthcare obligations remain tracked and assigned.",
-  "status": "not_built",
-  "evidence": "No in-flight obligations tied to a connector."
+  "status": "partly",
+  "evidence": "A paused or halted connector keeps every operation in its own state (DEV-221), and an operation that gives up opens a \"Settle a partner operation\" item in the clinic's work queue, due within the clinic's response target, which staff claim and which closes on a final answer (test_partner_work.py, DEV-226). A connector being switched off by a person (rather than failing) does not yet open work for what it had in flight."
  },
  {
   "source": "GHE-13",
@@ -468,8 +468,8 @@
   "req_id": "T-59",
   "group": "Clinical safety and user-facing claims",
   "title": "Partner critical-result webhook cannot silently replace independent approved urgent notification channel.",
-  "status": "not_built",
-  "evidence": "No critical results or urgent channels."
+  "status": "partly",
+  "evidence": "A result a partner delivers can be rated critical (DEV-307). That rating never travels as a webhook to a person: it shows as a red mark on the ordering doctor's page and separately sends the person who ordered it an email from our own system, to a confirmed address only, once (DEV-310, test_exchange.py). There is no approved list of urgent channels, no text or phone alert, and no reminder if the result stays unreviewed."
  },
  {
   "source": "GHE-13",

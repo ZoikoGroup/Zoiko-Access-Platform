@@ -43,6 +43,28 @@ class Urgency(models.TextChoices):
     URGENT = "urgent", "Urgent"
 
 
+class Consent(models.TextChoices):
+    """The patient's agreement to tell the partner who they are, for this one order (DEV-175)."""
+
+    PENDING = "pending", "Waiting for the patient"
+    GRANTED = "granted", "Shared with the patient's agreement"
+    DECLINED = "declined", "The patient said no"
+    WITHDRAWN = "withdrawn", "The patient took it back"
+
+
+class ResultFlag(models.TextChoices):
+    """How the lab rates a result. Critical always stands out to the ordering doctor."""
+
+    NORMAL = "normal", "Normal"
+    ABNORMAL = "abnormal", "Abnormal"
+    CRITICAL = "critical", "Critical"
+
+
+MAX_SUMMARY = 2000
+CONSENT_DAYS = 30  # how long one agreement lasts
+HOLD_ESCALATE_DAYS = 3  # a held request waits this long before the administrator is told
+
+
 class ExchangeRequest(CellScopedModel):
     ref_no = models.CharField(max_length=14)  # XCH-XXXXXXXX
     kind = models.CharField(max_length=20, choices=Kind.choices)
@@ -66,7 +88,23 @@ class ExchangeRequest(CellScopedModel):
     # Set when the other customer was suspended while this was still open (DEV-169): the request
     # waits for a person on the surviving side to cancel it or for the suspension to be lifted.
     on_hold_at = models.DateTimeField(null=True, blank=True)
+    consent_state = models.CharField(
+        max_length=10, choices=Consent.choices, default=Consent.PENDING
+    )
+    consent_by_ref = models.CharField(max_length=22, blank=True, default="")
+    consent_at = models.DateTimeField(null=True, blank=True)
+    consent_expires_at = models.DateTimeField(null=True, blank=True)
+    # Name and birth date the patient agreed to share, ENCRYPTED, cleared when the agreement is
+    # withdrawn. Nothing else about the patient is ever held here.
+    shared_identity_enc = models.TextField(blank=True, default="")
     # The person who must decide what to do with a held request: whoever sent it (DEV-170).
+    # A short plain-text summary of the result and the lab's rating, delivered by the partner. The
+    # text is ENCRYPTED and only the ordering clinic's treating doctors may open it (DEV-307).
+    result_summary_enc = models.TextField(blank=True, default="")
+    result_flag = models.CharField(
+        max_length=10, choices=ResultFlag.choices, blank=True, default=""
+    )
+    on_hold_escalated_at = models.DateTimeField(null=True, blank=True)
     on_hold_owner_ref = models.CharField(max_length=22, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):

@@ -114,6 +114,7 @@ class MailState(models.TextChoices):
     SENDING = "sending", "Sending"
     SENT = "sent", "Sent"
     FAILED = "failed", "Failed"  # gave up; a person must look
+    CANCELLED = "cancelled", "Cancelled before it was sent"   # TC37, DEV-182
 
 
 class QueuedEmail(CellScopedModel):
@@ -145,6 +146,32 @@ class QueuedEmail(CellScopedModel):
         ]
 
 
+class QueuedText(CellScopedModel):
+    """A text message waiting for the worker (DEV-194). Built only from an approved template
+    (foundation/texts.py), so it never holds care details. Like the mail queue it is not row-level
+    secured; the body is wiped and the number masked once it is sent or given up."""
+
+    kind = models.CharField(max_length=32)
+    to_number = models.CharField(max_length=32)
+    template = models.CharField(max_length=32)
+    body = models.CharField(max_length=320, blank=True, default="")
+    state = models.CharField(max_length=16, choices=MailState.choices, default=MailState.QUEUED)
+    attempts = models.PositiveIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=utc_now)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=64, blank=True, default="")
+    content_digest = models.CharField(max_length=64, blank=True, default="")
+    # DEV-199: the provider's id for the message, and how far it got by the provider's receipts.
+    provider_ref = models.CharField(max_length=64, blank=True, default="")
+    delivery_status = models.CharField(max_length=16, blank=True, default="")
+    delivery_updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["state", "next_attempt_at"], name="text_due_idx"),
+                   models.Index(fields=["provider_ref"], name="text_provider_idx")]
+
+
 class EmailAttempt(models.Model):
     """One try at sending one email, written once and never changed (GHE-16 DeliveryAttempt:
     "immutable attempt history"). The queue row keeps only the latest state; this keeps every try,
@@ -170,3 +197,21 @@ class EmailAttempt(models.Model):
 
     def __str__(self) -> str:
         return f"{self.email_ref} try {self.attempt_no}: {self.outcome}"
+
+
+class ProviderCircuit(models.Model):
+    """A circuit breaker for an outside provider (DEV-200, GHE-16 TC42). After several failures in a
+    row it opens: nothing is sent to that provider for a while, and the work waits safely instead of
+    using up its tries. The worker runs as a fresh job each minute, so the state lives here, not in
+    memory. Not tenant-scoped: one provider serves every tenant."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=32, unique=True)
+    failures = models.PositiveIntegerField(default=0)        # in a row
+    open_until = models.DateTimeField(null=True, blank=True)
+    opened_count = models.PositiveIntegerField(default=0)
+    last_change = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=utc_now, editable=False)
+
+    def __str__(self) -> str:
+        return f"{self.name}: {self.failures} failures"

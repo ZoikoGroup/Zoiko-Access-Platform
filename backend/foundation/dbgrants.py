@@ -27,6 +27,7 @@ APPEND_ONLY = frozenset({
     "evidence_auditevent",
     "policy_accessdecision",
     "scheduling_bookingevent",
+    "trust_incidentevent",
     "workflow_workitemevent",
     "trust_releasenote",
     "ai_aipermitevent",
@@ -41,6 +42,7 @@ APPEND_ONLY = frozenset({
     "billing_invoiceevent",
     "billing_creditnote",
     "trust_matchdecision",
+    "connector_operationevent",
 })
 
 # The one place the app deletes rows (finished plumbing). probe_probe exists only under test
