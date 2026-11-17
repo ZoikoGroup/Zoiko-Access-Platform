@@ -40,6 +40,7 @@ APPEND_ONLY = frozenset({
     "readiness_gatedecision",
     "billing_invoiceevent",
     "billing_creditnote",
+    "trust_matchdecision",
 })
 
 # The one place the app deletes rows (finished plumbing). probe_probe exists only under test

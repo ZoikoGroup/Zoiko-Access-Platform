@@ -44,6 +44,18 @@ from .family import (
     suspend_family_member,
     withdraw_family_member,
 )
+from .identity_match import decide as decide_match
+from .identity_match import (
+    linked_people,
+    list_cases,
+    open_case_people,
+    rebuild_match_keys,
+)
+from .identity_proof import history as identity_history
+from .identity_proof import record_check as record_identity_check
+from .identity_proof import refresh_expired as refresh_expired_identities
+from .identity_proof import status_of as identity_status_of
+from .identity_proof import withdraw as withdraw_identity_check
 from .incidents import (
     add_incident,
     assess_incident,
@@ -130,6 +142,9 @@ __all__ = [
     "overview", "own_person_of", "patient_registry", "person_exists", "profile_summary_for",
     "link_person_to_site", "person_at_site", "end_care_links",
     "MAX_RESPONSE_TARGET_HOURS", "response_target_hours", "set_response_target",
+    "decide_match", "identity_history", "identity_status_of", "linked_people", "list_cases",
+    "open_case_people", "rebuild_match_keys", "record_identity_check",
+    "refresh_expired_identities", "withdraw_identity_check",
     "approve_family_member", "approved_family_grants", "ask_for_proof", "mark_proof_received",
     "resume_family_member", "suspend_family_member", "get_family_grant", "list_family",
     "pending_family_count", "pending_family_requests",

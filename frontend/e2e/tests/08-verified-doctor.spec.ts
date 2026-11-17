@@ -31,7 +31,7 @@ test("a checked doctor shows Verified to patients, and withdrawing removes it", 
   const seesMark = async () => {
     await patient.getByRole("button", { name: "Home", exact: true }).click();          // a reload would sign out
     await patient.getByRole("button", { name: "Find Healthcare" }).first().click();
-    await patient.locator("button.service", { hasText: SERVICE }).click();
+    await patient.locator(".service", { hasText: SERVICE }).locator("button.service-pick").click();
     await expect(patient.getByText(`Free times for ${SERVICE}`)).toBeVisible();
     const slot = patient.locator("button.slot", { hasText: NAME }).first();
     await expect(slot).toBeVisible();

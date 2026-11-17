@@ -3021,6 +3021,177 @@
     "summary": "One patient's insurance. The patient (or someone acting for them) always sees their own.     Clinic staff see it only if the patient has chosen to share it (`shared` says which)."
    }
   },
+  "/people/{person_id}/identity": {
+   "get": {
+    "operationId": "get_person_identity",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Whether a patient is verified. Staff of a clinic the patient is connected to also see the     history of checks and whether a possible duplicate is under review."
+   }
+  },
+  "/people/{person_id}/identity/check": {
+   "post": {
+    "operationId": "post_person_identity_check",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Record that clinic staff checked this patient's identity against an official document."
+   }
+  },
+  "/people/{person_id}/identity/withdraw": {
+   "post": {
+    "operationId": "post_person_identity_withdraw",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "person identity withdraw"
+   }
+  },
   "/people/{person_id}/profile": {
    "get": {
     "operationId": "get_person_profile",
@@ -7973,6 +8144,104 @@
      }
     ],
     "summary": "verify | pause | resume | revoke | rotate-secret."
+   }
+  },
+  "/staff/matches": {
+   "get": {
+    "operationId": "get_staff_matches",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Possible duplicate patients of this clinic, held for a person to decide. Masked: how the     records compared, initials, birth year and the last two phone digits, never full details."
+   }
+  },
+  "/staff/matches/{case_id}/decide": {
+   "post": {
+    "operationId": "post_staff_match_decide",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "case_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "staff match decide"
    }
   },
   "/staff/members": {

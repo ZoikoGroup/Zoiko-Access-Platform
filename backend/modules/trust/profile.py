@@ -18,6 +18,7 @@ from foundation.errors import ErrorCode, ZoikoError
 from foundation.timeutil import Clock, utc_now
 from modules.policy import api as policy
 
+from . import identity_match, identity_proof
 from .models import Person, PersonProfile
 from .services import _audit, _own
 
@@ -78,11 +79,15 @@ def store_profile(
     row.legal_name_enc = sealed["legal_name"]
     row.birth_date_enc = sealed["birth_date"]
     row.phone_enc = sealed["phone"]
+    row.birth_key = identity_match.birth_key(ctx.tenant_id, clean["birth_date"])
+    row.phone_key = identity_match.phone_key(ctx.tenant_id, clean["phone"])
     row.updated_by_ref = by
     row.entity_version += 1
-    row.save(update_fields=["legal_name_enc", "birth_date_enc", "phone_enc",
-                            "updated_by_ref", "entity_version", "updated_at"])
+    row.save(update_fields=["legal_name_enc", "birth_date_enc", "phone_enc", "birth_key",
+                            "phone_key", "updated_by_ref", "entity_version", "updated_at"])
     _audit(by, "person.profile_update", "person", person.public_id)
+    identity_proof.refresh_status(person)       # a check made against other details lapses
+    identity_match.scan_person(person)          # and records that might be this person are held
     return clean
 
 

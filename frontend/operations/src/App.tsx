@@ -25,6 +25,7 @@ import { Reports } from "./pages/Reports";
 import { WaitingList } from "./pages/WaitingList";
 import { Services } from "./pages/Services";
 import { AiPermits } from "./pages/AiPermits";
+import { Matches } from "./pages/Matches";
 import { Team } from "./pages/Team";
 import { SignIn } from "./pages/SignIn";
 import { clearLink, LinkPage, readLinkAction } from "./pages/LinkActions";
@@ -77,6 +78,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "organizations") body = <Organizations />;
   else if (page === "team") body = <Team />;
   else if (page === "ai") body = <AiPermits />;
+  else if (page === "matches") body = <Matches />;
   else if (page === "referrals") body = <Referrals />;
   else if (page === "rights") body = <RightsRequests />;
   else if (page === "exchange") body = <PartnerRequests />;
