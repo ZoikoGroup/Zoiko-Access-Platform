@@ -57,11 +57,51 @@
     }
    }
   },
+  "connector_operation_confirmed_v1": {
+   "address": "connector.operation.confirmed.v1",
+   "messages": {
+    "connector_operation_confirmed_v1": {
+     "$ref": "#/components/messages/connector_operation_confirmed_v1"
+    }
+   }
+  },
+  "connector_operation_rejected_v1": {
+   "address": "connector.operation.rejected.v1",
+   "messages": {
+    "connector_operation_rejected_v1": {
+     "$ref": "#/components/messages/connector_operation_rejected_v1"
+    }
+   }
+  },
+  "consent_changed_v1": {
+   "address": "consent.changed.v1",
+   "messages": {
+    "consent_changed_v1": {
+     "$ref": "#/components/messages/consent_changed_v1"
+    }
+   }
+  },
+  "delegation_age_review_v1": {
+   "address": "delegation.age_review.v1",
+   "messages": {
+    "delegation_age_review_v1": {
+     "$ref": "#/components/messages/delegation_age_review_v1"
+    }
+   }
+  },
   "delegation_revoked_v1": {
    "address": "delegation.revoked.v1",
    "messages": {
     "delegation_revoked_v1": {
      "$ref": "#/components/messages/delegation_revoked_v1"
+    }
+   }
+  },
+  "developer_ping_v1": {
+   "address": "developer.ping.v1",
+   "messages": {
+    "developer_ping_v1": {
+     "$ref": "#/components/messages/developer_ping_v1"
     }
    }
   },
@@ -81,6 +121,14 @@
     }
    }
   },
+  "identity_subject_proofed_v1": {
+   "address": "identity.subject.proofed.v1",
+   "messages": {
+    "identity_subject_proofed_v1": {
+     "$ref": "#/components/messages/identity_subject_proofed_v1"
+    }
+   }
+  },
   "message_sent_v1": {
    "address": "message.sent.v1",
    "messages": {
@@ -94,6 +142,14 @@
    "messages": {
     "professional_privilege_revoked_v1": {
      "$ref": "#/components/messages/professional_privilege_revoked_v1"
+    }
+   }
+  },
+  "referral_acknowledged_v1": {
+   "address": "referral.acknowledged.v1",
+   "messages": {
+    "referral_acknowledged_v1": {
+     "$ref": "#/components/messages/referral_acknowledged_v1"
     }
    }
   },
@@ -145,11 +201,43 @@
     }
    }
   },
+  "waitlist_booked_v1": {
+   "address": "waitlist.booked.v1",
+   "messages": {
+    "waitlist_booked_v1": {
+     "$ref": "#/components/messages/waitlist_booked_v1"
+    }
+   }
+  },
+  "waitlist_joined_v1": {
+   "address": "waitlist.joined.v1",
+   "messages": {
+    "waitlist_joined_v1": {
+     "$ref": "#/components/messages/waitlist_joined_v1"
+    }
+   }
+  },
+  "waitlist_left_v1": {
+   "address": "waitlist.left.v1",
+   "messages": {
+    "waitlist_left_v1": {
+     "$ref": "#/components/messages/waitlist_left_v1"
+    }
+   }
+  },
   "waitlist_offered_v1": {
    "address": "waitlist.offered.v1",
    "messages": {
     "waitlist_offered_v1": {
      "$ref": "#/components/messages/waitlist_offered_v1"
+    }
+   }
+  },
+  "waitlist_returned_v1": {
+   "address": "waitlist.returned.v1",
+   "messages": {
+    "waitlist_returned_v1": {
+     "$ref": "#/components/messages/waitlist_returned_v1"
     }
    }
   },
@@ -166,6 +254,30 @@
    "messages": {
     "workflow_changed_v1": {
      "$ref": "#/components/messages/workflow_changed_v1"
+    }
+   }
+  },
+  "workflow_instance_started_v1": {
+   "address": "workflow.instance.started.v1",
+   "messages": {
+    "workflow_instance_started_v1": {
+     "$ref": "#/components/messages/workflow_instance_started_v1"
+    }
+   }
+  },
+  "workflow_instance_transitioned_v1": {
+   "address": "workflow.instance.transitioned.v1",
+   "messages": {
+    "workflow_instance_transitioned_v1": {
+     "$ref": "#/components/messages/workflow_instance_transitioned_v1"
+    }
+   }
+  },
+  "workflow_timer_fired_v1": {
+   "address": "workflow.timer.fired.v1",
+   "messages": {
+    "workflow_timer_fired_v1": {
+     "$ref": "#/components/messages/workflow_timer_fired_v1"
     }
    }
   }
@@ -404,6 +516,114 @@
     },
     "x-schema-hash": "a5084c72721c8718"
    },
+   "connector_operation_confirmed_v1": {
+    "contentType": "application/json",
+    "name": "connector.operation.confirmed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation_ref": {
+       "type": "string"
+      },
+      "operation_type": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "subject_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation_ref",
+      "operation_type",
+      "subject_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "external_operation"
+    },
+    "x-schema-hash": "11c4c64cdf4f1db8"
+   },
+   "connector_operation_rejected_v1": {
+    "contentType": "application/json",
+    "name": "connector.operation.rejected.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation_ref": {
+       "type": "string"
+      },
+      "operation_type": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "subject_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation_ref",
+      "operation_type",
+      "subject_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "external_operation"
+    },
+    "x-schema-hash": "11c4c64cdf4f1db8"
+   },
+   "consent_changed_v1": {
+    "contentType": "application/json",
+    "name": "consent.changed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "consent_ref": {
+       "type": "string"
+      },
+      "purpose": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "consent_ref",
+      "purpose",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "consent"
+    },
+    "x-schema-hash": "74049c7c4fe27ca6"
+   },
+   "delegation_age_review_v1": {
+    "contentType": "application/json",
+    "name": "delegation.age_review.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "grant_ref": {
+       "type": "string"
+      },
+      "person_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "grant_ref",
+      "person_ref"
+     ],
+     "type": "object",
+     "x-aggregate": "delegation"
+    },
+    "x-schema-hash": "709b92b3825571bc"
+   },
    "delegation_revoked_v1": {
     "contentType": "application/json",
     "name": "delegation.revoked.v1",
@@ -425,6 +645,52 @@
      "x-aggregate": "delegation"
     },
     "x-schema-hash": "6d6c86a201375468"
+   },
+   "developer_ping_v1": {
+    "contentType": "application/json",
+    "name": "developer.ping.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "aggregate_ref": {
+       "type": "string"
+      },
+      "aggregate_type": {
+       "type": "string"
+      },
+      "cell_id": {
+       "type": "string"
+      },
+      "correlation_id": {
+       "type": "string"
+      },
+      "event_id": {
+       "type": "string"
+      },
+      "event_type": {
+       "type": "string"
+      },
+      "occurred_at": {
+       "type": "string"
+      },
+      "schema_version": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "event_id",
+      "event_type",
+      "schema_version",
+      "occurred_at",
+      "aggregate_type",
+      "aggregate_ref",
+      "correlation_id",
+      "cell_id"
+     ],
+     "type": "object",
+     "x-aggregate": "webhook"
+    },
+    "x-schema-hash": "5d674fe789c74654"
    },
    "exchange_reviewed_v1": {
     "contentType": "application/json",
@@ -473,6 +739,32 @@
      "x-aggregate": "family"
     },
     "x-schema-hash": "5273cb81e0654950"
+   },
+   "identity_subject_proofed_v1": {
+    "contentType": "application/json",
+    "name": "identity.subject.proofed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "outcome": {
+       "type": "string"
+      },
+      "person_ref": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "person_ref",
+      "outcome",
+      "status"
+     ],
+     "type": "object",
+     "x-aggregate": "person"
+    },
+    "x-schema-hash": "a767f7cdb7e19d1d"
    },
    "message_sent_v1": {
     "contentType": "application/json",
@@ -528,6 +820,31 @@
      "x-aggregate": "role_assignment"
     },
     "x-schema-hash": "d9435740cdea0053"
+   },
+   "referral_acknowledged_v1": {
+    "contentType": "application/json",
+    "name": "referral.acknowledged.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "referral_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "referral_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "referral"
+    },
+    "x-schema-hash": "ebb00a03a1dd462d"
    },
    "referral_decided_v1": {
     "contentType": "application/json",
@@ -659,9 +976,103 @@
     },
     "x-schema-hash": "9db136fdeeaf4e72"
    },
+   "waitlist_booked_v1": {
+    "contentType": "application/json",
+    "name": "waitlist.booked.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "entry_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "entry_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "waitlist"
+    },
+    "x-schema-hash": "7ab7c17908cfb1fe"
+   },
+   "waitlist_joined_v1": {
+    "contentType": "application/json",
+    "name": "waitlist.joined.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "entry_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "entry_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "waitlist"
+    },
+    "x-schema-hash": "6cd364166fd1621f"
+   },
+   "waitlist_left_v1": {
+    "contentType": "application/json",
+    "name": "waitlist.left.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "entry_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "entry_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "waitlist"
+    },
+    "x-schema-hash": "6cd364166fd1621f"
+   },
    "waitlist_offered_v1": {
     "contentType": "application/json",
     "name": "waitlist.offered.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "entry_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "entry_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "waitlist"
+    },
+    "x-schema-hash": "7ab7c17908cfb1fe"
+   },
+   "waitlist_returned_v1": {
+    "contentType": "application/json",
+    "name": "waitlist.returned.v1",
     "payload": {
      "additionalProperties": false,
      "properties": {
@@ -728,6 +1139,96 @@
      "x-aggregate": "workflow"
     },
     "x-schema-hash": "38b199de86ee9722"
+   },
+   "workflow_instance_started_v1": {
+    "contentType": "application/json",
+    "name": "workflow.instance.started.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "definition_key": {
+       "type": "string"
+      },
+      "definition_version": {
+       "type": "string"
+      },
+      "instance_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "instance_ref",
+      "definition_key",
+      "definition_version",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "workflow_instance"
+    },
+    "x-schema-hash": "c3628b251d34535d"
+   },
+   "workflow_instance_transitioned_v1": {
+    "contentType": "application/json",
+    "name": "workflow.instance.transitioned.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "from_state": {
+       "type": "string"
+      },
+      "instance_ref": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      },
+      "to_state": {
+       "type": "string"
+      },
+      "transition": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "instance_ref",
+      "transition",
+      "from_state",
+      "to_state",
+      "status"
+     ],
+     "type": "object",
+     "x-aggregate": "workflow_instance"
+    },
+    "x-schema-hash": "b90ee281e6638caf"
+   },
+   "workflow_timer_fired_v1": {
+    "contentType": "application/json",
+    "name": "workflow.timer.fired.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "instance_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "timer": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "instance_ref",
+      "timer",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "workflow_instance"
+    },
+    "x-schema-hash": "503171915c360ad5"
    }
   }
  },
@@ -786,12 +1287,47 @@
    },
    "summary": "Zoiko publishes booking.rescheduled.v1"
   },
+  "publish_connector_operation_confirmed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/connector_operation_confirmed_v1"
+   },
+   "summary": "Zoiko publishes connector.operation.confirmed.v1"
+  },
+  "publish_connector_operation_rejected_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/connector_operation_rejected_v1"
+   },
+   "summary": "Zoiko publishes connector.operation.rejected.v1"
+  },
+  "publish_consent_changed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/consent_changed_v1"
+   },
+   "summary": "Zoiko publishes consent.changed.v1"
+  },
+  "publish_delegation_age_review_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/delegation_age_review_v1"
+   },
+   "summary": "Zoiko publishes delegation.age_review.v1"
+  },
   "publish_delegation_revoked_v1": {
    "action": "send",
    "channel": {
     "$ref": "#/channels/delegation_revoked_v1"
    },
    "summary": "Zoiko publishes delegation.revoked.v1"
+  },
+  "publish_developer_ping_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/developer_ping_v1"
+   },
+   "summary": "Zoiko publishes developer.ping.v1"
   },
   "publish_exchange_reviewed_v1": {
    "action": "send",
@@ -807,6 +1343,13 @@
    },
    "summary": "Zoiko publishes family.decided.v1"
   },
+  "publish_identity_subject_proofed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/identity_subject_proofed_v1"
+   },
+   "summary": "Zoiko publishes identity.subject.proofed.v1"
+  },
   "publish_message_sent_v1": {
    "action": "send",
    "channel": {
@@ -820,6 +1363,13 @@
     "$ref": "#/channels/professional_privilege_revoked_v1"
    },
    "summary": "Zoiko publishes professional.privilege.revoked.v1"
+  },
+  "publish_referral_acknowledged_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/referral_acknowledged_v1"
+   },
+   "summary": "Zoiko publishes referral.acknowledged.v1"
   },
   "publish_referral_decided_v1": {
    "action": "send",
@@ -863,12 +1413,40 @@
    },
    "summary": "Zoiko publishes slot.opened.v1"
   },
+  "publish_waitlist_booked_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/waitlist_booked_v1"
+   },
+   "summary": "Zoiko publishes waitlist.booked.v1"
+  },
+  "publish_waitlist_joined_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/waitlist_joined_v1"
+   },
+   "summary": "Zoiko publishes waitlist.joined.v1"
+  },
+  "publish_waitlist_left_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/waitlist_left_v1"
+   },
+   "summary": "Zoiko publishes waitlist.left.v1"
+  },
   "publish_waitlist_offered_v1": {
    "action": "send",
    "channel": {
     "$ref": "#/channels/waitlist_offered_v1"
    },
    "summary": "Zoiko publishes waitlist.offered.v1"
+  },
+  "publish_waitlist_returned_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/waitlist_returned_v1"
+   },
+   "summary": "Zoiko publishes waitlist.returned.v1"
   },
   "publish_webhook_ping_v1": {
    "action": "send",
@@ -883,6 +1461,27 @@
     "$ref": "#/channels/workflow_changed_v1"
    },
    "summary": "Zoiko publishes workflow.changed.v1"
+  },
+  "publish_workflow_instance_started_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/workflow_instance_started_v1"
+   },
+   "summary": "Zoiko publishes workflow.instance.started.v1"
+  },
+  "publish_workflow_instance_transitioned_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/workflow_instance_transitioned_v1"
+   },
+   "summary": "Zoiko publishes workflow.instance.transitioned.v1"
+  },
+  "publish_workflow_timer_fired_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/workflow_timer_fired_v1"
+   },
+   "summary": "Zoiko publishes workflow.timer.fired.v1"
   }
  }
 }

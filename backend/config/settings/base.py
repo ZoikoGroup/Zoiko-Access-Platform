@@ -79,6 +79,7 @@ INSTALLED_APPS = [
     "modules.safety",
     "modules.rights",
     "modules.sponsor",
+    "modules.consent",
     "modules.integration",
     "modules.jurisdiction",
     "modules.orchestration",
@@ -176,6 +177,13 @@ KEY_UNWRAPPER = env("ZOIKO_KEY_UNWRAPPER", "env-kek")
 # A deployment that knowingly keeps its keys in an environment variable says so here, and the
 # release check then allows it. Anything else must use a key file or wrapped keys.
 ALLOW_ENV_KEYS = env("ZOIKO_ALLOW_ENV_KEYS", "") == "1"
+
+# The age at which a child comes of age, so a parent's or guardian's access to their record stops
+# until they decide (modules/trust/age_review.py). It is a legal fact per country, so each
+# deployment states it:
+# "GB=18,SG=21" for countries that differ, and the default for any country not listed.
+AGE_OF_MAJORITY = env("ZOIKO_AGE_OF_MAJORITY", "")
+AGE_OF_MAJORITY_DEFAULT = int(env("ZOIKO_AGE_OF_MAJORITY_DEFAULT", "18"))
 
 # Patients are reminded about a confirmed appointment this many hours ahead.
 REMINDER_LEAD_HOURS = int(env("REMINDER_LEAD_HOURS", "24"))

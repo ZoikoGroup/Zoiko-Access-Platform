@@ -572,3 +572,29 @@ export interface MyRequest {
   created_at: string; result_at: string | null; reviewed_at: string | null;
 }
 export const getMyRequests = async () => (await request<{ requests: MyRequest[] }>("exchange/mine")).body.requests;
+
+// ---- who can see my information (backend/api/access.py) ----------------------------------------------
+export interface DelegateRow {
+  id: string; who: string; relationship: string; status: "active" | "suspended" | "expired";
+  scopes: string[]; valid_until: string | null; proof_kind: string;
+  /** After coming of age: this person's access is paused until you decide. */
+  waiting_for_you: boolean; review_reason: string;
+}
+export interface ConsentRow {
+  purpose: string; audience: string; label: string; state: "granted" | "withdrawn" | "expired";
+  shared: boolean; expires_at: string | null; changed_at: string | null; changed_by: string;
+}
+export interface AccessData {
+  person: string | null; delegates: DelegateRow[]; consents: ConsentRow[]; age_of_majority: number;
+}
+export const getAccess = async () => (await request<AccessData>("access")).body;
+export async function setConsent(purpose: string, grant: boolean, days?: number): Promise<void> {
+  await request("access/consent", {
+    method: "POST", body: JSON.stringify({ purpose, grant, ...(grant && days ? { days } : {}) }),
+  });
+}
+export async function delegateAction(
+  id: string, action: "narrow" | "end" | "keep", body: { scopes?: string[]; valid_until?: string } = {},
+): Promise<void> {
+  await request(`access/delegates/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(body) });
+}

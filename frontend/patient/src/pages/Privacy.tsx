@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { downloadMyData, getAccessLog, type AccessEntry } from "../api";
 import { Card, Pill } from "../ui";
 import { RightsRequests } from "./RightsRequests";
+import { WhoCanSee } from "./WhoCanSee";
 
 // What each recorded action means, in plain words.
 const WHAT: Record<string, string> = {
@@ -53,6 +54,7 @@ export function Privacy() {
         <p>Every time someone else looks at your information, or tries to, it is recorded. This is the list, newest first. It shows who, when and why, never what they saw.</p>
       </div></div>
       {error && <div className="error">{error}</div>}
+      <WhoCanSee />
       <div className="grid">
         <RightsRequests />
         <Card title="Download my data" sub="Everything the app shows you, in one file you can keep: appointments (with each appointment's steps), referrals, messages (with their text), insurance, family links and the access list below.">

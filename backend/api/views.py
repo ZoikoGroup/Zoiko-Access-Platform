@@ -3422,6 +3422,7 @@ def _family_json(g: dict[str, Any]) -> dict[str, Any]:
         "birth_date": g["birth_date"],
         "scopes": g.get("scopes", []),
         "proof_kind": g.get("proof_kind", ""),
+        "review_reason": g.get("review_reason", ""),
         "valid_until": g["valid_until"],
         "requested_at": g["created_at"],
     }
@@ -3765,7 +3766,8 @@ def person_coverage(
 @endpoint("GET", "POST")
 def coverage_sharing(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """GET: for each patient this login may manage, whether staff may see their insurance.
-    POST {person?, share}: the patient (or someone acting for them) chooses. Default: not shared."""
+    POST {person?, share, days?}: the patient (or someone acting for them) chooses, for good or for
+    a number of days. Default: not shared."""
     org = _catalog_org(auth)
     if request.method == "POST":
         body = json_body(request)
@@ -3793,6 +3795,7 @@ def coverage_sharing(request: HttpRequest, auth: trust.Authenticated) -> HttpRes
                 actor_public_id=auth.actor_public_id,
                 decision=decision,
                 organization_public_id=org,
+                days=body.get("days"),
             )
         return JsonResponse({"sharing": done})
     with tenant_transaction():

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import billing, console, identity, sso, views
+from . import access, billing, console, identity, sso, views
 
 urlpatterns = [
     path("auth/login", views.login),
@@ -60,6 +60,9 @@ urlpatterns = [
     path("staff/family-requests/<str:grant_id>/resume", views.staff_family_resume),
     path("coverage", views.coverage_entries),
     path("coverage/sharing", views.coverage_sharing),
+    path("access", access.who_can_see_me),
+    path("access/consent", access.my_consent),
+    path("access/delegates/<str:grant_id>/<str:action>", access.my_delegate_action),
     path("coverage/<str:coverage_id>/end", views.coverage_end),
     path("people/<str:person_id>/coverage", views.person_coverage),
     path("people/<str:person_id>/profile", views.person_profile),
@@ -168,7 +171,7 @@ urlpatterns = [
          console.staff_developer_webhook_test),
     path("staff/developer/clients/<str:client_id>/deliveries/<str:delivery_id>/redrive",
          console.staff_developer_delivery_redrive),
-    path("platform/signed-packs", console.platform_packs),
+    path("platform/signed-packs", console.platform_signed_packs),
     path("platform/keys", console.platform_keys),
     path("services", views.services),
     path("locations", views.locations),

@@ -109,6 +109,9 @@ function Approved({ r, onDone }: { r: FamilyRequest; onDone: () => Promise<void>
         <b>{r.name || "Unnamed"} <Pill kind={STATUS[r.status]?.kind ?? "info"}>{STATUS[r.status]?.text ?? r.status}</Pill></b>
         <small>Acts for them: {r.requested_by_name ?? r.requested_by}. {(r.scopes ?? []).join(", ")}</small>
         {r.proof_kind && <small>Proof seen: {PROOF_KINDS.find(([v]) => v === r.proof_kind)?.[1] ?? r.proof_kind}{r.proof_ref ? ` (${r.proof_ref})` : ""}.</small>}
+        {r.review_reason === "age_of_majority" && (
+          <small>Paused because this person has come of age. They decide whether this access continues; the clinic cannot resume it.</small>
+        )}
         {error && <small style={{ color: "var(--bad)" }}>{error}</small>}
       </div>
       {r.status === "active" && (
@@ -118,7 +121,7 @@ function Approved({ r, onDone }: { r: FamilyRequest; onDone: () => Promise<void>
           <button className="btn ghost" disabled={busy || reason.trim().length < 3} onClick={() => void run(() => familyStep(r.id, "suspend", reason))}>Pause</button>
         </span>
       )}
-      {r.status === "suspended" && <button className="btn" disabled={busy} onClick={() => void run(() => familyStep(r.id, "resume"))}>Resume</button>}
+      {r.status === "suspended" && !r.review_reason && <button className="btn" disabled={busy} onClick={() => void run(() => familyStep(r.id, "resume"))}>Resume</button>}
     </div>
   );
 }

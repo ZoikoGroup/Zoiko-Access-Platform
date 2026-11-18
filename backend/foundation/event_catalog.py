@@ -15,6 +15,9 @@ from typing import Any
 # type -> (what it is about, fields always present, fields sometimes present)
 _BOOKING = ("booking", ("booking_ref", "slot_ref", "service_ref", "status"), ("side", "actor_ref"))
 _REFERRAL = ("referral", ("referral_ref", "state"), ("actor_ref",))
+_OPERATION = ("external_operation", ("operation_ref", "operation_type", "subject_ref", "state"), ())
+_ENTRY = ("waitlist", ("entry_ref", "state"), ("actor_ref",))          # who joined or left
+_ENTRY_SYSTEM = ("waitlist", ("entry_ref", "state"), ())                # done by the product
 
 EVENTS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "booking.requested.v1": _BOOKING,
@@ -25,14 +28,30 @@ EVENTS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "booking.attendance.v1": ("booking", ("booking_ref", "status", "attendance"), ()),
     "slot.opened.v1": ("service", ("service_ref",), ()),
     "waitlist.offered.v1": ("waitlist", ("entry_ref", "state"), ()),
+    "waitlist.joined.v1": _ENTRY,
+    "waitlist.left.v1": _ENTRY,
+    "waitlist.booked.v1": _ENTRY_SYSTEM,
+    "waitlist.returned.v1": _ENTRY_SYSTEM,
     "message.sent.v1": ("thread", ("thread_ref", "side"), ("actor_ref",)),
     "referral.issued.v1": _REFERRAL,
     "referral.decided.v1": _REFERRAL,
+    "referral.acknowledged.v1": _REFERRAL,
     "rights.requested.v1": ("rights_case", ("case_ref",), ()),
     "rights.withdrawn.v1": ("rights_case", ("case_ref", "side"), ()),
     "rights.closed.v1": ("rights_case", ("case_ref", "actor_ref"), ()),
     "family.decided.v1": ("family", ("grant_ref", "outcome"), ()),
     "delegation.revoked.v1": ("delegation", ("grant_ref", "delegate_ref"), ()),
+    "delegation.age_review.v1": ("delegation", ("grant_ref", "person_ref"), ()),
+    "consent.changed.v1": ("consent", ("consent_ref", "purpose", "state"), ()),
+    "identity.subject.proofed.v1": ("person", ("person_ref", "outcome", "status"), ()),
+    "connector.operation.confirmed.v1": _OPERATION,
+    "connector.operation.rejected.v1": _OPERATION,
+    "workflow.instance.started.v1": (
+        "workflow_instance", ("instance_ref", "definition_key", "definition_version", "state"), ()),
+    "workflow.instance.transitioned.v1": (
+        "workflow_instance",
+        ("instance_ref", "transition", "from_state", "to_state", "status"), ()),
+    "workflow.timer.fired.v1": ("workflow_instance", ("instance_ref", "timer", "state"), ()),
     "professional.privilege.revoked.v1": (
         "role_assignment", ("assignment_ref", "actor_ref", "role_code", "organization_ref"), ()),
     "exchange.reviewed.v1": ("exchange_request", ("request_ref", "person_ref", "kind"), ()),
@@ -44,6 +63,9 @@ EVENTS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
 # can see it, but not part of the published-event scan.
 DIRECT: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "webhook.ping.v1": ("webhook", ("challenge",), ()),
+    "developer.ping.v1": (
+        "webhook", ("event_id", "event_type", "schema_version", "occurred_at", "aggregate_type",
+                    "aggregate_ref", "correlation_id", "cell_id"), ()),
 }
 
 

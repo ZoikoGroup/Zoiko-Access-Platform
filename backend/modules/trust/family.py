@@ -64,6 +64,7 @@ def _grant_dict(g: ProxyGrant, names: dict[str, dict[str, str]]) -> dict[str, An
         "birth_date": profile.get("birth_date", ""),
         "delegate_ref": g.delegate.public_id, "scopes": list(g.rights or []),
         "proof_kind": g.proof_kind, "proof_ref": g.proof_ref,
+        "review_reason": g.review_reason,     # "age_of_majority": the person is deciding
         "valid_until": g.valid_until.isoformat() if g.valid_until else None,
         "created_at": g.created_at.isoformat(),
     }
@@ -349,6 +350,8 @@ def resume_family_member(
     with transaction.atomic():
         grant = _own(ProxyGrant, grant_ref)
         _staff_check(grant, approver_public_id, decision, organization_public_id)
+        if grant.review_reason:         # paused for age: only the person can decide (age_review.py)
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         resume_proxy_grant(grant_ref, by=approver_public_id)
         grant.refresh_from_db()
         return _grant_dict(grant, {})

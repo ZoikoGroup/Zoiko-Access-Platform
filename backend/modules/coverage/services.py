@@ -18,6 +18,7 @@ from foundation.cell_context import require_context
 from foundation.crypto import encrypt
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.timeutil import Clock, utc_now
+from modules.consent import api as consent
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
@@ -25,6 +26,7 @@ from modules.trust import api as trust
 from .models import Coverage, CoverageStatus, InsuranceSharing
 
 WRITE_COVERAGE = "write:coverage"
+INSURANCE_PURPOSE = "insurance_details"      # the patient's choice, kept by the consent module
 MAX_ACTIVE_PER_PERSON = 5
 _MEMBER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 \-/]{2,39}$")
 
@@ -193,12 +195,15 @@ def list_coverage(
 
 def shared_with_staff(person_refs: list[str]) -> dict[str, bool]:
     """person ref -> whether this patient shares insurance details with clinic staff.
-    A patient with no row has NOT shared (the cautious default)."""
+    A patient with no choice has NOT shared (the cautious default). A choice made through the
+    consent register (which can carry an end date) wins; one recorded before it existed still
+    counts."""
     if not person_refs:
         return {}
     rows = InsuranceSharing.objects.filter(person_ref__in=person_refs, **_scope())
-    chosen = {r.person_ref: r.share_with_staff for r in rows}
-    return {p: chosen.get(p, False) for p in person_refs}
+    legacy = {r.person_ref: r.share_with_staff for r in rows}
+    decided = consent.states(person_refs, INSURANCE_PURPOSE)
+    return {p: decided.get(p, legacy.get(p, False)) for p in person_refs}
 
 
 def set_sharing(
@@ -208,9 +213,11 @@ def set_sharing(
     actor_public_id: str,
     decision: policy.Decision,
     organization_public_id: str | None = None,
+    days: Any = None,
 ) -> dict[str, Any]:
-    """The patient (or someone acting for them) chooses whether staff may see the insurance details.
-    Needs the same receipt as recording insurance. Choosing the same thing again is harmless."""
+    """The patient (or someone acting for them) chooses whether staff may see the insurance details,
+    for good or for a number of days. Needs the same receipt as recording insurance. Choosing the
+    same thing again is harmless."""
     policy.check_receipt(
         decision,
         actor_public_id=actor_public_id,
@@ -237,4 +244,7 @@ def set_sharing(
             _audit(
                 actor_public_id, "coverage.share" if share else "coverage.unshare", row.public_id
             )
-    return {"person": person_ref, "share_with_staff": share}
+        done = consent.set_consent(
+            person_ref=person_ref, purpose=INSURANCE_PURPOSE, grant=share,
+            actor_ref=actor_public_id, days=days)
+    return {"person": person_ref, "share_with_staff": share, "until": done["expires_at"]}

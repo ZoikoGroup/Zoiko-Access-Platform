@@ -37,6 +37,7 @@ APPEND_ONLY = frozenset({
     "workflow_workflowtransition",
     "connector_operationevent",
     "trust_matchdecision",
+    "consent_consentevent",
     "foundation_emailattempt",
     "orchestration_transition",
     "readiness_evidence",

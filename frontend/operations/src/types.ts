@@ -138,6 +138,8 @@ export interface FamilyRequest {
   requested_by_name: string | null;
   proof_kind?: string;
   proof_ref?: string;
+  /** "age_of_majority": paused because the person came of age; only they can decide. */
+  review_reason?: string;
 }
 
 export interface MessageThread {

@@ -265,7 +265,7 @@ def staff_developer_delivery_redrive(
 
 
 @endpoint("GET")
-def platform_packs(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+def platform_signed_packs(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """The country packs installed in this cell, which are in force right now, and what the cell
     trusts (key ids only). Read only: packs are installed by a command, never from a screen."""
     org = _platform_only(auth)

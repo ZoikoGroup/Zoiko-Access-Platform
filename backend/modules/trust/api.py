@@ -3,6 +3,8 @@
 This is the ONLY module other domain modules may import from `modules.trust`.
 Everything else (models, services, domain rules) is private. Enforced by import-linter.
 """
+from .access import access_overview, narrow_access, proxy_person_of
+from .age_review import end_access, keep_access
 from .auth import (
     LoginResult,
     PasswordChange,
@@ -138,6 +140,7 @@ __all__ = [
     "cancel_change", "decide_change", "list_changes", "request_change",
     "onboard_customer", "organization_names", "set_customer_country", "set_customer_sign_up",
     "sso_finish", "sso_providers", "sso_start",
+    "access_overview", "narrow_access", "proxy_person_of", "end_access", "keep_access",
     "tenant_country", "tenant_public_id",
     "verified_emails_for_role", "clinicians_at",
     "overview", "own_person_of", "patient_registry", "person_exists", "profile_summary_for",

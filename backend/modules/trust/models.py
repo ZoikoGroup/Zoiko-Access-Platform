@@ -286,6 +286,12 @@ class ProxyGrant(CellScopedModel):
     # document itself.
     proof_kind = models.CharField(max_length=24, blank=True, default="")
     proof_ref = models.CharField(max_length=64, blank=True, default="")
+    # Why a suspended grant is waiting for a decision ("age_of_majority": the person has come of age
+    # and must say whether the guardian keeps access). Empty otherwise.
+    review_reason = models.CharField(max_length=24, blank=True, default="")
+    # When the person (now an adult) confirmed the guardian may keep access. A grant that has been
+    # confirmed is never suspended for age again.
+    age_reviewed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [

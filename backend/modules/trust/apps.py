@@ -14,6 +14,10 @@ class TrustConfig(AppConfig):
         from .identity_jobs import REFRESH_EVERY_SECONDS, refresh_all_tenants
 
         periodic.register("trust.identity_expiry", REFRESH_EVERY_SECONDS, refresh_all_tenants)
+        # A few times a day: a child who has come of age stops a parent's access until they decide.
+        from .age_jobs import REVIEW_EVERY_SECONDS, review_all_tenants
+
+        periodic.register("trust.age_review", REVIEW_EVERY_SECONDS, review_all_tenants)
         # `manage.py rotate_field_keys` moves this module's encrypted values onto the current key.
         from foundation import rotation
 

@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT = ROOT / "foundation" / "asyncapi.snapshot.json"
 TYPE = re.compile(r"^[a-z_]+(\.[a-z_]+)+\.v\d+$")
 ALL = {**event_catalog.EVENTS, **event_catalog.DIRECT}
+# Strings shaped like an event type that are not events (the paging cursor signing salt, DEV-171).
+NOT_EVENTS = frozenset({"zoiko.cursor.v1"})
 
 
 def published_in_source() -> set[str]:
@@ -25,7 +27,7 @@ def published_in_source() -> set[str]:
                 continue
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if (isinstance(node, ast.Constant) and isinstance(node.value, str)
-                        and TYPE.match(node.value)):
+                        and TYPE.match(node.value) and node.value not in NOT_EVENTS):
                     found.add(node.value)
     return found
 
