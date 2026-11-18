@@ -464,3 +464,28 @@ export interface ExchangeRequest {
   label: string; urgency: "routine" | "urgent"; state: ExchangeState; decision_note: string;
   result_ref: string; on_hold: boolean; hold_owner_name?: string; hold_mine?: boolean; hold_escalated?: boolean; consent: "pending" | "granted" | "declined" | "withdrawn" | "expired"; created_at: string; result_at: string | null; reviewed_at: string | null;
 }
+
+export interface FhirIssue {
+  path: string;
+  code: string;
+  text: string;
+}
+
+export type FhirQuarantineState = "held" | "discarded" | "resend_requested";
+
+export interface FhirQuarantineItem {
+  public_id: string;
+  delivery_id: string;
+  partner_label: string;
+  partner_client_id: string;
+  resource_type: string;
+  partner_ref: string;
+  body_digest: string;
+  issues: FhirIssue[];
+  state: FhirQuarantineState;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string;
+  decision_note: string;
+}
+

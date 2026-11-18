@@ -2,6 +2,7 @@
 
 This is the ONLY module other domain modules may import from `modules.integration`.
 """
+from .fhir import list_quarantined, quarantine_step, receive_fhir
 from .inbound import (
     create_client,
     issue_client_secret,
@@ -13,6 +14,7 @@ from .inbound import (
     rotate_client_secret,
     set_client_state,
 )
+from .models import FhirQuarantineState
 from .services import (
     create_endpoint,
     deliver_all_tenants,
@@ -26,8 +28,28 @@ from .services import (
     verify_endpoint,
 )
 
-__all__ = ["create_client", "create_endpoint", "deliver_all_tenants", "deliver_due",
-           "gave_up_count", "issue_client_secret", "list_clients", "list_deliveries",
-           "list_endpoints", "list_events", "pending_for_platform", "receive", "record_check",
-           "redrive", "rotate_client_secret", "rotate_secret", "set_client_state",
-           "set_state", "verify_endpoint"]
+__all__ = [
+    "FhirQuarantineState",
+    "create_client",
+    "create_endpoint",
+    "deliver_all_tenants",
+    "deliver_due",
+    "gave_up_count",
+    "issue_client_secret",
+    "list_clients",
+    "list_deliveries",
+    "list_endpoints",
+    "list_events",
+    "list_quarantined",
+    "pending_for_platform",
+    "quarantine_step",
+    "receive",
+    "receive_fhir",
+    "record_check",
+    "redrive",
+    "rotate_client_secret",
+    "rotate_secret",
+    "set_client_state",
+    "set_state",
+    "verify_endpoint",
+]

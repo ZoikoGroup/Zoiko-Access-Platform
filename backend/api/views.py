@@ -2127,6 +2127,71 @@ def platform_incident_handoff(
     return JsonResponse({"incident": _incident_json(made, labels)})
 
 
+@endpoint("GET")
+def platform_incident_on_call_staff(
+    request: HttpRequest, auth: trust.Authenticated
+) -> HttpResponse:
+    """Who may be named owner or deputy: active support and safety staff (DEV-202)."""
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        labels = trust.actor_labels()
+        staff = [
+            {"id": ref, "name": labels.get(ref, ref)}
+            for ref in sorted(trust.on_call_staff())
+        ]
+    return JsonResponse({"staff": staff})
+
+
+@endpoint("GET")
+def platform_incident_timeline(
+    request: HttpRequest, auth: trust.Authenticated, incident_id: str
+) -> HttpResponse:
+    """The unchangeable timeline of one incident (DEV-202)."""
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        entries = trust.incident_timeline(incident_id)
+    return JsonResponse({"timeline": [
+        {"kind": e["kind"], "by": e["actor_ref"], "note": e["note"], "at": e["at"]}
+        for e in entries
+    ]})
+
+
+@endpoint("POST")
+def platform_incident_assign(
+    request: HttpRequest, auth: trust.Authenticated, incident_id: str
+) -> HttpResponse:
+    """Name an owner and a different deputy from the on-call staff (DEV-202)."""
+    org = _platform_only(auth)
+    _authorize(auth, "write:platform", organization_public_id=org)
+    body = json_body(request)
+    with tenant_transaction():
+        made = trust.assign_incident(
+            incident_ref=incident_id,
+            owner_ref=text(body, "owner"),
+            deputy_ref=text(body, "deputy"),
+            actor_ref=auth.actor_public_id,
+        )
+        labels = trust.actor_labels()
+    return JsonResponse({"incident": _incident_json(trust.incident_dict(made), labels)})
+
+
+@endpoint("POST")
+def platform_incident_acknowledge(
+    request: HttpRequest, auth: trust.Authenticated, incident_id: str
+) -> HttpResponse:
+    """The named owner or deputy says "I have it" (DEV-202)."""
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        made = trust.acknowledge_incident(
+            incident_ref=incident_id, actor_ref=auth.actor_public_id
+        )
+        labels = trust.actor_labels()
+    return JsonResponse({"incident": _incident_json(trust.incident_dict(made), labels)})
+
+
 @endpoint("POST")
 def platform_customer_sign_up(
     request: HttpRequest, auth: trust.Authenticated, customer_id: str
@@ -5382,6 +5447,65 @@ def partner_events(request: HttpRequest) -> HttpResponse:
     for name, value in headers.items():
         response[name] = value
     return response
+
+
+@csrf_exempt
+@require_POST
+def fhir_inbound(request: HttpRequest) -> HttpResponse:
+    """A partner's signed FHIR message (GHE-13 T-25, T-60; DEV-315, docs/FHIR-DESIGN.md).
+
+    Signature proves transport origin. Valid resources are taken in (DiagnosticReport mapped to
+    exchange delivery); invalid or unmappable resources are stored in quarantine with no clinical
+    state.
+    """
+    status, body, headers = integration.receive_fhir(
+        raw_body=request.body,
+        signature=request.headers.get("Zoiko-Signature", ""),
+        delivery_id=request.headers.get("Zoiko-Delivery-Id", ""),
+    )
+    response = JsonResponse(body, status=status)
+    response["Cache-Control"] = "no-store"
+    for name, value in headers.items():
+        response[name] = value
+    return response
+
+
+@endpoint("GET")
+def staff_fhir_quarantine(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """List quarantined FHIR messages for clinic staff review (GHE-13 T-25, T-60)."""
+    org = _manager(auth)
+    _authorize(auth, "read:integration", organization_public_id=org)
+    state = request.GET.get("state")
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id,
+            action="integration.fhir_quarantine_listed",
+            object_type="fhir_quarantine",
+            object_ref="",
+            outcome=evidence.AuditOutcome.ALLOWED,
+        )
+        items = integration.list_quarantined(state=state)
+    return JsonResponse({"items": items})
+
+
+@endpoint("POST")
+def staff_fhir_quarantine_step(
+    request: HttpRequest, auth: trust.Authenticated, quarantine_id: str, step: str
+) -> HttpResponse:
+    """Clinic staff discards or requests resend for a quarantined FHIR message."""
+    org = _manager(auth)
+    decision = _authorize(auth, "write:integration", organization_public_id=org)
+    body = json_body(request)
+    with tenant_transaction():
+        done = integration.quarantine_step(
+            quarantine_ref=quarantine_id,
+            step=step,
+            actor_public_id=auth.actor_public_id,
+            decision=decision,
+            organization_ref=org,
+            note=body.get("note"),
+        )
+    return JsonResponse({"item": done})
 
 
 @endpoint("POST")

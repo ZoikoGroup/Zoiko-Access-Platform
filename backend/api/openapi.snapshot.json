@@ -339,34 +339,6 @@
    }
   },
   "/auth/forgot-password": {
-   "get": {
-    "operationId": "get_auth_forgot_password",
-    "parameters": [],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "type": "object"
-        }
-       }
-      },
-      "description": "Success."
-     },
-     "default": {
-      "content": {
-       "application/problem+json": {
-        "schema": {
-         "$ref": "#/components/schemas/Problem"
-        }
-       }
-      },
-      "description": "An error, in the standard shape."
-     }
-    },
-    "security": [],
-    "summary": "Always the same answer, whether or not an email was sent."
-   },
    "post": {
     "operationId": "post_auth_forgot_password",
     "parameters": [
@@ -665,34 +637,6 @@
    }
   },
   "/auth/reset-password": {
-   "get": {
-    "operationId": "get_auth_reset_password",
-    "parameters": [],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "type": "object"
-        }
-       }
-      },
-      "description": "Success."
-     },
-     "default": {
-      "content": {
-       "application/problem+json": {
-        "schema": {
-         "$ref": "#/components/schemas/Problem"
-        }
-       }
-      },
-      "description": "An error, in the standard shape."
-     }
-    },
-    "security": [],
-    "summary": "auth reset password"
-   },
    "post": {
     "operationId": "post_auth_reset_password",
     "parameters": [
@@ -745,34 +689,6 @@
    }
   },
   "/auth/verify-email": {
-   "get": {
-    "operationId": "get_auth_verify_email",
-    "parameters": [],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "type": "object"
-        }
-       }
-      },
-      "description": "Success."
-     },
-     "default": {
-      "content": {
-       "application/problem+json": {
-        "schema": {
-         "$ref": "#/components/schemas/Problem"
-        }
-       }
-      },
-      "description": "An error, in the standard shape."
-     }
-    },
-    "security": [],
-    "summary": "Confirm an email address from the link we sent. One generic error for a bad link."
-   },
    "post": {
     "operationId": "post_auth_verify_email",
     "parameters": [
@@ -3562,6 +3478,58 @@
     "summary": "Withdraw a waiting request, or stop acting for someone. Only your own."
    }
   },
+  "/fhir": {
+   "post": {
+    "operationId": "post_fhir_inbound",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "A partner's signed FHIR message (GHE-13 T-25, T-60; DEV-315, docs/FHIR-DESIGN.md)."
+   }
+  },
   "/locations": {
    "get": {
     "operationId": "get_locations",
@@ -4194,7 +4162,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "The patient's own signed consultation notes, once the delay has passed (no text here).     Drafts are never shown. A guardian gets none: \"records\" is not granted to them yet."
+    "summary": "The patient's own signed consultation notes, once the delay has passed (no text here).     Drafts are never shown. A guardian gets none: \"records\" is not granted to them yet.     With the notes switch"
    }
   },
   "/my/notes/{note_id}": {
@@ -4515,34 +4483,6 @@
    }
   },
   "/partner-events": {
-   "get": {
-    "operationId": "get_partner_events",
-    "parameters": [],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "type": "object"
-        }
-       }
-      },
-      "description": "Success."
-     },
-     "default": {
-      "content": {
-       "application/problem+json": {
-        "schema": {
-         "$ref": "#/components/schemas/Problem"
-        }
-       }
-      },
-      "description": "An error, in the standard shape."
-     }
-    },
-    "security": [],
-    "summary": "A partner's signed message (GHE-13 WF-08). No sign-in: the signature IS the credential, and     it is checked before anything in the body is read. Every identity failure is the same 401."
-   },
    "post": {
     "operationId": "post_partner_events",
     "parameters": [
@@ -5688,6 +5628,104 @@
     "summary": "The platform's incident log. Support and safety staff may read it; only those who may     write the platform (support) may add an entry. It must never hold patient details."
    }
   },
+  "/platform/incidents/on-call-staff": {
+   "get": {
+    "operationId": "get_platform_incident_on_call_staff",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Who may be named owner or deputy: active support and safety staff (DEV-202)."
+   }
+  },
+  "/platform/incidents/{incident_id}/acknowledge": {
+   "post": {
+    "operationId": "post_platform_incident_acknowledge",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incident_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The named owner or deputy says \"I have it\" (DEV-202)."
+   }
+  },
   "/platform/incidents/{incident_id}/assess": {
    "post": {
     "operationId": "post_platform_incident_assess",
@@ -5750,6 +5788,70 @@
      }
     ],
     "summary": "TEMPORARY RULE (DEV-176): an incident logged with an unknown severity stays open until a     safety officer (R12) evaluates it and gives it a level with a note (AT38)."
+   }
+  },
+  "/platform/incidents/{incident_id}/assign": {
+   "post": {
+    "operationId": "post_platform_incident_assign",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incident_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Name an owner and a different deputy from the on-call staff (DEV-202)."
    }
   },
   "/platform/incidents/{incident_id}/handoff": {
@@ -5878,6 +5980,49 @@
      }
     ],
     "summary": "Close an open incident with a note on how it ended (support only; once)."
+   }
+  },
+  "/platform/incidents/{incident_id}/timeline": {
+   "get": {
+    "operationId": "get_platform_incident_timeline",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incident_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The unchangeable timeline of one incident (DEV-202)."
    }
   },
   "/platform/overview": {
@@ -10405,6 +10550,112 @@
     "summary": "staff family suspend"
    }
   },
+  "/staff/fhir/quarantine": {
+   "get": {
+    "operationId": "get_staff_fhir_quarantine",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "List quarantined FHIR messages for clinic staff review (GHE-13 T-25, T-60)."
+   }
+  },
+  "/staff/fhir/quarantine/{quarantine_id}/{step}": {
+   "post": {
+    "operationId": "post_staff_fhir_quarantine_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "quarantine_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Clinic staff discards or requests resend for a quarantined FHIR message."
+   }
+  },
   "/staff/integrations/deliveries": {
    "get": {
     "operationId": "get_staff_webhook_deliveries",
@@ -12744,34 +12995,6 @@
    }
   },
   "/webhooks/twilio/status": {
-   "get": {
-    "operationId": "get_twilio_status",
-    "parameters": [],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "type": "object"
-        }
-       }
-      },
-      "description": "Success."
-     },
-     "default": {
-      "content": {
-       "application/problem+json": {
-        "schema": {
-         "$ref": "#/components/schemas/Problem"
-        }
-       }
-      },
-      "description": "An error, in the standard shape."
-     }
-    },
-    "security": [],
-    "summary": "Twilio's delivery receipt for a text (DEV-199). No sign-in: Twilio's signature over the     exact public address and the form fields is the credential, checked before anything is used.     The address"
-   },
    "post": {
     "operationId": "post_twilio_status",
     "parameters": [

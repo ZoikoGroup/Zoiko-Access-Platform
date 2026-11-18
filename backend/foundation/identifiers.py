@@ -254,6 +254,7 @@ FIELDS.update(dict.fromkeys((
 MODEL_FIELDS: dict[tuple[str, str], str] = {
     ("integration.WebhookDelivery", "delivery_id"): "webhook_delivery_id",
     ("integration.InboundEvent", "delivery_id"): "partner_delivery_id",
+    ("integration.FhirQuarantine", "delivery_id"): "partner_delivery_id",
     # a payment provider's own reference for a payment, not a clinician (DEV-139 skeleton)
     ("billing.PaymentAttempt", "provider_ref"): "external_ref",
 }

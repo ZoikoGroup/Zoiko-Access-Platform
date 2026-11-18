@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { addWebhook, listWebhookDeliveries, listWebhooks, redriveDelivery, webhookStep } from "../api";
-import type { WebhookDelivery, WebhookEndpoint } from "../types";
+import { addWebhook, fhirQuarantineStep, listFhirQuarantine, listWebhookDeliveries, listWebhooks, redriveDelivery, webhookStep } from "../api";
+import type { FhirQuarantineItem, FhirQuarantineState, WebhookDelivery, WebhookEndpoint } from "../types";
 import { Card, Pill, type PillKind } from "../ui";
 import { Partners } from "./Partners";
 
@@ -20,6 +20,163 @@ const DELIVERY_STATE: Record<WebhookDelivery["state"], { text: string; kind: Pil
   pending: { text: "Waiting", kind: "info" }, retrying: { text: "Will retry", kind: "warn" },
   delivered: { text: "Received", kind: "ok" }, dead_letter: { text: "Gave up", kind: "bad" },
 };
+const QUARANTINE_STATE: Record<FhirQuarantineState, { text: string; kind: PillKind }> = {
+  held: { text: "Quarantined", kind: "warn" },
+  discarded: { text: "Discarded", kind: "bad" },
+  resend_requested: { text: "Resend Requested", kind: "info" },
+};
+
+function FhirQuarantineRow({ item, onDone }: { item: FhirQuarantineItem; onDone: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notePrompt, setNotePrompt] = useState<"discard" | "re-request" | null>(null);
+  const [note, setNote] = useState("");
+
+  async function handleStep(step: "discard" | "re-request") {
+    setBusy(true);
+    setError("");
+    try {
+      await fhirQuarantineStep(item.public_id, step, note.trim() || undefined);
+      setNotePrompt(null);
+      setNote("");
+      await onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Action failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const badge = QUARANTINE_STATE[item.state] ?? { text: item.state, kind: "info" };
+
+  return (
+    <div className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
+      <div className="info">
+        <b>
+          {item.resource_type || "Resource"}{" "}
+          <Pill kind={badge.kind}>{badge.text}</Pill>
+        </b>
+        <small>
+          Partner: <b>{item.partner_label || item.partner_client_id}</b> | Delivery ID: <code>{item.delivery_id}</code>
+          {item.partner_ref ? ` | Ref: ${item.partner_ref}` : ""}
+        </small>
+        <small>
+          Received: {item.created_at.slice(0, 16).replace("T", " ")} | Digest: <code>{item.body_digest.slice(0, 10)}</code>
+        </small>
+        {item.issues && item.issues.length > 0 && (
+          <div style={{ marginTop: "4px" }}>
+            <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Validation Issues:</span>
+            <ul style={{ margin: "4px 0", paddingLeft: 20, fontSize: "0.85rem" }}>
+              {item.issues.map((iss, idx) => (
+                <li key={idx}>
+                  <code>{iss.path || "root"}</code>: {iss.text} {iss.code ? `(${iss.code})` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {item.decided_at && (
+          <small style={{ color: "var(--muted)" }}>
+            Decided by {item.decided_by} on {item.decided_at.slice(0, 16).replace("T", " ")}
+            {item.decision_note ? `: "${item.decision_note}"` : ""}
+          </small>
+        )}
+        {error && <small style={{ color: "var(--bad)" }} role="alert">{error}</small>}
+      </div>
+
+      {item.state === "held" && (
+        <div style={{ marginTop: "8px" }}>
+          {notePrompt ? (
+            <div className="form-row" style={{ alignItems: "center", gap: "8px" }}>
+              <input
+                type="text"
+                placeholder={notePrompt === "discard" ? "Reason for discarding (optional)…" : "Note for resend request (optional)…"}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                maxLength={200}
+                style={{ flex: 1 }}
+              />
+              <button
+                className={`btn ${notePrompt === "discard" ? "bad" : ""}`}
+                disabled={busy}
+                onClick={() => void handleStep(notePrompt)}
+              >
+                {busy ? "Saving…" : notePrompt === "discard" ? "Confirm Discard" : "Confirm Request"}
+              </button>
+              <button className="btn ghost" disabled={busy} onClick={() => { setNotePrompt(null); setNote(""); }}>
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="form-row">
+              <button className="btn ghost" disabled={busy} onClick={() => setNotePrompt("discard")}>
+                Discard
+              </button>
+              <button className="btn ghost" disabled={busy} onClick={() => setNotePrompt("re-request")}>
+                Ask to resend
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FhirQuarantineCard() {
+  const [items, setItems] = useState<FhirQuarantineItem[] | null>(null);
+  const [filter, setFilter] = useState<string>("held");
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const res = await listFhirQuarantine(filter === "all" ? undefined : filter);
+      setItems(res);
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load quarantine items");
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const countHeld = items?.filter((i) => i.state === "held").length ?? 0;
+
+  return (
+    <Card
+      title={`FHIR Quarantine${countHeld > 0 ? ` (${countHeld} held)` : ""}`}
+      sub="Signed FHIR R4 resources from partners that failed schema validation, reference integrity, or mapping. Zero clinical state is updated until triaged."
+    >
+      <div className="form-row" style={{ marginBottom: "12px", gap: "8px" }}>
+        <button
+          className={`btn ${filter === "held" ? "" : "ghost"}`}
+          onClick={() => setFilter("held")}
+        >
+          Held in Quarantine
+        </button>
+        <button
+          className={`btn ${filter === "all" ? "" : "ghost"}`}
+          onClick={() => setFilter("all")}
+        >
+          All History
+        </button>
+      </div>
+
+      {error && <div className="error" role="alert">{error}</div>}
+
+      {items === null ? (
+        <div className="empty">Loading quarantine…</div>
+      ) : items.length === 0 ? (
+        <div className="empty">No quarantined messages found.</div>
+      ) : (
+        items.map((item) => <FhirQuarantineRow key={item.public_id} item={item} onDone={load} />)
+      )}
+    </Card>
+  );
+}
+
 
 function EndpointRow({ e, onDone }: { e: WebhookEndpoint; onDone: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
@@ -146,6 +303,7 @@ export function Integrations() {
             </div>
           ))}
         </Card>
+        <FhirQuarantineCard />
         <Partners />
       </div>
     </>

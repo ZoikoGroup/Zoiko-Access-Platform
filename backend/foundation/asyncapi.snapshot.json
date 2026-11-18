@@ -57,6 +57,14 @@
     }
    }
   },
+  "claim_consent_needed_v1": {
+   "address": "claim.consent_needed.v1",
+   "messages": {
+    "claim_consent_needed_v1": {
+     "$ref": "#/components/messages/claim_consent_needed_v1"
+    }
+   }
+  },
   "connector_operation_accepted_v1": {
    "address": "connector.operation.accepted.v1",
    "messages": {
@@ -459,6 +467,28 @@
      "x-aggregate": "booking"
     },
     "x-schema-hash": "a5084c72721c8718"
+   },
+   "claim_consent_needed_v1": {
+    "contentType": "application/json",
+    "name": "claim.consent_needed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "claim_ref": {
+       "type": "string"
+      },
+      "person_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "claim_ref",
+      "person_ref"
+     ],
+     "type": "object",
+     "x-aggregate": "claim"
+    },
+    "x-schema-hash": "1f06c0bfd95bd8c5"
    },
    "connector_operation_accepted_v1": {
     "contentType": "application/json",
@@ -1043,6 +1073,13 @@
     "$ref": "#/channels/booking_rescheduled_v1"
    },
    "summary": "Zoiko publishes booking.rescheduled.v1"
+  },
+  "publish_claim_consent_needed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/claim_consent_needed_v1"
+   },
+   "summary": "Zoiko publishes claim.consent_needed.v1"
   },
   "publish_connector_operation_accepted_v1": {
    "action": "send",

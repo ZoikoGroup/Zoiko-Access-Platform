@@ -8,6 +8,7 @@ import type {
   Claim,
   ClinicSettings, CoverageRow, ExchangeRequest, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, RightsCase, FeeRow, InvoiceRow, Escalation, WorkflowHistory, WorkflowInstance, InboundEvent, PartnerClient, WebhookDelivery, WebhookEndpoint, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
   BookingRow, Compliance, Dashboard, Directory, Health, LocationRow, Me, PatientRow, ServiceRow,
+  FhirQuarantineItem,
 } from "./types";
 
 export class ApiError extends Error {
@@ -463,3 +464,15 @@ export interface ConnectorCircuit {
 export const getCircuits = () => v1<{ circuits: ConnectorCircuit[]; can_act: boolean }>("staff/connector/circuits");
 export const resetCircuit = (key: string) =>
   post<{ circuit: ConnectorCircuit }>(`staff/connector/circuits/${encodeURIComponent(key)}/reset`);
+
+export const listFhirQuarantine = async (state?: string) => {
+  const query = state ? `state=${encodeURIComponent(state)}` : "";
+  return (await v1<{ items: FhirQuarantineItem[] }>(`staff/fhir/quarantine?${query}`)).items;
+};
+
+export const fhirQuarantineStep = (id: string, step: "discard" | "re-request", note?: string) =>
+  v1<{ item: FhirQuarantineItem }>(`staff/fhir/quarantine/${encodeURIComponent(id)}/${encodeURIComponent(step)}`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  }).then((r) => r.item);
+

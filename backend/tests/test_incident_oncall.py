@@ -13,6 +13,7 @@ from foundation.timeutil import FixedClock, utc_now
 from modules.trust import api as trust
 from modules.trust import oncall
 from modules.trust.models import IncidentEvent
+from tests.test_api import API
 from tests.test_incidents import made, post, resolve
 from tests.test_platform import Platform
 
@@ -32,6 +33,10 @@ def world():
     w.tess = w.staff("tess", "R11")
     w.iyer = w.staff("iyer", "R12")
     return w
+
+
+def get(world, path, subject="sam"):
+    return world.client.get(API + path, **world.header(world.tenant_public_id, subject))
 
 
 def assign(world, ref, owner, deputy):
@@ -121,3 +126,37 @@ def test_reporting_an_incident_through_the_api_still_works(world):
     r = post(world, "platform/incidents", {"title": "Mail delayed", "severity": "sev2",
                                            "happened_on": utc_now().date().isoformat()})
     assert r.status_code == 201, r.content
+
+
+def test_the_incident_screens_can_reach_the_on_call_api(world):
+    """DEV-202: the four routes the platform app calls must actually be served. Every access
+    decision is still made in the module, not in the view."""
+    r = get(world, "platform/incidents/on-call-staff")
+    assert r.status_code == 200, r.content
+    staff = json.loads(r.content)["staff"]
+    assert {person["id"] for person in staff} == {world.sam, world.tess, world.iyer}
+    assert all(person["name"] for person in staff)
+
+    ref = made(world, severity="sev1")
+    r = post(world, f"platform/incidents/{ref}/assign",
+             {"owner": world.tess, "deputy": world.iyer})
+    assert r.status_code == 200, r.content
+    row = json.loads(r.content)["incident"]
+    assert (row["owner_ref"], row["deputy_ref"]) == (world.tess, world.iyer)
+
+    refused = post(world, f"platform/incidents/{ref}/assign",
+                   {"owner": world.tess, "deputy": world.tess})
+    assert refused.status_code == 422, refused.content
+
+    refused = post(world, f"platform/incidents/{ref}/acknowledge", {}, subject="sam")
+    assert refused.status_code == 403, refused.content
+    r = post(world, f"platform/incidents/{ref}/acknowledge", {}, subject="tess")
+    assert r.status_code == 200, r.content
+    assert json.loads(r.content)["incident"]["acknowledged_at"]
+
+    r = get(world, f"platform/incidents/{ref}/timeline")
+    assert r.status_code == 200, r.content
+    assert [e["kind"] for e in json.loads(r.content)["timeline"]] == [
+        "recorded", "assigned", "acknowledged"
+    ]
+

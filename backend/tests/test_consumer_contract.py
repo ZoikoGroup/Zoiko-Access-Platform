@@ -4,11 +4,17 @@ api/consumer_contract.json lists the calls each app makes (made by scripts/consu
 from the apps' own source). Adding routes passes; removing a route or method an app uses fails."""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+import django
 import pytest
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.test")
+if not django.apps.apps.ready:
+    django.setup()
 
 from api import openapi
 
