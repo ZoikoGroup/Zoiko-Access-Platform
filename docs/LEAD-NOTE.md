@@ -92,6 +92,21 @@ Decisions the lead gave on 17 Nov 2026 are now built (see `docs/HANDOVER.md`): a
 
 Still waiting for a decision, so not built: where the master key is kept, a real AI provider and a clinical review of what it says, a workflow engine, signed releases, single sign-in accounts, and how AI permits pair a lane with a level and remove personal details before a model is called. Say which of these you want first and the developer will start there.
 
+## Decisions given by the team lead on 18 November 2026
+
+| Question | Answer |
+|---|---|
+| First market, buyer and journey | One UK clinic; the book-and-attend journey already built |
+| Zoiko's legal role | Coordination platform (arranges visits, holds no medical advice) |
+| Hosting and keys | GCP managed PostgreSQL in the market's region, managed KMS; recovery copy with Security/CTO |
+| Clinical notes | Stay switched off until a clinical-safety review signs off |
+| FHIR country profile | UK Core, pinned to FHIR R4 |
+| Insurers, claims and billing | Out of the first release (patients may still record which insurance they hold) |
+| AI | All features stay off; no outside model |
+| Doctor verification | One clinic administrator attests (temporary rule DEV-095) |
+
+Recorded in `docs/decisions/REGISTER.md` as DEV-316. These answers unblock UK Core validation in the FHIR checker, a signed release scope for the first slice, and production setup design. They do **not** turn on any switch: named reviewers, a real partner, provider contracts, retention periods and clinical-safety sign-off are still needed.
+
 ## What happens next
 
-Send this note. When your answers come back, the developer changes the proposals that differ, in the order you give. Until then nothing is blocked: everything above works and is tested; it is simply not yet confirmed by you or by a clinical-safety owner.
+The decisions above are answered. The developer builds the newly unblocked items in the order the lead gives; the remaining open items are in `docs/decisions/REGISTER.md` section B. Nothing is blocked: everything built works and is tested; it is simply not yet confirmed by a clinical-safety owner.

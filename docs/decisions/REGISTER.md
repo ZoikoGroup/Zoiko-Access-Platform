@@ -1769,6 +1769,12 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Not built:** an on-call rota, paging or phone calls; sending the restoration notice or a public status page.
 - **Checked:** 8 new tests in `test_incident_oncall.py`; 1 updated in `test_incidents.py`; 134 passed across the on-call, incidents, database-grants and identifier files; ruff, mypy, import rules and migrations clean; the platform app type-checks. G-01 and G-10 move to **partly**.
 
+### DEV-316: lead decisions of 18 Nov 2026 (scope confirmed)
+
+- **What was decided:** the team lead confirmed: first market, buyer and journey = **one UK clinic, book and attend** (DEV-011); Zoiko's role = **coordination platform** (DEV-012); hosting = **GCP with managed PostgreSQL in the market region and managed KMS**, recovery copy held by Security/CTO (DEV-013); clinical notes **stay switched off until a clinical-safety review** (DEV-041); FHIR first country profile = **UK Core**, pinned to R4 (`docs/FHIR-DESIGN.md`); insurers, claims and billing are **out of the first release**; **all AI features stay off**; doctor verification stays with **one clinic administrator** (DEV-095, temporary).
+- **What it unblocks:** UK Core profile checks in the FHIR validator (step 4 of the design), a signed release scope for the first slice, and production setup design for GCP/KMS. These answers do not turn any switch on by themselves.
+- **Still needed:** named approvers and reviewers, a real contracted partner and provider contracts, retention periods and key-rotation rules, and clinical-safety sign-off before notes can be enabled.
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |

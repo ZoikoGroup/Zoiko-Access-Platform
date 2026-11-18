@@ -1,7 +1,10 @@
 # FHIR interoperability: design note for the lead to confirm
 
-Written 2026-11-17. Nothing here is built. It turns the lead's decision (FHIR only, one pinned version, one country
-first) into a plan that can be built in small, safe steps. Items marked **Decide** need an answer first.
+Written 2026-11-17; updated 2026-11-18. Steps 1 and 2 are built (validator, quarantine and staff triage). It turns the lead's decision (FHIR only, one pinned version, one country first) into a plan that can be built in small, safe steps. Items marked **Decide** need an answer first.
+
+**Decided 18 Nov 2026:** the first country profile is **UK Core**, pinned to FHIR R4 (4.0.1). The
+lead also chose the UK as the first market and confirmed that clinical notes stay switched off until
+a clinical-safety review. Stage 1 and 2 of the plan below are built; UK Core checks are step 4.
 
 ## Scope of the first slice
 
@@ -19,9 +22,9 @@ agrees, DEV-300, and that stays as it is), `Observation` values, `Encounter`, `C
 ## Decisions to make
 
 1. **Version.** Recommended: **FHIR R4 (4.0.1)**, pinned, with no content from R4B or R5.
-2. **Country profile.** **Decide:** which country first (for example the UK with UK Core, the US with US Core, or India
-   with the national digital health profiles). The profile decides which identifiers are allowed and which code
-   systems are required, so it must be chosen before code is written.
+2. **Country profile.** **Decided 18 Nov 2026:** the UK, with **UK Core**. The profile decides which identifiers are
+   allowed and which code systems are required; those exact rules still need to be pinned from the published UK Core
+   specification before step 4 is written.
 3. **Code systems.** Recommended: accept the partner's own local codes alongside a standard one (LOINC for tests), and
    keep both. Anything unmapped is kept as it arrived and goes to a person to review (GHE-13 T-29), never guessed.
 4. **Who may send.** Recommended: only a partner whose certification for this exact profile version is `live`

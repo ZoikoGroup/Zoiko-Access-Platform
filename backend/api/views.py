@@ -5481,7 +5481,7 @@ def staff_fhir_quarantine(request: HttpRequest, auth: trust.Authenticated) -> Ht
             actor_ref=auth.actor_public_id,
             action="integration.fhir_quarantine_listed",
             object_type="fhir_quarantine",
-            object_ref="",
+            object_ref="quarantine",
             outcome=evidence.AuditOutcome.ALLOWED,
         )
         items = integration.list_quarantined(state=state)
