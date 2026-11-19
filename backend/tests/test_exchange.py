@@ -942,3 +942,19 @@ def test_the_administrator_is_emailed_once_a_day_about_requests_held_too_long(wo
     sent = mails("hold_escalation")
     assert len(sent) == 1 and sent[0].to_address == "boss@clinic.test"
     assert "Haemoglobin" not in sent[0].body and lab.tenant_name not in sent[0].body
+
+
+def test_a_delivered_message_a_critical_rating_and_an_opened_summary_never_count_as_review(world):
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab, "critical")
+    assert result(clinic, request_id).status_code == 200  # opened, twice
+    assert result(clinic, request_id).status_code == 200
+    row = body(clinic.get("exchange/requests", subject="doc"))["requests"][0]
+    assert row["state"] == "result_available" and row["reviewed_at"] is None
+    # nobody but a treating doctor, using the review step itself, can mark it reviewed
+    for who in ("ops", "doc2", "pat"):
+        assert clinic.post(f"exchange/requests/{request_id}/review", subject=who).status_code == 403
+    assert lab.call("post", f"exchange/requests/{request_id}/review").status_code == 403
+    after = body(clinic.get("exchange/requests", subject="doc"))["requests"][0]
+    assert after["state"] == "result_available"
+    assert clinic.post(f"exchange/requests/{request_id}/review", subject="doc").status_code == 200

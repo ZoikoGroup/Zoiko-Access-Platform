@@ -1775,6 +1775,11 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **What it unblocks:** UK Core profile checks in the FHIR validator (step 4 of the design), a signed release scope for the first slice, and production setup design for GCP/KMS. These answers do not turn any switch on by themselves.
 - **Still needed:** named approvers and reviewers, a real contracted partner and provider contracts, retention periods and key-rotation rules, and clinical-safety sign-off before notes can be enabled.
 
+### DEV-317: the "critical results" tripwire becomes the real rule (follows DEV-307)
+
+- **What was done:** `tests/test_prohibitions.py` test 3 was a tripwire that failed as soon as any route about results existed, so that the real rule would be written then. Results now exist (DEV-307), so it now states the rule: the only route that mentions a result is `GET /exchange/requests/<id>/result`, which only **opens** the lab's summary. A new test in `test_exchange.py` proves that a delivered message, a **critical** rating and opening the summary (twice) never mark a result reviewed; clinic staff, another doctor, the patient and the partner are refused the review step; only a treating doctor's own review changes it. Any new route about results or critical findings fails test 3 until it is added on purpose.
+- **Checked:** the prohibition, identifier, exchange and notes tests re-run: 41 passed. The final full backend suite before this change: 2,924 passed, 2 skipped, 2 failed (this tripwire and the `claim_ref` identifier, both now fixed).
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |
