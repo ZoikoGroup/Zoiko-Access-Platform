@@ -1040,3 +1040,14 @@ def monthly_activity(
         out[month][b.person_ref] = (
             bookings + 1, visits + (1 if b.attendance == Attendance.ATTENDED else 0))
     return out
+
+
+
+def future_bookings_of(person_ref: str) -> list[str]:
+    """This patient's bookings that are still open and not yet started (DEV-333)."""
+    return list(
+        Booking.objects.filter(
+            person_ref=person_ref, status__in=ACTIVE_BOOKING, slot__starts_at__gt=utc_now(),
+            **_scope(),
+        ).values_list("public_id", flat=True)
+    )

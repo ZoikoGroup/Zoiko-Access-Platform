@@ -75,6 +75,7 @@ export interface Incoming {
   id: string; ref_no: string; kind: "lab_order" | "pharmacy_request" | "homecare_referral"; from: string;
   token: string; label: string; urgency: "routine" | "urgent"; state: IncomingState;
   decision_note: string; result_ref: string; on_hold: boolean; consent: "pending" | "granted" | "declined" | "withdrawn" | "expired"; identity: { name: string; birth_date: string } | null; created_at: string; accepted_at: string | null; result_at: string | null;
+  result_version?: number; result_correction?: "amended" | "corrected" | "appended" | null;
 }
 
 export interface Claim {

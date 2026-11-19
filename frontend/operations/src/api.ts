@@ -476,3 +476,26 @@ export const fhirQuarantineStep = (id: string, step: "discard" | "re-request", n
     body: JSON.stringify({ note }),
   }).then((r) => r.item);
 
+
+// Recording that a patient has died (DEV-333).
+export interface DeathInfo {
+  person: string; died_on: string | null; source: string | null; recorded_by: string | null; recorded_by_name: string;
+  recorded_at: string | null; recorded_by_me: boolean; can_record: boolean;
+}
+export const getDeath = (person: string) => v1<{ death: DeathInfo }>(`people/${enc(person)}/death`);
+export const recordDeath = (person: string, died_on: string, source: string) =>
+  post<{ death: DeathInfo; bookings_cancelled: number }>(`people/${enc(person)}/death`, { died_on, source });
+export const withdrawDeath = (person: string, reason: string) =>
+  post<{ death: DeathInfo }>(`people/${enc(person)}/death/withdraw`, { reason });
+
+// A staff member's own mobile number for urgent texts (DEV-334, DEV-336).
+export interface AlertPhone { number: string; verified: boolean; critical_texts: boolean; hold_texts: boolean; texts_available: boolean }
+export const getAlertPhone = async () => (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone")).alert_phone;
+export const setAlertPhone = async (number: string) =>
+  (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ number }) })).alert_phone;
+export const confirmAlertPhone = async (code: string) =>
+  (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone/confirm", { method: "POST", body: JSON.stringify({ code }) })).alert_phone;
+export const setCriticalTexts = async (critical_texts: boolean) =>
+  (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ critical_texts }) })).alert_phone;
+export const setHoldTexts = async (hold_texts: boolean) =>
+  (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ hold_texts }) })).alert_phone;

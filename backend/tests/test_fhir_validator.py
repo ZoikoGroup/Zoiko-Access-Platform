@@ -173,3 +173,193 @@ def test_every_problem_is_reported_not_just_the_first():
     got = problems({"resourceType": "ServiceRequest", "status": "x", "extension": []})
     assert ("intent", "required") in got and ("subject", "required") in got
     assert ("status", "value") in got and ("extension", "forbidden") in got
+
+
+# ------------------------------------------------------------------ UK Core (DEV-319)
+UK_REQUEST = {
+    **REQUEST,
+    "code": {
+        "coding": [
+            {"system": "http://snomed.info/sct", "code": "26604007", "display": "Full blood count"}
+        ]
+    },
+}
+UK_REPORT = {
+    **REPORT,
+    "code": {"coding": [{"system": "http://snomed.info/sct", "code": "26604007"}]},
+    "conclusionCode": [{"coding": [{"system": "http://snomed.info/sct", "code": "271737000"}]}],
+}
+
+
+def uk(resource):
+    return [(i.path, i.code) for i in fhir.validate(resource, profile=fhir.UK_CORE)]
+
+
+def test_uk_core_accepts_resources_coded_in_snomed_ct():
+    assert uk(UK_REQUEST) == [] and uk(UK_REPORT) == []
+    assert fhir.validate(UK_REQUEST) == []  # the base check still passes too
+
+
+def test_uk_core_needs_a_snomed_ct_code():
+    loinc_only = {**REQUEST}  # LOINC only: fine in base FHIR
+    assert fhir.validate(loinc_only) == []
+    assert ("code", "required") in uk(loinc_only)
+
+
+@pytest.mark.parametrize(
+    "code", ["26604008", "1234567", "026604007", "12345", "abc", "", "26604017"]
+)
+def test_a_snomed_code_must_be_a_real_looking_concept_identifier(code):
+    bad = {**UK_REQUEST, "code": {"coding": [{"system": "http://snomed.info/sct", "code": code}]}}
+    got = uk(bad)
+    assert ("code.coding[0].code", "format") in got or ("code.coding[0].code", "required") in got
+
+
+def test_the_snomed_check_digit_is_the_verhoeff_scheme():
+    for good in ("26604007", "104866001", "365636006", "271737000", "71388002"):
+        assert fhir.sctid_ok(good), good
+    assert not fhir.verhoeff_ok("26604008")
+
+
+def test_a_conclusion_code_in_snomed_ct_is_checked_too():
+    bad = {
+        **UK_REPORT,
+        "conclusionCode": [{"coding": [{"system": "http://snomed.info/sct", "code": "271737001"}]}],
+    }
+    assert ("conclusionCode[0].coding[0].code", "format") in uk(bad)
+
+
+def test_an_nhs_number_is_never_accepted_anywhere_in_a_uk_message():
+    by_system = {
+        **UK_REQUEST,
+        "identifier": [{"system": "https://fhir.nhs.uk/Id/nhs-number", "value": "9434765919"}],
+    }
+    assert ("", "forbidden") in uk(by_system)
+    in_text = {**UK_REPORT, "conclusion": "Result for 943 476 5919: low."}
+    assert ("", "forbidden") in uk(in_text)
+
+
+def test_an_unknown_profile_is_refused():
+    assert [i.code for i in fhir.validate(UK_REQUEST, profile="us-core")] == ["value"]
+
+
+# ------------------------------------------------------------------ the order we send (DEV-323)
+def test_the_order_we_send_is_a_uk_core_service_request_naming_nobody():
+    made = fhir.service_request(
+        request_ref="req-abc123",
+        order_no="ORD-0001",
+        kind="lab_order",
+        urgency="urgent",
+        snomed_code="26604007",
+        label="Full blood count",
+        authored_on="2026-11-19T09:00:00Z",
+    )
+    assert fhir.validate(made, profile=fhir.UK_CORE) == []
+    assert made["priority"] == "urgent" and made["subject"] == {"reference": "Patient/req-abc123"}
+    text = str(made)
+    assert "birth" not in text and "name" not in text
+
+
+def test_an_order_without_a_real_snomed_code_is_never_built():
+    for code in ("26604008", "", "abc"):
+        with pytest.raises(ValueError):
+            fhir.service_request(
+                request_ref="req-abc123",
+                order_no="ORD-0001",
+                kind="lab_order",
+                urgency="routine",
+                snomed_code=code,
+                label="Full blood count",
+                authored_on="2026-11-19T09:00:00Z",
+            )
+    with pytest.raises(ValueError):
+        fhir.service_request(
+            request_ref="req-abc123",
+            order_no="ORD-0001",
+            kind="x-ray",
+            urgency="routine",
+            snomed_code="26604007",
+            label="x",
+            authored_on="2026-11-19T09:00:00Z",
+        )
+
+
+def _obs(oid, value, unit="g/L", low=115, high=165, flag="N", subject="Patient/p-1",
+         code="26604007"):
+    return {
+        "resourceType": "Observation", "id": oid, "status": "final",
+        "code": {"coding": [{"system": "http://snomed.info/sct", "code": code}],
+                 "text": "Haemoglobin"},
+        "subject": {"reference": subject},
+        "valueQuantity": {"value": value, "unit": unit},
+        "referenceRange": [{"low": {"value": low}, "high": {"value": high}}],
+        "interpretation": [{"coding": [{
+            "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+            "code": flag}]}],
+    }
+
+
+def _bundle_of(report, *observations):
+    report = {**report, "result": [{"reference": f"Observation/{o['id']}"} for o in observations]}
+    return {"resourceType": "Bundle", "type": "collection",
+            "entry": [{"resource": report}, *[{"resource": o} for o in observations]]}
+
+
+# ------------------------------------------------------------------ result values (DEV-330)
+_REPORT = {
+    "resourceType": "DiagnosticReport", "id": "rep-1", "status": "final",
+    "code": {"coding": [{"system": "http://snomed.info/sct", "code": "26604007"}]},
+    "subject": {"reference": "Patient/p-1"},
+    "basedOn": [{"reference": "ServiceRequest/req-1"}],
+}
+
+
+def test_a_report_with_its_values_is_a_valid_bundle_and_the_values_come_out_plainly():
+    b = _bundle_of(_REPORT, _obs("o1", 128), _obs("o2", 98, flag="L", low=100, high=200))
+    assert fhir.validate(b, profile=fhir.UK_CORE) == []
+    assert fhir.report_of(b)["id"] == "rep-1"
+    first, second = fhir.values_of(b)
+    assert first == {"name": "Haemoglobin", "code": "26604007", "value": 128, "unit": "g/L",
+                     "low": 115, "high": 165, "flag": "normal"}
+    assert second["flag"] == "low"
+
+
+def test_a_bundle_must_hold_one_report_and_exactly_the_values_it_lists():
+    o = _obs("o1", 128)
+    unlisted = {"resourceType": "Bundle", "type": "collection",
+                "entry": [{"resource": _REPORT}, {"resource": o}]}
+    assert any(i.path == "result" for i in fhir.validate(unlisted))
+    other_patient = _bundle_of(_REPORT, _obs("o1", 128, subject="Patient/p-2"))
+    assert any(i.path == "entry" for i in fhir.validate(other_patient))
+    two_reports = {"resourceType": "Bundle", "type": "collection",
+                   "entry": [{"resource": _REPORT}, {"resource": _REPORT}]}
+    assert fhir.validate(two_reports)
+    assert fhir.validate({**_bundle_of(_REPORT, o), "type": "transaction"})
+
+
+def test_a_value_is_a_number_or_a_short_text_and_nothing_else():
+    bad = _obs("o1", "128")  # a quantity's value must be a number
+    assert any(i.path.startswith("valueQuantity") for i in fhir.validate(bad))
+    both = {**_obs("o1", 128), "valueString": "positive"}
+    assert any(i.path == "value[x]" for i in fhir.validate(both))
+    text = {k: v for k, v in _obs("o1", 1).items() if k != "valueQuantity"}
+    assert fhir.validate({**text, "valueString": "Positive"}, profile=fhir.UK_CORE) == []
+    assert fhir.validate({**text, "valueString": "x" * 81})
+    assert fhir.validate({**_obs("o1", 1), "note": [{"text": "free text"}]})  # not accepted
+    loinc = {**_obs("o1", 1), "code": {"coding": [{"system": "http://loinc.org", "code": "718-7"}]}}
+    assert fhir.validate(loinc, profile=fhir.UK_CORE)  # UK Core needs SNOMED CT here too
+
+
+
+# ------------------------------------------------------------------ ids (DEV-331)
+def test_every_zoiko_id_becomes_a_valid_fhir_id_and_back():
+    from foundation.ids import new_public_id
+
+    ids = [new_public_id() for _ in range(300)] + ["ab_cd-ef_gh_ij-kl_mn_op", "__________"]
+    assert any("_" in i for i in ids)
+    for public in ids:
+        made = fhir.service_request(
+            request_ref=public, order_no="ORD-0001", kind="lab_order", urgency="routine",
+            snomed_code="26604007", label="Full blood count", authored_on="2026-11-19T09:00:00Z")
+        assert fhir.validate(made, profile=fhir.UK_CORE) == []
+        assert fhir.from_fhir_id(made["id"]) == public

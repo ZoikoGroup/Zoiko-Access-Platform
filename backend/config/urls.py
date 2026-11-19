@@ -1,8 +1,8 @@
-from django.urls import include, path, re_path
+from django.urls import URLPattern, URLResolver, include, path, re_path
 
 from foundation.error_views import unsupported_version
 
-urlpatterns = [
+urlpatterns: list[URLPattern | URLResolver] = [
     path("", include("foundation.urls")),
     path("api/v1/", include("api.urls")),
 ]

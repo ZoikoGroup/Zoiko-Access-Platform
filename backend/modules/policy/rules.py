@@ -20,10 +20,12 @@ POLICY_VERSION = "p1-2026-10-proposed"
 # Which part of a guardian's grant covers each class of data (GHE-06 AT-18, DEV-110). A class not
 # listed (the dependent's own name) needs no scope. "records" is never granted yet: the
 # specification's screen marks it BLOCK until a market rule and evidence process exist.
+# Consultation notes have their own part, "notes" (DEV-324, LEAD DECISION): a guardian may read a
+# child's notes only while the child is under 16; the view checks the age.
 PROXY_SCOPE_OF = {
     "booking": "appointments", "workflow": "appointments",
     "comms": "messages", "referral": "referrals", "coverage": "insurance",
-    "diagnostic": "records", "medication": "records", "billing": "records", "note": "records",
+    "diagnostic": "records", "medication": "records", "billing": "records", "note": "notes",
 }
 
 VERBS = ("read", "write", "attest")
@@ -143,6 +145,8 @@ RULES: dict[str, dict[str, Rule]] = {
         "coverage": (_v("r"), "PROXY"),
         "billing": (_v("r"), "PROXY"),
         "comms": (_v("rw"), "PROXY"),
+        # Only with the "notes" part of the grant, and only while the child is under 16 (DEV-324).
+        "note": (_v("r"), "PROXY"),
         "catalog": (_v("r"), "ANY"),
     },
     "R03": {

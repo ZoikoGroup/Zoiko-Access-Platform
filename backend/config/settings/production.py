@@ -20,3 +20,14 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
+
+# Clinical notes stay off in production until the clinical safety review has signed them off
+# (DEV-324, LEAD DECISION). Turning them on needs BOTH the switch and the sign-off reference
+# (for example the hazard log entry), so nobody can switch them on by accident.
+NOTES_SAFETY_SIGNOFF = env("ZOIKO_NOTES_SAFETY_SIGNOFF", "").strip()  # noqa: F405
+if CLINICAL_NOTES_ENABLED and not NOTES_SAFETY_SIGNOFF:  # noqa: F405
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        "Clinical notes need ZOIKO_NOTES_SAFETY_SIGNOFF (the clinical safety review) in production"
+    )

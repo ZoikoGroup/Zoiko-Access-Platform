@@ -3,6 +3,7 @@ import { dropDevLogin } from "@shared/devLogin";
 import { changePassword, clearDisplayName, getDisplayName, getNameCheck, getPartnerRequests, getThreads, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, getPurpose, loadSession, setPurpose, setSession, signOutEverywhere, type Purpose, type Session } from "./api";
 import { NAV, type PageId } from "./nav";
 import { Account } from "./Account";
+import { AlertPhone } from "./pages/AlertPhone";
 import { Patients } from "./pages/Patients";
 import { Planned } from "./pages/Planned";
 import { Messages } from "./pages/Messages";
@@ -66,6 +67,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
     nameCheck={getNameCheck}
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
+  if (page === "account" && item.live) body = <>{body}<AlertPhone admin={false} /></>;
   else if (page === "patients") body = <Patients key={patientQuery} initialSearch={patientQuery} />;
   else if (page === "referrals") body = <Referrals />;
   else if (page === "notes") body = <Notes />;

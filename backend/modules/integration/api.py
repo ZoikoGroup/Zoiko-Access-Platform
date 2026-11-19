@@ -25,6 +25,7 @@ from .services import (
     redrive,
     rotate_secret,
     set_state,
+    support_attempts,
     verify_endpoint,
 )
 
@@ -38,6 +39,7 @@ __all__ = [
     "issue_client_secret",
     "list_clients",
     "list_deliveries",
+    "support_attempts",
     "list_endpoints",
     "list_events",
     "list_quarantined",

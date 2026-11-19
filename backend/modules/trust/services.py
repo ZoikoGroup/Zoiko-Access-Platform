@@ -250,6 +250,23 @@ def clinicians_at(organization_public_id: str, clock: Clock | None = None) -> li
     return sorted(set(rows))
 
 
+def actors_with_role(
+    organization_public_id: str, role_code: str, clock: Clock | None = None
+) -> list[str]:
+    """Active people holding this role at this organization now (their login ids), sorted."""
+    now = utc_now(clock)
+    ctx = require_context()
+    rows = _in_force(
+        RoleAssignment.objects.filter(
+            cell_id=ctx.cell_id, tenant_id=ctx.tenant_id,
+            organization__public_id=organization_public_id, organization__status=Status.ACTIVE,
+            role__role_code=role_code, actor__status=Status.ACTIVE,
+        ),
+        now,
+    ).values_list("actor__public_id", flat=True)
+    return sorted(set(rows))
+
+
 def verified_emails_for_role(
     organization_public_id: str, role_code: str, clock: Clock | None = None
 ) -> list[str]:

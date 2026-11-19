@@ -17,7 +17,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
-from foundation import metrics, pagination
+from foundation import fhir, metrics, pagination, synthetic
 from foundation.cell_context import tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.idempotency import IdempotentOutcome
@@ -29,6 +29,7 @@ from modules.ai import api as ai
 from modules.billing import api as billing
 from modules.catalog import api as catalog
 from modules.claim import api as claim
+from modules.codemap import api as codemap
 from modules.comms import api as comms
 from modules.coverage import api as coverage
 from modules.evidence import api as evidence
@@ -1307,6 +1308,37 @@ def _platform_only(auth: trust.Authenticated) -> str | None:
     if not set(auth.roles) & {"R11", "R12"}:
         raise ZoikoError(ErrorCode.POLICY_DENIED)
     return _catalog_org(auth)
+
+
+@endpoint("GET")
+def platform_delivery_attempts(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Regional support's view of delivery attempts across every customer in this region (GHE-13
+    T-54, DEV-328): per customer, counts by state and the attempts not yet delivered, STATUS ONLY:
+    never a message, its fingerprint, the receiving address or a person. Only Zoiko's own staff
+    (R11, R12). Each look is recorded in the platform's audit chain."""
+    from modules.integration import api as integration
+
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    tenants = [t for t in trust.list_tenants() if t["type"] != "platform"]
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id,
+            action="platform.delivery_attempts_viewed",
+            object_type="platform",
+            object_ref="delivery_attempts",
+            outcome=evidence.AuditOutcome.ALLOWED,
+            details={"tenants": len(tenants)},
+        )
+    out = []
+    for t in tenants:
+        with tenant_transaction(trust.context_for(t["public_id"])):
+            seen = integration.support_attempts()
+        if any(seen["counts"].values()) or seen["fhir_held"]:
+            out.append({"id": t["public_id"], "name": t["name"], "status": t["status"], **seen})
+    out.sort(key=lambda r: (-r["counts"].get("dead_letter", 0), -r["counts"].get("retrying", 0),
+                            r["name"]))
+    return JsonResponse({"customers": out})
 
 
 @endpoint("GET")
@@ -2778,6 +2810,7 @@ def exchange_requests(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
                 label=body.get("label"),
                 urgency=body.get("urgency") or "routine",
                 actor_ref=auth.actor_public_id,
+                order_code=body.get("order_code") or "",
             )
         with tenant_transaction():
             evidence.record(
@@ -2918,6 +2951,30 @@ def exchange_mine(request: HttpRequest, auth: trust.Authenticated) -> HttpRespon
     return JsonResponse({"requests": out})
 
 
+@endpoint("GET")
+def exchange_mine_values(
+    request: HttpRequest, auth: trust.Authenticated, request_id: str
+) -> HttpResponse:
+    """The measured values of one of the patient's own results, a day after a doctor reviewed it
+    (DEV-332). Only the patient themselves (a guardian holds no "records" part, DEV-110)."""
+    mine = _my_customer(auth)
+    with tenant_transaction():
+        reachable = trust.reachable_persons(auth.actor_public_id)
+    with tenant_transaction(_platform_context()):
+        rows = exchange.list_for_patients(tenant_ref=mine, person_refs=reachable)
+    found = next((r for r in rows if r["id"] == request_id), None)
+    if found is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if not is_allowed(auth, _EXCHANGE_READ[found["kind"]], subject_ref=found["person"]):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    with tenant_transaction(_platform_context()):
+        got = exchange.patient_values(
+            request_ref=request_id, tenant_ref=mine, person_refs=[found["person"]],
+            actor_ref=auth.actor_public_id,
+        )
+    return JsonResponse({"result": got})
+
+
 @endpoint("POST")
 def exchange_mine_step(
     request: HttpRequest, auth: trust.Authenticated, request_id: str, step: str
@@ -2934,8 +2991,7 @@ def exchange_mine_step(
         kind = exchange.sent_kind_of(request_id, mine)
     if person not in reachable:
         raise ZoikoError(ErrorCode.NOT_FOUND)
-    if not is_allowed(auth, _EXCHANGE_READ[kind], subject_ref=person):
-        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    decision = _authorize(auth, _EXCHANGE_READ[kind], subject_ref=person)
     profile: dict[str, str] = {}
     if step == "agree":
         with tenant_transaction():
@@ -2965,7 +3021,44 @@ def exchange_mine_step(
             object_ref=request_id,
             outcome=evidence.AuditOutcome.ALLOWED,
         )
+    if step == "agree":
+        _send_order(auth, request_id, mine, person, _EXCHANGE_READ[kind], decision)
     return JsonResponse({"request": {k: v for k, v in done.items() if k != "person"}})
+
+
+def _send_order(
+    auth: trust.Authenticated, request_id: str, clinic_ref: str, person: str, operation: str,
+    decision: policy.Decision,
+) -> None:
+    """The patient's agreement sends a coded order to the lab's own system, if it has chosen one
+    that Zoiko has put live (DEV-323, FHIR step 3). The patient's own "I agree" is the authority:
+    it is the receipt, so "who asked" stays true in the audit. Asking twice sends once (the key is
+    per request and agreement). A failure never undoes the agreement: the lab still sees the order
+    in the partner app."""
+    from modules.connector import api as connector
+
+    try:
+        with tenant_transaction(_platform_context()):
+            order = exchange.order_to_send(request_ref=request_id, tenant_ref=clinic_ref)
+        if order is None:
+            return
+        with tenant_transaction(trust.context_for(order["partner"])):
+            orgs = list(trust.organization_names())
+            system = trust.booking_system_of(orgs[0]) if orgs else ""
+        if not system or not connector.is_live(system):
+            return
+        with tenant_transaction():
+            clinic_orgs = list(trust.organization_names())
+            connector.request_operation(
+                connector_key=system, operation_type="exchange.order", subject_ref=request_id,
+                organization_ref=clinic_orgs[0] if clinic_orgs else "",
+                idempotency_key=order["key"], request=order["payload"],
+                requested_by_ref=auth.actor_public_id, decision=decision,
+                authorized_as=operation, receipt_subject_ref=person,
+                receipt_without_organization=True,
+            )
+    except Exception as exc:  # noqa: BLE001 - the agreement stands; the lab still has the app
+        logging.getLogger("zoiko.orders").warning("order send failed: %s", type(exc).__name__)
 
 
 @endpoint("GET")
@@ -3026,9 +3119,19 @@ def programme_codes(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
             )
         return JsonResponse({"code": made}, status=201)
     _authorize(auth, "read:program", organization_public_id=org)
+    paged = "limit" in request.GET or "cursor" in request.GET
+    next_cursor: str | None = None
     with tenant_transaction(_platform_context()):
-        rows = programme.list_for_employer(employer_tenant_ref=mine)
-    return JsonResponse({"codes": rows})
+        if paged:
+            rows, next_cursor = programme.page_for_employer(
+                employer_tenant_ref=mine,
+                limit=pagination.limit_from(request.GET.get("limit")),
+                cursor=request.GET.get("cursor") or None,
+                actor_ref=auth.actor_public_id,
+            )
+        else:
+            rows = programme.list_for_employer(employer_tenant_ref=mine)
+    return JsonResponse({"codes": rows, **({"next_cursor": next_cursor} if paged else {})})
 
 
 @endpoint("POST")
@@ -3395,6 +3498,70 @@ def claim_payer_step(
     return JsonResponse({"claim": done})
 
 
+SANDBOX_MAX_BYTES = 64 * 1024
+
+
+def _developer(auth: trust.Authenticated) -> str:
+    """A partner developer (R10) of a partner customer; returns their organisation."""
+    org = _portal_org(auth, "developer")
+    if "R10" not in auth.roles:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "read:integration", organization_public_id=org)
+    return org
+
+
+@endpoint("GET")
+def portal_sandbox(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """A developer's sandbox (DEV-329): fixed synthetic patients, each with the FHIR order Zoiko
+    would send and an example report back, and whether the intake would accept or hold it.
+    Nothing here is real or stored."""
+    _developer(auth)
+    return JsonResponse({"patients": synthetic.sandbox()})
+
+
+@endpoint("POST")
+def portal_sandbox_check(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Check a developer's own FHIR resource against the intake's rules (UK Core). Says whether it
+    would be accepted or held, and why. Nothing is kept or logged except that a check was made."""
+    _developer(auth)
+    if len(request.body) > SANDBOX_MAX_BYTES:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["body"])
+    try:
+        resource = json.loads(request.body or b"null")
+    except ValueError:
+        return JsonResponse({"result": "held", "issues": [
+            {"path": "", "code": "invalid", "text": "not valid JSON"}]})
+    return JsonResponse(synthetic.check(resource))
+
+
+@endpoint("GET", "POST")
+def portal_order_system(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: the system this lab, pharmacy or home-care partner receives orders in, and the ones it
+    may choose. POST {system}: choose one ("" = work in the partner app only). Only a system Zoiko
+    has certified and put live may be chosen (DEV-230); the pretend partner only in development
+    (DEV-323)."""
+    from modules.connector import api as connector
+
+    org = _portal_org(auth, "partner")
+    choices = [
+        {"key": key, "simulated": connector.is_simulated(key)}
+        for key in connector.registered()
+        if connector.is_simulated(key) or connector.is_live(key)
+    ]
+    if request.method == "POST":
+        _authorize(auth, "write:partner", organization_public_id=org)
+        system = json_body(request).get("system", "")
+        if system and system not in {c["key"] for c in choices}:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["system"])
+        with tenant_transaction():
+            trust.set_booking_system(org, system, by=auth.actor_public_id)
+    else:
+        _authorize(auth, "read:partner", organization_public_id=org)
+    with tenant_transaction():
+        current = trust.booking_system_of(org)
+    return JsonResponse({"system": current, "choices": choices})
+
+
 @endpoint("GET")
 def exchange_incoming(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """The requests sent to this partner. Never shows the clinic's patient reference."""
@@ -3435,8 +3602,9 @@ def _alert_critical(request_id: str, partner_ref: str) -> None:
 def exchange_incoming_step(
     request: HttpRequest, auth: trust.Authenticated, request_id: str, step: str
 ) -> HttpResponse:
-    """accept | decline {note} | start | deliver {result_ref}. Only the role that handles this
-    kind of request (lab, pharmacy or home care) may answer it."""
+    """accept | decline {note} | start | deliver {result_ref} | correct {result_ref, summary,
+    flag, correction}. Only the role that handles this kind of request (lab, pharmacy or home
+    care) may answer it. A correction is a new version; the earlier one is kept (DEV-325)."""
     org = _portal_org(auth, "partner")
     mine = _my_customer(auth)
     body = json_body(request)
@@ -3446,16 +3614,29 @@ def exchange_incoming_step(
         raise ZoikoError(ErrorCode.POLICY_DENIED)
     _authorize(auth, "write:partner", organization_public_id=org)
     with tenant_transaction(_platform_context()):
-        done = exchange.partner_step(
-            request_ref=request_id,
-            tenant_ref=mine,
-            step=step,
-            actor_ref=auth.actor_public_id,
-            note=body.get("note"),
-            result_ref=body.get("result_ref"),
-            summary=body.get("summary"),
-            flag=body.get("flag"),
-        )
+        if step == "correct":
+            done = exchange.correct_result(
+                request_ref=request_id,
+                tenant_ref=mine,
+                actor_ref=auth.actor_public_id,
+                result_ref=body.get("result_ref"),
+                summary=body.get("summary"),
+                flag=body.get("flag"),
+                correction=body.get("correction") or "corrected",
+                values=body.get("values"),
+            )
+        else:
+            done = exchange.partner_step(
+                request_ref=request_id,
+                tenant_ref=mine,
+                step=step,
+                actor_ref=auth.actor_public_id,
+                note=body.get("note"),
+                result_ref=body.get("result_ref"),
+                summary=body.get("summary"),
+                flag=body.get("flag"),
+                values=body.get("values"),
+            )
     with tenant_transaction():
         evidence.record(
             actor_ref=auth.actor_public_id,
@@ -3465,7 +3646,7 @@ def exchange_incoming_step(
             outcome=evidence.AuditOutcome.ALLOWED,
         )
     changed = done.pop("changed", True)
-    if changed and step == "deliver" and done.get("result_flag") == "critical":
+    if changed and step in ("deliver", "correct") and done.get("result_flag") == "critical":
         _alert_critical(request_id, mine)
     return JsonResponse({"request": done})
 
@@ -3806,6 +3987,55 @@ def my_phone_check(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
             raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["phone"])
         sent = comms.send_code(auth.actor_public_id, phone)
     return JsonResponse({"sent": True, **sent}, status=201)
+
+
+@endpoint("GET", "POST")
+def staff_alert_phone(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """A clinician's (or clinic staff member's) own mobile number for urgent alerts (DEV-334).
+    GET: masked number, whether it is proved, whether critical-result texts are on.
+    POST {number}: save it and text a code. POST {critical_texts: bool}: turn the texts on or off
+    (on only once the number is proved)."""
+    area = home_for(auth.actor_type, list(auth.roles), auth.tenant_type)
+    if area not in ("clinician", "operations"):
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    alerts = comms.alert_phone
+    if request.method == "POST":
+        body = json_body(request)
+        with tenant_transaction():
+            if "number" in body:
+                return JsonResponse({"alert_phone": alerts.set_number(
+                    auth.actor_public_id, body.get("number"))}, status=201)
+            if "hold_texts" in body:
+                if "R13" not in auth.roles:
+                    raise ZoikoError(ErrorCode.POLICY_DENIED)  # administrators only
+                if body.get("hold_texts") is True and not alerts.status(
+                        auth.actor_public_id)["verified"]:
+                    raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+                return JsonResponse({"alert_phone": alerts.set_hold_texts(
+                    auth.actor_public_id, body.get("hold_texts"))})
+            if "critical_texts" in body:
+                if body.get("critical_texts") is True and not alerts.status(
+                        auth.actor_public_id)["verified"]:
+                    raise ZoikoError(ErrorCode.CONFLICT_VERSION)  # prove the number first
+                return JsonResponse({"alert_phone": alerts.set_critical_texts(
+                    auth.actor_public_id, body.get("critical_texts"))})
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["number"])
+    with tenant_transaction():
+        return JsonResponse({"alert_phone": alerts.status(auth.actor_public_id)})
+
+
+@endpoint("POST")
+def staff_alert_phone_confirm(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The clinician types back the code texted to their alert number."""
+    area = home_for(auth.actor_type, list(auth.roles), auth.tenant_type)
+    if area not in ("clinician", "operations"):
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    with tenant_transaction():
+        right = comms.alert_phone.confirm(auth.actor_public_id, json_body(request).get("code"))
+    if not right:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["code"])
+    with tenant_transaction():
+        return JsonResponse({"alert_phone": comms.alert_phone.status(auth.actor_public_id)})
 
 
 @endpoint("POST")
@@ -5442,11 +5672,77 @@ def partner_events(request: HttpRequest) -> HttpResponse:
         signature=request.headers.get("Zoiko-Signature", ""),
         delivery_id=request.headers.get("Zoiko-Delivery-Id", ""),
     )
+    _note_codes(request.body, status)
     response = JsonResponse(body, status=status)
     response["Cache-Control"] = "no-store"
     for name, value in headers.items():
         response[name] = value
     return response
+
+
+def _note_codes(raw: bytes, status: int) -> None:
+    """After a signed message was taken in (accepted or quarantined), list each local code it
+    carried for two-person review (DEV-322). The message itself is not touched. A failure here is
+    logged by class only and never changes the partner's answer."""
+    if status not in (200, 201, 202):
+        return
+    try:
+        codings = fhir.codings_in(json.loads(raw))
+        if codings:
+            with tenant_transaction(_platform_context()):
+                codemap.note_seen(codings)
+    except Exception as exc:  # noqa: BLE001 - listing codes must never break the intake
+        logging.getLogger("zoiko.codemap").warning("noting codes failed: %s", type(exc).__name__)
+
+
+# ------------------------------------------------------------------ code mapping review (DEV-322)
+@endpoint("GET")
+def platform_codemaps(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Local codes partners sent, and where each stands: needs review, proposed, approved,
+    rejected."""
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        rows = codemap.list_mappings(state=request.GET.get("state") or None)
+        names = trust.actor_labels()
+    for r in rows:
+        r["proposed_by_name"] = names.get(str(r["proposed_by"]), "") if r["proposed_by"] else ""
+        r["decided_by_name"] = names.get(str(r["decided_by"]), "") if r["decided_by"] else ""
+    return JsonResponse({"mappings": rows, "me": auth.actor_public_id,
+                         "can_propose": "R11" in auth.roles, "can_decide": "R12" in auth.roles})
+
+
+@endpoint("POST")
+def platform_codemap_step(
+    request: HttpRequest, auth: trust.Authenticated, mapping_id: str, step: str
+) -> HttpResponse:
+    """propose {target_code} (regional support, R11) | approve | reject {reason} (the clinical
+    safety officer, R12). Nobody approves or rejects their own proposal."""
+    org = _platform_only(auth)
+    body = json_body(request)
+    if step == "propose":
+        if "R11" not in auth.roles:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        _authorize(auth, "write:platform", organization_public_id=org)
+        with tenant_transaction():
+            done = codemap.propose(
+                mapping_ref=mapping_id, target_code=body.get("target_code"),
+                by=auth.actor_public_id,
+            )
+    elif step in ("approve", "reject"):
+        if "R12" not in auth.roles:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        _authorize(auth, "attest:platform", organization_public_id=org)
+        with tenant_transaction():
+            if step == "approve":
+                done = codemap.approve(mapping_ref=mapping_id, by=auth.actor_public_id)
+            else:
+                done = codemap.reject(
+                    mapping_ref=mapping_id, reason=body.get("reason"), by=auth.actor_public_id
+                )
+    else:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    return JsonResponse({"mapping": done})
 
 
 @csrf_exempt
@@ -6023,20 +6319,32 @@ def clinician_notes(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
     if not person:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["patient"])
     decision = _authorize(auth, notes.READ, organization_public_id=org, subject_ref=person)
+    paged = "limit" in request.GET or "cursor" in request.GET
+    next_cursor: str | None = None
     with tenant_transaction():
-        rows = notes.list_for_person(
-            person_ref=person,
-            by=auth.actor_public_id,
-            decision=decision,
-            organization_ref=org,
-        )
+        if paged:
+            rows, next_cursor = notes.page_for_person(
+                person_ref=person,
+                by=auth.actor_public_id,
+                decision=decision,
+                limit=pagination.limit_from(request.GET.get("limit")),
+                cursor=request.GET.get("cursor") or None,
+                organization_ref=org,
+            )
+        else:
+            rows = notes.list_for_person(
+                person_ref=person,
+                by=auth.actor_public_id,
+                decision=decision,
+                organization_ref=org,
+            )
         names = trust.actor_labels()
     shown = []
     for row in rows:
         item = _note_json(row, names)
         item["mine"] = row["author"] == auth.actor_public_id
         shown.append(item)
-    return JsonResponse({"notes": shown})
+    return JsonResponse({"notes": shown, **({"next_cursor": next_cursor} if paged else {})})
 
 
 def _note_found(notes: Any, auth: trust.Authenticated, note_id: str) -> dict[str, Any]:
@@ -6071,11 +6379,12 @@ def clinician_note(request: HttpRequest, auth: trust.Authenticated, note_id: str
 def clinician_note_step(
     request: HttpRequest, auth: trust.Authenticated, note_id: str, step: str
 ) -> HttpResponse:
-    """edit {body} (a draft you wrote) | sign | amend {reason}. A signed note is never edited:
-    amend starts a new version that replaces it once signed."""
+    """edit {body} (a draft you wrote) | sign | amend {reason} | addendum {body} |
+    guardian {hidden}. A signed note is never edited: amend starts a new version that replaces it
+    once signed."""
     notes = _notes_on()
     _clinician_only(auth)
-    if step not in ("edit", "sign", "amend", "addendum"):
+    if step not in ("edit", "sign", "amend", "addendum", "guardian"):
         raise ZoikoError(ErrorCode.NOT_FOUND)
     found = _note_found(notes, auth, note_id)
     body = json_body(request)
@@ -6094,6 +6403,11 @@ def clinician_note_step(
                 note_ref=note_id, body=body.get("body"), by=auth.actor_public_id,
                 decision=decision,
             )
+        elif step == "guardian":  # {hidden: bool}: keep this note from a guardian (DEV-324)
+            done = notes.set_guardian_hidden(
+                note_ref=note_id, hidden=body.get("hidden"), by=auth.actor_public_id,
+                decision=decision,
+            )
         elif step == "sign":
             done = notes.sign(note_ref=note_id, by=auth.actor_public_id, decision=decision)
         else:
@@ -6107,10 +6421,27 @@ def clinician_note_step(
     return JsonResponse({"note": out}, status=201 if step == "amend" else 200)
 
 
+def _note_people(auth: trust.Authenticated, notes: Any) -> dict[str, bool]:
+    """Whose notes this login may read in the patient app: {person: as_guardian}. Their own, and
+    a child's only while the child is under 16 (DEV-324). The policy engine has already required
+    the "notes" part of the guardian's grant."""
+    people = _my_people(auth, notes.READ)
+    with tenant_transaction():
+        own = trust.own_person_of(auth.actor_public_id)
+        others = [p for p in people if p != own]
+        births = trust.get_person_profiles(others) if others else {}
+    out = {p: False for p in people if p == own}
+    for person in others:
+        if notes.guardian_may_read(births.get(person, {}).get("birth_date")):
+            out[person] = True
+    return out
+
+
 @endpoint("GET")
 def my_notes(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """The patient's own signed consultation notes, once the delay has passed (no text here).
-    Drafts are never shown. A guardian gets none: "records" is not granted to them yet.
+    Drafts are never shown. A guardian sees a child's notes only with the "notes" part of their
+    grant and only while the child is under 16, never a note kept from guardians (DEV-324).
     With the notes switch off the answer is an empty list marked `enabled: false`, so the app can
     say so without an error."""
     from modules.clinicalnote import api as clinicalnote
@@ -6118,14 +6449,19 @@ def my_notes(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     if not clinicalnote.enabled():
         return JsonResponse({"notes": [], "enabled": False})
     notes = _notes_on()
-    people = _my_people(auth, notes.READ)
+    people = _note_people(auth, notes)
     rows: list[dict[str, Any]] = []
-    for person in people:
+    for person, as_guardian in people.items():
         decision = _authorize(auth, notes.READ, subject_ref=person)
         with tenant_transaction():
-            rows += notes.patient_list(
-                person_ref=person, by=auth.actor_public_id, decision=decision
+            found = notes.patient_list(
+                person_ref=person, by=auth.actor_public_id, decision=decision,
+                as_guardian=as_guardian,
             )
+            who = trust.profile_summary_for([person]).get(person, "") if as_guardian else ""
+        for row in found:
+            row["for_name"] = who or None
+        rows += found
     with tenant_transaction():
         names = trust.actor_labels()
     for row in rows:
@@ -6141,13 +6477,14 @@ def my_note(request: HttpRequest, auth: trust.Authenticated, note_id: str) -> Ht
     notes = _notes_on()
     with tenant_transaction():
         found = notes.get(note_id)
-    if found["person"] not in _my_people(auth, notes.READ):
+    people = _note_people(auth, notes)
+    if found["person"] not in people:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     decision = _authorize(auth, notes.READ, subject_ref=found["person"])
     with tenant_transaction():
         got = notes.patient_read(
             note_ref=note_id, person_ref=found["person"], by=auth.actor_public_id,
-            decision=decision,
+            decision=decision, as_guardian=people[found["person"]],
         )
         names = trust.actor_labels()
     got["author_name"] = names.get(str(got["author"]), "")

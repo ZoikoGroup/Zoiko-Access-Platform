@@ -311,7 +311,7 @@ def test_the_patient_routes_are_off_with_the_switch(clinic, settings):
     backdate(clinic, note, 25)
     settings.CLINICAL_NOTES_ENABLED = False
     off = mine(clinic)
-    assert off.status_code == 200 and body(off) == {"notes": [], "enabled": False}   # no error
+    assert off.status_code == 200 and body(off) == {"notes": [], "enabled": False}  # no error
     assert clinic.get(f"my/notes/{note}", subject="pat").status_code == 404
 
 
@@ -383,3 +383,154 @@ def test_an_addendum_is_recorded(clinic):
     with tenant_transaction(clinic.clinic.ctx):
         n = AuditEvent.objects.filter(action="clinicalnote.addendum_added").count()
     assert n == 1
+
+
+# ------------------------------------------------------------------ paging the notes (DEV-320)
+def test_the_notes_list_pages_and_never_shows_another_doctors_draft(clinic):
+    treat(clinic, clinic.doc2)
+    mine = [signed(clinic, f"note {i}") for i in range(4)]
+    draft(clinic, subject="doc2")  # doc2's draft: not for doc
+    seen, cursor = [], None
+    for _ in range(5):
+        q = f"clinician/notes?patient={clinic.person}&limit=2" + (
+            f"&cursor={cursor}" if cursor else ""
+        )
+        data = body(clinic.get(q, subject="doc"))
+        seen += [n["id"] for n in data["notes"]]
+        cursor = data.get("next_cursor")
+        if not cursor:
+            break
+    assert sorted(seen) == sorted(mine) and len(seen) == 4
+    cursor = body(clinic.get(f"clinician/notes?patient={clinic.person}&limit=1", subject="doc"))[
+        "next_cursor"
+    ]
+    other = f"clinician/notes?patient={clinic.person}&limit=1&cursor={cursor}"
+    assert clinic.get(other, subject="doc2").status_code == 422  # the cursor is doc's own
+    assert "next_cursor" not in body(listing(clinic))  # the old shape is unchanged
+
+
+# ------------------------------------------------------------------ guardians (DEV-324)
+G = "guardian@example.org"
+
+
+def _born(clinic, person_ref, born, name="Ada Child"):
+    import datetime as dt
+
+    from modules.trust.models import Person
+    from modules.trust.profile import store_profile
+
+    with tenant_transaction(clinic.clinic.ctx):
+        store_profile(Person.objects.get(public_id=person_ref), legal_name=name, birth_date=born,
+                      phone="", by="system", today=dt.date.today())
+
+
+def _child_of_guardian(clinic, born, rights=("appointments", "notes")):
+    """A child of the clinic with a guardian, and the doctor caring for the child. Afterwards
+    `clinic.person` is the child, so the helpers above write about them."""
+    guardian = clinic.login(G, trust.ActorType.PROXY, "R02")
+    with tenant_transaction(clinic.clinic.ctx):
+        child = trust.create_person().public_id
+        grant = trust.propose_proxy_grant(
+            delegate_public_id=guardian, person_public_id=child,
+            relationship_type="parent", by="system")
+        trust.approve_proxy_grant(grant.public_id, clinic.desk, rights=list(rights))
+    _born(clinic, child, born)
+    clinic.person = child
+    treat(clinic, clinic.doc)
+    return child
+
+
+def _years_ago(years):
+    import datetime as dt
+
+    today = dt.date.today()
+    try:
+        return today.replace(year=today.year - years).isoformat()
+    except ValueError:
+        return today.replace(year=today.year - years, day=28).isoformat()
+
+
+def test_a_guardian_reads_a_childs_notes_while_the_child_is_under_16(clinic):
+    _child_of_guardian(clinic, _years_ago(10))
+    note = signed(clinic)
+    backdate(clinic, note, 25)
+    shown = body(mine(clinic, G))["notes"]
+    assert [n["id"] for n in shown] == [note] and shown[0]["for_name"] == "Ada Child"
+    opened = clinic.get(f"my/notes/{note}", subject=G)
+    assert opened.status_code == 200 and body(opened)["note"]["body"] == TEXT
+    with tenant_transaction(clinic.clinic.ctx):
+        assert AuditEvent.objects.filter(action="clinicalnote.read_by_guardian").count() == 1
+
+
+def test_from_16_only_the_young_person_reads_their_notes(clinic):
+    _child_of_guardian(clinic, _years_ago(16))  # sixteen today
+    note = signed(clinic)
+    backdate(clinic, note, 25)
+    assert body(mine(clinic, G))["notes"] == []
+    assert clinic.get(f"my/notes/{note}", subject=G).status_code == 404
+
+
+def test_a_guardian_without_the_notes_part_of_the_grant_reads_nothing(clinic):
+    _child_of_guardian(clinic, _years_ago(8), rights=("appointments",))
+    note = signed(clinic)
+    backdate(clinic, note, 25)
+    assert body(mine(clinic, G))["notes"] == []
+    assert clinic.get(f"my/notes/{note}", subject=G).status_code == 404
+
+
+def test_the_author_can_keep_one_note_from_the_guardian(clinic):
+    _child_of_guardian(clinic, _years_ago(14))
+    kept, shared = signed(clinic), signed(clinic, TEXT2)
+    backdate(clinic, kept, 25)
+    backdate(clinic, shared, 25)
+    assert step(clinic, kept, "guardian", subject="doc2", hidden=True).status_code == 403
+    assert step(clinic, kept, "guardian", hidden="yes").status_code == 422
+    r = step(clinic, kept, "guardian", hidden=True)
+    assert r.status_code == 200 and body(r)["note"]["guardian_hidden"] is True
+    assert [n["id"] for n in body(mine(clinic, G))["notes"]] == [shared]
+    assert clinic.get(f"my/notes/{kept}", subject=G).status_code == 404
+    step(clinic, kept, "guardian", hidden=False)
+    assert {n["id"] for n in body(mine(clinic, G))["notes"]} == {kept, shared}
+
+
+# ------------------------------------------------------------------ retention (DEV-324)
+def test_the_nhs_retention_rules():
+    import datetime as dt
+
+    from modules.clinicalnote.services import keep_until
+
+    last = dt.date(2020, 3, 1)
+    assert keep_until(last, "1970-05-05") == dt.date(2028, 3, 1)  # adult: 8 years
+    assert keep_until(last, "2012-05-05") == dt.date(2037, 5, 5)  # child of 7: 25th birthday
+    assert keep_until(last, "2002-05-05") == dt.date(2028, 5, 5)  # 17 at last care: 26th
+    assert keep_until(dt.date(2016, 2, 29), "1960-01-01") == dt.date(2024, 2, 29)
+    assert keep_until(last, "") is None and keep_until(last, "garbage") is None  # never early
+
+
+def test_retention_erases_the_text_and_keeps_the_rows(clinic):
+    from modules.clinicalnote.jobs import erase_expired_all_tenants
+    from modules.clinicalnote.models import ClinicalNote, NoteAddendum
+
+    _born(clinic, clinic.person, "1960-01-01", "Pat Adult")
+    old = draft(clinic, day="2010-01-05")
+    step(clinic, old, "sign")
+    step(clinic, old, "addendum", body=ADD)
+    assert erase_expired_all_tenants() == 1  # 2010 + 8 years has passed
+    with tenant_transaction(clinic.clinic.ctx):
+        row = ClinicalNote.objects.get(public_id=old)
+        assert row.body_enc == "" and row.erased_at is not None
+        assert NoteAddendum.objects.get(note=row).body_enc == ""
+        assert AuditEvent.objects.filter(action="clinicalnote.erased_retention").count() == 1
+    read = body(clinic.get(f"clinician/notes/{old}", subject="doc"))["note"]
+    assert read["body"] == "" and read["erased"] is True
+    assert erase_expired_all_tenants() == 0  # nothing left to erase
+
+
+def test_recent_care_keeps_older_notes_and_an_unknown_birth_date_erases_nothing(clinic):
+    from modules.clinicalnote.jobs import erase_expired_all_tenants
+
+    draft(clinic, day="2010-01-05")
+    assert erase_expired_all_tenants() == 0  # the birth date is not known
+    _born(clinic, clinic.person, "1960-01-01", "Pat Adult")
+    draft(clinic, day="2026-01-05")  # recent care: the 2010 note stays too
+    assert erase_expired_all_tenants() == 0

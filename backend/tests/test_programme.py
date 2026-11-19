@@ -257,3 +257,19 @@ def test_another_employer_sees_and_changes_nothing(world):
     assert body(rival.call("get", "programme/codes"))["codes"] == []
     assert rival.call("post", "programme/codes/emp-0000/revoke").status_code == 404
     assert activity(rival)["months"] == []
+
+
+def test_the_employers_code_list_pages(world):
+    _, _, employer, refs = world
+    for ref in refs[:5]:
+        code_for(employer, ref)
+    seen, cursor = [], None
+    for _ in range(5):
+        q = "programme/codes?limit=2" + (f"&cursor={cursor}" if cursor else "")
+        data = body(employer.call("get", q))
+        seen += [c["member_ref"] for c in data["codes"]]
+        cursor = data.get("next_cursor")
+        if not cursor:
+            break
+    assert sorted(seen) == sorted(refs[:5])
+    assert employer.call("get", "programme/codes?limit=0").status_code == 422

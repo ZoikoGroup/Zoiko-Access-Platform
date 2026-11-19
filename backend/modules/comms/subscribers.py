@@ -75,9 +75,24 @@ _EMAIL_HEADLINE = {
 _ROUTINE = frozenset({"booking_reminder"})
 
 
+def _deceased(person_ref: str) -> bool:
+    """A patient recorded as having died is sent nothing more (DEV-333): no notice, email or text
+    that a family member might read, such as "your appointment was cancelled"."""
+    return bool(person_ref) and bool(trust.death_dates([person_ref]))
+
+
+def _notify(**fields: Any) -> Notification | None:
+    """Create the patient's notification, unless they are recorded as having died."""
+    if _deceased(str(fields.get("person_ref", ""))):
+        return None
+    return Notification.objects.create(**fields)
+
+
 def _email_the_patient(person_ref: str, kind: str) -> None:
     """If this patient asked for emails, has a login of their own, and has confirmed their
     address, queue one short email. Never for guardians, never to an unconfirmed address."""
+    if _deceased(person_ref):
+        return
     headline = _EMAIL_HEADLINE.get(kind)
     if headline is None:
         return
@@ -170,7 +185,7 @@ def on_booking_event(event: PublishedEvent) -> None:
                 " It is confirmed." if booking["status"] == "confirmed"
                 else " The clinic will confirm the new time.")),
     }[kind]
-    Notification.objects.create(
+    _notify(
         person_ref=booking["person_ref"], kind=kind, title=title, body=body[:300],
         booking_ref=booking["public_id"], source_event_id=event.event_id)
     _email_the_patient(booking["person_ref"], kind)
@@ -208,7 +223,7 @@ def on_referral_event(event: PublishedEvent) -> None:
         "needs_info": f"{org} needs more information about your referral to {service}.",
         "declined": f"{org} could not accept your referral to {service}. Ask your doctor.",
     }[state]
-    Notification.objects.create(
+    _notify(
         person_ref=found["person_ref"], kind=kind, title=title, body=body[:300],
         source_event_id=event.event_id)
 
@@ -224,7 +239,7 @@ def on_claim_event(event: PublishedEvent) -> None:
     person = str(event.payload.get("person_ref", ""))
     if not person:
         return
-    Notification.objects.create(
+    _notify(
         person_ref=person, kind="claim_consent", title="A claim needs your agreement",
         body="Your clinic has asked your insurer to cover something. It can only be sent if "
              "you agree. Open My Claims to see what would be sent and answer."[:300],
@@ -248,7 +263,7 @@ def on_exchange_event(event: PublishedEvent) -> None:
     thing = _EXCHANGE_THING.get(str(event.payload.get("kind")), "request")
     if event.event_type == "exchange.consent_needed.v1":
         # said from the event alone: no partner name, no order, nothing about the person (DEV-302)
-        Notification.objects.create(
+        _notify(
             person_ref=person, kind="exchange_consent", title="A request needs your agreement",
             body=f"Your clinic asked for a {thing} for you. It can only go ahead if you agree to "
                  "tell the service your name and date of birth. Open My Tests & Requests to "
@@ -256,7 +271,7 @@ def on_exchange_event(event: PublishedEvent) -> None:
             source_event_id=event.event_id)
         _email_the_patient(person, "exchange_consent")
         return
-    Notification.objects.create(
+    _notify(
         person_ref=person, kind="exchange_reviewed", title="Your doctor reviewed a result",
         body=f"Your doctor has reviewed the result of your {thing}. "
              "Open My Tests & Requests to see where it stands."[:300],
@@ -281,7 +296,7 @@ def on_waitlist_event(event: PublishedEvent) -> None:
         return
     service = catalog.get_service(entry["service_ref"])["name"]
     org = (trust.get_organization(entry["organization_ref"]) or {}).get("name", "the clinic")
-    Notification.objects.create(
+    _notify(
         person_ref=entry["person_ref"], kind="waitlist_offer", title="A time opened up",
         body=f"A time opened up for {service} at {org}. Book it soon, before it is taken."[:300],
         source_event_id=event.event_id)
@@ -315,7 +330,7 @@ def on_family_event(event: PublishedEvent) -> None:
                      "The clinic could not approve your request. Please speak to the clinic "
                      "and bring proof of identity."),
     }[outcome]
-    Notification.objects.create(
+    _notify(
         person_ref=own, kind=f"family_{outcome}", title=title, body=body,
         source_event_id=event.event_id)
 
@@ -334,7 +349,7 @@ def on_message_event(event: PublishedEvent) -> None:
             raise
         return
     org = (trust.get_organization(thread["organization_ref"]) or {}).get("name", "the clinic")
-    Notification.objects.create(
+    _notify(
         person_ref=thread["person_ref"], kind="message_received", title="New message",
         body=f"{org} sent you a message. Open Messages to read it."[:300],
         source_event_id=event.event_id)

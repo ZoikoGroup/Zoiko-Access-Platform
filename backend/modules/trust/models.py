@@ -157,6 +157,11 @@ class Person(CellScopedModel):
     linked_actor = models.OneToOneField(
         Actor, null=True, blank=True, on_delete=models.PROTECT, related_name="person"
     )
+    # Recorded by a clinic administrator (DEV-333); withdrawn only by a second person.
+    died_on = models.DateField(null=True, blank=True)
+    death_source = models.CharField(max_length=20, blank=True, default="")
+    death_recorded_by_ref = models.CharField(max_length=22, blank=True, default="")
+    death_recorded_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="person_scope_idx")]

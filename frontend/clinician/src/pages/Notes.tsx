@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, addNoteAddendum, amendNote, createNote, editNote, getNote, getNotes, getPatients, signNote } from "../api";
+import { ApiError, addNoteAddendum, amendNote, createNote, editNote, getNote, getNotes, getPatients, setNoteGuardianHidden, signNote } from "../api";
 import type { Note, PatientRow } from "../types";
 import { Card, Pill } from "../ui";
 
@@ -39,6 +39,7 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
         <small>Written by {note.author_name || "a colleague"}{note.signed_at ? `, signed ${note.signed_at.slice(0, 10)}` : ""}. Opening it was recorded.</small>
         {note.amend_reason && <small>A correction of an earlier version ({note.amend_reason.replace(/_/g, " ")}).</small>}
         {note.state === "superseded" && <small>This version was replaced; it is kept as it was signed.</small>}
+        {note.erased && <small>The text was erased when the NHS retention period ended; the record that it existed stays.</small>}
       </div>
       {note.state === "draft" && note.mine ? (
         <>
@@ -82,6 +83,13 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
           </label>
           <div><button className="btn ghost" disabled={busy || !addendum.trim()} onClick={() => void run(async () => { const n = await addNoteAddendum(id, addendum); setAddendum(""); return n; }, (n) => setNote({ ...n, body: note.body }))}>Add the addendum</button></div>
         </div>
+      )}
+      {note.state !== "superseded" && note.mine && (
+        <label>
+          <input type="checkbox" checked={!!note.guardian_hidden} disabled={busy}
+            onChange={(e) => { const hidden = e.target.checked; void run(() => setNoteGuardianHidden(id, hidden), (n) => setNote({ ...note, guardian_hidden: n.guardian_hidden })); }} />{" "}
+          Keep this note from a parent or guardian (the patient still sees it)
+        </label>
       )}
       {error && <div className="error" role="alert">{error}</div>}
       <div><button className="btn ghost" onClick={() => onDone()}>Close</button></div>

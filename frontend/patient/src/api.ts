@@ -573,12 +573,18 @@ export interface MyRequest {
   state: "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
   consent: "pending" | "granted" | "declined" | "withdrawn" | "expired"; consent_expires_at: string | null;
   created_at: string; result_at: string | null; reviewed_at: string | null;
+  values_ready?: boolean;
 }
+// The measured values of a reviewed result, a day after the doctor's review (DEV-332).
+export interface MyValue { name: string; value: number | string; unit?: string; low?: number | null; high?: number | null; flag?: string }
+export const getMyValues = async (id: string) =>
+  (await request<{ result: { id: string; label: string; reviewed_at: string | null; values: MyValue[] } }>(`exchange/mine/${encodeURIComponent(id)}/values`)).body.result;
 export const answerMyRequest = async (id: string, step: "agree" | "decline" | "withdraw") =>
   (await request<{ request: MyRequest }>(`exchange/mine/${encodeURIComponent(id)}/${step}`, { method: "POST", body: "{}" })).body.request;
 export interface MyNote {
   id: string; note_date: string; version: number; corrected: boolean; amend_reason: string | null;
   author_name: string; signed_at: string | null; body?: string;
+  for_name?: string | null; erased?: boolean;
   addenda?: { id: string; added_at: string; body: string }[];
 }
 export const getMyNotes = async () => (await request<{ notes: MyNote[]; enabled?: boolean }>("my/notes")).body;

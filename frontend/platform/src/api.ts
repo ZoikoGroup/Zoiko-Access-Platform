@@ -447,3 +447,25 @@ export const getConnectors = () =>
   v1<{ connectors: ConnectorRow[]; can_write: boolean; can_attest: boolean }>("platform/connectors");
 export const connectorStep = (key: string, step: "enrol" | "certify" | "live" | "suspend", body: Record<string, unknown> = {}) =>
   v1<{ certification: ConnectorCert }>(`platform/connectors/${encodeURIComponent(key)}/${step}`, { method: "POST", body: JSON.stringify(body) });
+
+// Partners' local codes and their SNOMED CT match (DEV-322).
+export interface CodeMapping {
+  id: string; source_system: string; source_code: string; source_display: string; target_code: string | null;
+  state: "unmapped" | "proposed" | "approved" | "rejected"; seen_count: number; last_seen_at: string | null;
+  proposed_by: string | null; proposed_by_name: string; decided_by: string | null; decided_by_name: string;
+  decided_at: string | null; reject_reason: string | null;
+}
+export const getCodeMaps = () =>
+  v1<{ mappings: CodeMapping[]; me: string; can_propose: boolean; can_decide: boolean }>("platform/codemaps");
+export const codeMapStep = async (id: string, step: "propose" | "approve" | "reject", body: { target_code?: string; reason?: string } = {}) =>
+  (await v1<{ mapping: CodeMapping }>(`platform/codemaps/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify(body) })).mapping;
+
+// Regional support's view of delivery attempts (GHE-13 T-54, DEV-328): status only.
+export interface SupportAttempt {
+  public_id: string; event_type: string; state: string; attempts: number; next_attempt_at: string;
+  last_status: number | null; last_error: string | null; created_at: string; delivered_at: string | null;
+}
+export interface AttemptCustomer {
+  id: string; name: string; status: string; counts: Record<string, number>; attempts: SupportAttempt[]; fhir_held: number;
+}
+export const getDeliveryAttempts = async () => (await v1<{ customers: AttemptCustomer[] }>("platform/delivery-attempts")).customers;

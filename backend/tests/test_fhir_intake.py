@@ -3,6 +3,7 @@
 Tests transport signature checks, size checks, strict FHIR R4 validation, quarantine on failure,
 intake mapping for DiagnosticReport, flag mapping, idempotency, and staff triage.
 """
+
 import hashlib
 import json
 import os
@@ -36,6 +37,7 @@ from modules.integration.models import ClientState, FhirQuarantineState
 @contextmanager
 def dummy_cm(ctx=None, *args, **kwargs):
     from foundation.cell_context import CellContext, bind_context
+
     if ctx is None or not isinstance(ctx, CellContext):
         ctx = CellContext(
             cell_id="TEST-01",
@@ -43,7 +45,6 @@ def dummy_cm(ctx=None, *args, **kwargs):
         )
     with bind_context(ctx):
         yield ctx
-
 
 
 class DummyClient:
@@ -218,6 +219,8 @@ def test_diagnostic_report_for_missing_order_quarantined(
     mock_dec.return_value = client.secret
     mock_trust.context_for.return_value = MagicMock()
     mock_trust.tenant_public_id.return_value = "cust12345"
+    mock_trust.list_tenants.return_value = [
+        {"type": "platform", "status": "active", "public_id": "plat0001"}]
     mock_quar.filter.return_value.count.return_value = 0
     mock_quar.filter.return_value.first.return_value = None
 
@@ -229,7 +232,12 @@ def test_diagnostic_report_for_missing_order_quarantined(
         "resourceType": "DiagnosticReport",
         "id": "rep-101",
         "status": "final",
-        "code": {"coding": [{"system": "http://loinc.org", "code": "57021-8"}]},
+        "code": {
+            "coding": [
+                {"system": "http://snomed.info/sct", "code": "26604007"},
+                {"system": "http://loinc.org", "code": "57021-8"},
+            ]
+        },
         "subject": {"reference": "Patient/pat-001"},
         "basedOn": [{"reference": "ServiceRequest/req-nonexistent"}],
         "conclusion": "Normal.",
@@ -239,9 +247,8 @@ def test_diagnostic_report_for_missing_order_quarantined(
     stamp = int(time.time())
     sig = signature_header(client.secret, client.key_id, stamp, delivery_id, raw)
 
-    with patch("modules.exchange.models.ExchangeRequest.objects.filter") as mock_req_filter:
-        mock_req_filter.return_value.first.return_value = None
-        status, res, _ = receive_fhir(raw_body=raw, signature=sig, delivery_id=delivery_id)
+    mock_exchange.delivery_lookup.return_value = None  # no such request
+    status, res, _ = receive_fhir(raw_body=raw, signature=sig, delivery_id=delivery_id)
 
     assert status == 202
     assert res["quarantined"] is True
@@ -266,6 +273,8 @@ def test_valid_diagnostic_report_advances_exchange_to_result_available(
     mock_dec.return_value = client.secret
     mock_trust.context_for.return_value = MagicMock()
     mock_trust.tenant_public_id.return_value = "cust12345"
+    mock_trust.list_tenants.return_value = [
+        {"type": "platform", "status": "active", "public_id": "plat0001"}]
     mock_quar.filter.return_value.count.return_value = 0
     mock_quar.filter.return_value.first.return_value = None
 
@@ -273,7 +282,12 @@ def test_valid_diagnostic_report_advances_exchange_to_result_available(
         "resourceType": "DiagnosticReport",
         "id": "crit-rep-101",
         "status": "final",
-        "code": {"coding": [{"system": "http://loinc.org", "code": "2823-3"}]},
+        "code": {
+            "coding": [
+                {"system": "http://snomed.info/sct", "code": "104866001"},
+                {"system": "http://loinc.org", "code": "2823-3"},
+            ]
+        },
         "subject": {"reference": "Patient/pat-002"},
         "basedOn": [{"reference": "ServiceRequest/req-valid-001"}],
         "conclusion": "CRITICAL: Potassium elevated at 6.8 mmol/L.",
@@ -293,16 +307,15 @@ def test_valid_diagnostic_report_advances_exchange_to_result_available(
     stamp = int(time.time())
     sig = signature_header(client.secret, client.key_id, stamp, delivery_id, raw)
 
-    mock_req = MagicMock()
-    mock_req.from_tenant_ref = "cust12345"
-    mock_req.to_tenant_ref = "partner_tenant_99"
-    mock_req.state = State.IN_PROGRESS
+    mock_exchange.delivery_lookup.return_value = {
+        "from_tenant_ref": "cust12345",
+        "to_tenant_ref": "partner_tenant_99",
+        "state": State.IN_PROGRESS.value,
+    }
 
     mock_exchange.partner_step.return_value = {"changed": True, "state": "result_available"}
 
-    with patch("modules.exchange.models.ExchangeRequest.objects.filter") as mock_req_filter:
-        mock_req_filter.return_value.first.return_value = mock_req
-        status, res, _ = receive_fhir(raw_body=raw, signature=sig, delivery_id=delivery_id)
+    status, res, _ = receive_fhir(raw_body=raw, signature=sig, delivery_id=delivery_id)
 
     assert status == 202
     assert res["quarantined"] is False
@@ -319,6 +332,7 @@ def test_valid_diagnostic_report_advances_exchange_to_result_available(
         summary="CRITICAL: Potassium elevated at 6.8 mmol/L.",
         flag="critical",
         clock=None,
+        values=[],
     )
 
 
@@ -397,3 +411,158 @@ def test_staff_quarantine_triage(mock_rec, mock_policy, mock_quar):
     assert row.decided_by_ref == "actor_staff_01"
     assert row.decision_note == "Invalid test format"
     assert done["state"] == FhirQuarantineState.DISCARDED
+
+
+@patch("modules.integration.fhir.tenant_transaction", dummy_cm)
+@patch("modules.integration.fhir.transaction.atomic", dummy_cm)
+@patch("modules.integration.fhir.FhirQuarantine.objects")
+@patch("modules.integration.fhir.PartnerClient.objects")
+@patch("modules.integration.fhir.trust")
+@patch("modules.integration.fhir.decrypt")
+@patch("modules.integration.fhir.encrypt", return_value="enc_payload")
+@patch("modules.integration.fhir.exchange")
+@patch("modules.integration.fhir.record")
+def test_a_loinc_only_report_is_held_because_uk_core_needs_snomed_ct(
+    mock_rec, mock_exchange, mock_enc, mock_dec, mock_trust, mock_pclient, mock_quar
+):
+    """DEV-321: the lead switched the intake to UK Core; a report with no SNOMED CT code is held for
+    a person and moves nothing."""
+    client = DummyClient()
+    mock_pclient.select_for_update.return_value.filter.return_value.first.return_value = client
+    mock_dec.return_value = client.secret
+    mock_trust.context_for.return_value = MagicMock()
+    mock_quar.filter.return_value.count.return_value = 0
+    mock_quar.filter.return_value.first.return_value = None
+    q_mock = MagicMock()
+    q_mock.public_id = "quar_uk"
+    mock_quar.create.return_value = q_mock
+    report = {
+        "resourceType": "DiagnosticReport",
+        "id": "rep-loinc",
+        "status": "final",
+        "code": {"coding": [{"system": "http://loinc.org", "code": "57021-8"}]},
+        "subject": {"reference": "Patient/pat-001"},
+        "basedOn": [{"reference": "ServiceRequest/req-1"}],
+        "conclusion": "Normal.",
+    }
+    raw = json.dumps(report).encode()
+    stamp = int(time.time())
+    sig = signature_header(client.secret, client.key_id, stamp, "del-uk-01", raw)
+    status, res, _ = receive_fhir(raw_body=raw, signature=sig, delivery_id="del-uk-01")
+    assert status == 202 and res["quarantined"] is True
+    assert {"path": "code", "code": "required"} in [
+        {"path": i["path"], "code": i["code"]} for i in res["issues"]
+    ]
+    mock_exchange.partner_step.assert_not_called()  # no clinical state
+
+
+
+# ------------------------------------------------ corrections (DEV-325, FHIR step 5)
+def _corrected_report(status):
+    return {
+        "resourceType": "DiagnosticReport",
+        "id": "rep-201",
+        "status": status,
+        "code": {"coding": [{"system": "http://snomed.info/sct", "code": "26604007"}]},
+        "subject": {"reference": "Patient/pat-002"},
+        "basedOn": [{"reference": "ServiceRequest/req-valid-001"}],
+        "conclusion": "Corrected: haemoglobin 128 g/L.",
+        "conclusionCode": [{"coding": [{
+            "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+            "code": "N"}]}],
+    }
+
+
+def _intake(mock_exchange, mock_dec, mock_trust, mock_pclient, mock_quar, report, state):
+    client = DummyClient()
+    mock_pclient.select_for_update.return_value.filter.return_value.first.return_value = client
+    mock_dec.return_value = client.secret
+    mock_trust.context_for.return_value = MagicMock()
+    mock_trust.tenant_public_id.return_value = "cust12345"
+    mock_trust.list_tenants.return_value = [
+        {"type": "platform", "status": "active", "public_id": "plat0001"}]
+    mock_quar.filter.return_value.count.return_value = 0
+    mock_quar.filter.return_value.first.return_value = None
+    mock_exchange.delivery_lookup.return_value = {
+        "from_tenant_ref": "cust12345", "to_tenant_ref": "partner_tenant_99", "state": state,
+    }
+    mock_exchange.correct_result.return_value = {"changed": True, "state": "result_available"}
+    mock_exchange.partner_step.return_value = {"changed": True, "state": "result_available"}
+    raw = json.dumps(report).encode()
+    delivery_id = f"del-corr-{report['status']}-{state}"
+    sig = signature_header(client.secret, client.key_id, int(time.time()), delivery_id, raw)
+    return client, receive_fhir(raw_body=raw, signature=sig, delivery_id=delivery_id)
+
+
+_PATCHES = [
+    patch("modules.integration.fhir.tenant_transaction", dummy_cm),
+    patch("modules.integration.fhir.transaction.atomic", dummy_cm),
+    patch("modules.integration.fhir.require_context",
+          return_value=MagicMock(tenant_id="tenant_01")),
+]
+
+
+def _patched(fn):
+    for p in reversed(_PATCHES):
+        fn = p(fn)
+    return fn
+
+
+@_patched
+@patch("modules.integration.fhir.FhirQuarantine.objects")
+@patch("modules.integration.fhir.PartnerClient.objects")
+@patch("modules.integration.fhir.trust")
+@patch("modules.integration.fhir.decrypt")
+@patch("modules.integration.fhir.encrypt", return_value="enc_payload")
+@patch("modules.integration.fhir.exchange")
+@patch("modules.integration.fhir.record")
+def test_a_corrected_report_for_a_delivered_result_becomes_a_new_version(
+    mock_rec, mock_exchange, mock_enc, mock_dec, mock_trust, mock_pclient, mock_quar, _ctx
+):
+    client, (status, res, _) = _intake(mock_exchange, mock_dec, mock_trust, mock_pclient,
+                                       mock_quar, _corrected_report("corrected"), "reviewed")
+    assert status == 202 and res["quarantined"] is False
+    mock_exchange.partner_step.assert_not_called()
+    mock_exchange.correct_result.assert_called_once_with(
+        request_ref="req-valid-001", tenant_ref="partner_tenant_99", actor_ref=client.public_id,
+        result_ref="rep-201", summary="Corrected: haemoglobin 128 g/L.", flag="normal",
+        correction="corrected", clock=None, values=[],
+    )
+    assert mock_rec.call_args.kwargs["action"] == "integration.fhir_report_corrected"
+
+
+@_patched
+@patch("modules.integration.fhir.FhirQuarantine.objects")
+@patch("modules.integration.fhir.PartnerClient.objects")
+@patch("modules.integration.fhir.trust")
+@patch("modules.integration.fhir.decrypt")
+@patch("modules.integration.fhir.encrypt", return_value="enc_payload")
+@patch("modules.integration.fhir.exchange")
+@patch("modules.integration.fhir.record")
+def test_an_amended_report_before_any_delivery_is_simply_delivered(
+    mock_rec, mock_exchange, mock_enc, mock_dec, mock_trust, mock_pclient, mock_quar, _ctx
+):
+    _, (status, res, _) = _intake(mock_exchange, mock_dec, mock_trust, mock_pclient, mock_quar,
+                                  _corrected_report("amended"), "in_progress")
+    assert status == 202 and res["quarantined"] is False
+    mock_exchange.correct_result.assert_not_called()
+    assert mock_exchange.partner_step.call_args.kwargs["step"] == "deliver"
+
+
+@_patched
+@patch("modules.integration.fhir.FhirQuarantine.objects")
+@patch("modules.integration.fhir.PartnerClient.objects")
+@patch("modules.integration.fhir.trust")
+@patch("modules.integration.fhir.decrypt")
+@patch("modules.integration.fhir.encrypt", return_value="enc_payload")
+@patch("modules.integration.fhir.exchange")
+@patch("modules.integration.fhir.record")
+def test_a_withdrawn_report_is_held_for_a_person_and_changes_nothing(
+    mock_rec, mock_exchange, mock_enc, mock_dec, mock_trust, mock_pclient, mock_quar, _ctx
+):
+    for withdrawn in ("entered-in-error", "cancelled"):
+        _, (status, res, _) = _intake(mock_exchange, mock_dec, mock_trust, mock_pclient,
+                                      mock_quar, _corrected_report(withdrawn), "reviewed")
+        assert status == 202 and res["quarantined"] is True and res["error"] == "withdrawn"
+    mock_exchange.correct_result.assert_not_called()
+    mock_exchange.partner_step.assert_not_called()

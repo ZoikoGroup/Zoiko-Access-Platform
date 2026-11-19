@@ -144,7 +144,7 @@ export const hookStep = async (id: string, step: "verify" | "pause" | "resume" |
 export const getDeliveries = async () => (await v1<{ deliveries: Delivery[] }>("staff/integrations/deliveries")).deliveries;
 
 export const getIncoming = async () => (await v1<{ requests: Incoming[] }>("exchange/incoming")).requests;
-export const incomingStep = async (id: string, step: "accept" | "decline" | "start" | "deliver", extra: { note?: string; result_ref?: string; summary?: string; flag?: string } = {}) =>
+export const incomingStep = async (id: string, step: "accept" | "decline" | "start" | "deliver" | "correct", extra: { note?: string; result_ref?: string; summary?: string; flag?: string; correction?: string; values?: ResultValue[] } = {}) =>
   (await v1<{ request: Incoming }>(`exchange/incoming/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify(extra) })).request;
 
 async function ping(path: string): Promise<Health> {
@@ -244,3 +244,21 @@ export const claimCheck = async (id: string) =>
   (await v1<{ check: ClaimCheck }>(`claims/incoming/${encodeURIComponent(id)}/check`)).check;
 export const claimStep = async (id: string, step: "approve" | "decline" | "pay", extra: { reason?: string; payment_ref?: string } = {}) =>
   (await v1<{ claim: Claim }>(`claims/incoming/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify(extra) })).claim;
+
+// The system this partner receives orders in (DEV-323); "" = the partner app only.
+export interface OrderSystem { system: string; choices: { key: string; simulated: boolean }[] }
+export const getOrderSystem = () => v1<OrderSystem>("portal/order-system");
+export const setOrderSystem = (system: string) =>
+  v1<OrderSystem>("portal/order-system", { method: "POST", body: JSON.stringify({ system }) });
+
+// A developer's sandbox (DEV-329): synthetic patients and a message checker. Nothing is stored.
+export interface SandboxPatient {
+  id: string; name: string; birth_date: string; scenario: string; expect: "accepted" | "held";
+  order: Record<string, unknown>; report: Record<string, unknown>;
+}
+export interface SandboxCheck { result: "accepted" | "held"; issues: { path: string; code: string; text: string }[] }
+export const getSandbox = async () => (await v1<{ patients: SandboxPatient[] }>("portal/sandbox")).patients;
+export const checkSandboxMessage = (raw: string) => v1<SandboxCheck>("portal/sandbox/check", { method: "POST", body: raw });
+
+// One measured value of a result (DEV-330): a number or a short text, with unit, normal range, flag.
+export interface ResultValue { name: string; value: number | string; unit?: string; low?: number | null; high?: number | null; flag?: string; code?: string }

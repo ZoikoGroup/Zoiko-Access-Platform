@@ -12,10 +12,13 @@ from .services import (
     edit_draft,
     enabled,
     get,
+    guardian_may_read,
     list_for_person,
+    page_for_person,
     patient_list,
     patient_read,
     read,
+    set_guardian_hidden,
     sign,
 )
 
@@ -30,9 +33,12 @@ __all__ = [
     "edit_draft",
     "enabled",
     "get",
+    "guardian_may_read",
     "list_for_person",
+    "page_for_person",
     "patient_list",
     "patient_read",
     "read",
+    "set_guardian_hidden",
     "sign",
 ]

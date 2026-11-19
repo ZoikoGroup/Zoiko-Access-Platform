@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getPartnerRequests, getPartners, getPatients, getResultSummary, placeOrder, reviewPartnerResult, type PartnerChoice } from "../api";
-import type { PartnerRequest, PatientRow, ResultSummary } from "../types";
+import type { PartnerRequest, PatientRow, ResultSummary, ResultValue } from "../types";
 import { Card, Pill } from "../ui";
 import { Gate, useLoad } from "../useLoad";
 
@@ -38,19 +38,27 @@ function Row({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
   return (
     <div className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
       <div className="info">
-        <b>{r.label} <Pill kind={state.kind}>{state.text}</Pill>{r.urgency === "urgent" && <> <Pill kind="warn">urgent</Pill></>}{r.result_flag === "critical" && <> <Pill kind="bad">CRITICAL RESULT</Pill></>}{r.result_flag === "abnormal" && <> <Pill kind="warn">abnormal</Pill></>}</b>
+        <b>{r.label} <Pill kind={state.kind}>{state.text}</Pill>{r.urgency === "urgent" && <> <Pill kind="warn">urgent</Pill></>}{r.result_flag === "critical" && <> <Pill kind="bad">CRITICAL RESULT</Pill></>}{r.result_flag === "abnormal" && <> <Pill kind="warn">abnormal</Pill></>}{(r.result_version ?? 0) > 1 && <> <Pill kind="warn">{r.result_correction ?? "corrected"}: version {r.result_version}</Pill></>}</b>
         <small>{KIND[r.kind]} · {r.partner} · {r.patient_name || r.patient} · order {r.token}</small>
         {r.result_ref && <small>The partner holds the result under reference {r.result_ref}. Opening it is done with the partner, outside this screen.</small>}
         {r.state === "declined" && r.decision_note && <small>Reason given: {r.decision_note}</small>}
         {summary && (
           <div role="region" aria-label="Result summary">
-            <b>Lab summary ({summary.flag}):</b>
-            <pre style={{ whiteSpace: "pre-wrap", margin: "4px 0 0", fontFamily: "inherit" }}>{summary.summary}</pre>
+            <b>Lab summary ({summary.flag}){(summary.version ?? 0) > 1 ? `, version ${summary.version} (${summary.correction})` : ""}:</b>
+            {summary.summary && <pre style={{ whiteSpace: "pre-wrap", margin: "4px 0 0", fontFamily: "inherit" }}>{summary.summary}</pre>}
+            <Values values={summary.values} />
+            {(summary.earlier ?? []).map((v) => (
+              <details key={v.version} style={{ marginTop: 6 }}>
+                <summary>Earlier version {v.version} ({v.flag}), replaced {v.replaced_at.slice(0, 10)}{v.reviewed ? ", it had been reviewed" : ""}</summary>
+                <pre style={{ whiteSpace: "pre-wrap", margin: "4px 0 0", fontFamily: "inherit" }}>{v.summary}</pre>
+                <Values values={v.values} />
+              </details>
+            ))}
           </div>
         )}
         {error && <div className="error" role="alert">{error}</div>}
       </div>
-      {r.has_summary && !summary && (r.state === "result_available" || r.state === "reviewed") && (
+      {(r.has_summary || r.has_values) && !summary && (r.state === "result_available" || r.state === "reviewed") && (
         <div><button className="btn ghost" disabled={busy} onClick={() => void open()}>Read the lab's summary</button>
           <small style={{ display: "block", marginTop: 4 }}>Opening it is recorded.</small></div>
       )}
@@ -67,7 +75,7 @@ function Row({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
 function NewOrder({ onSent }: { onSent: (message: string) => void }) {
   const [partners, setPartners] = useState<PartnerChoice[]>([]);
   const [patients, setPatients] = useState<PatientRow[]>([]);
-  const [f, setF] = useState({ patient: "", partner: "", kind: "lab_order", label: "", urgency: "routine" });
+  const [f, setF] = useState({ patient: "", partner: "", kind: "lab_order", label: "", urgency: "routine", order_code: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -108,6 +116,8 @@ function NewOrder({ onSent }: { onSent: (message: string) => void }) {
           </select>
         </label>
         <label>What is asked <input className="field" value={f.label} maxLength={80} onChange={(e) => set("label", e.target.value)} placeholder="For example: Full blood count" /></label>
+        <label>SNOMED CT code (optional) <input className="field" value={f.order_code} maxLength={18} onChange={(e) => set("order_code", e.target.value.trim())} placeholder="For example: 26604007" /></label>
+        <small>With a code, the order also goes to the lab's own system once the patient agrees; without one, the lab works in the partner app.</small>
         <label>Urgency{" "}
           <select value={f.urgency} onChange={(e) => set("urgency", e.target.value)}>
             <option value="routine">Routine</option><option value="urgent">Urgent</option>
@@ -147,5 +157,29 @@ function PartnerResultsInner({ onChanged, onOrdered, notice }: { onChanged: () =
         </Card>
       </div>
     </>
+  );
+}
+
+
+const FLAG_KIND: Record<string, "ok" | "warn" | "bad"> = { normal: "ok", high: "warn", low: "warn", abnormal: "warn", critical: "bad" };
+
+/** The lab's measured values (DEV-330): value, unit, normal range and flag. */
+function Values({ values }: { values?: ResultValue[] }) {
+  if (!values || values.length === 0) return null;
+  return (
+    <table aria-label="Measured values" style={{ width: "100%", fontSize: 13, marginTop: 6 }}>
+      <thead><tr><th align="left">Test</th><th align="right">Value</th><th align="left">Unit</th><th align="left">Normal range</th><th align="left">Flag</th></tr></thead>
+      <tbody>
+        {values.map((v, i) => (
+          <tr key={i}>
+            <td>{v.name}</td>
+            <td align="right"><b>{String(v.value)}</b></td>
+            <td>{v.unit ?? ""}</td>
+            <td>{v.low != null || v.high != null ? `${v.low ?? ""} to ${v.high ?? ""}` : ""}</td>
+            <td>{v.flag ? <Pill kind={FLAG_KIND[v.flag] ?? "warn"}>{v.flag}</Pill> : ""}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

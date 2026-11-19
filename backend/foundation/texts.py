@@ -37,6 +37,11 @@ TEMPLATES: dict[str, tuple[str, dict[str, re.Pattern[str]]]] = {
     "update": ("There is an update for you on Zoiko Access. Sign in to see it.", {}),
     "code": ("Your Zoiko Access code is {code}. It expires in 10 minutes. Never share it.",
              {"code": re.compile(r"^[0-9]{4,8}$")}),
+    # For a clinician, about a critical result they ordered (DEV-334): never what, never whom.
+    "urgent": ("A result needs your attention on Zoiko Access. Please sign in now.", {}),
+    # For a clinic administrator: held partner requests need a decision (DEV-336).
+    "urgent_staff": ("Something at your clinic needs a decision on Zoiko Access. Please sign in.",
+                     {}),
 }
 _NUMBER = re.compile(r"^\+[1-9][0-9]{7,14}$")          # international (E.164) only
 MAX_ATTEMPTS = 5

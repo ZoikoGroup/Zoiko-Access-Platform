@@ -112,6 +112,7 @@ CLINIC_CANCEL_REASONS = {
     "clinic_unavailable": "The clinic is closed or unavailable then",
     "doctor_unavailable": "The doctor is unavailable then",
     "service_changed": "The service has changed",
+    "patient_died": "The patient has died",
     "other": "Another reason",
 }
 

@@ -3,7 +3,8 @@
 The lead decided (17 Nov 2026) that Zoiko may hold the text of a clinical note, encrypted, in the
 clinic's own space. The text is stored only as ciphertext (foundation/crypto.py), bound to this
 note so it cannot be moved to another row. A signed note is never edited: a correction is a new
-version that supersedes it, with a fixed reason. Rows are never deleted.
+version that supersedes it, with a fixed reason. Rows are never deleted; once the NHS retention
+period has run out the text is erased and the row kept (DEV-324).
 """
 
 from __future__ import annotations
@@ -42,6 +43,12 @@ class ClinicalNote(CellScopedModel):
     )
     signed_by_ref = models.CharField(max_length=22, blank=True, default="")
     signed_at = models.DateTimeField(null=True, blank=True)
+    # The author may keep one note from a guardian (DEV-324), for example when a young person
+    # spoke in confidence. The patient themselves still sees it.
+    guardian_hidden = models.BooleanField(default=False)
+    # When the retention period ran out and the text was erased (DEV-324, NHS rules). The row
+    # stays, so the history of what existed is not lost; only the words are gone.
+    erased_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [

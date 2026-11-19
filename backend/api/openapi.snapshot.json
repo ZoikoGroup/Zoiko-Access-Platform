@@ -2232,7 +2232,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "edit {body} (a draft you wrote) | sign | amend {reason}. A signed note is never edited:     amend starts a new version that replaces it once signed."
+    "summary": "edit {body} (a draft you wrote) | sign | amend {reason} | addendum {body} |     guardian {hidden}. A signed note is never edited: amend starts a new version that replaces it     once signed."
    }
   },
   "/clinician/patients": {
@@ -2937,7 +2937,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "accept | decline {note} | start | deliver {result_ref}. Only the role that handles this     kind of request (lab, pharmacy or home care) may answer it."
+    "summary": "accept | decline {note} | start | deliver {result_ref} | correct {result_ref, summary,     flag, correction}. Only the role that handles this kind of request (lab, pharmacy or home     care) may answe"
    }
   },
   "/exchange/mine": {
@@ -2972,6 +2972,49 @@
      }
     ],
     "summary": "The patient's (or guardian's) own requests: what was asked of whom and how far it has got.     Shown only for people they may read; never an order number, a reference or a reason."
+   }
+  },
+  "/exchange/mine/{request_id}/values": {
+   "get": {
+    "operationId": "get_exchange_mine_values",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The measured values of one of the patient's own results, a day after a doctor reviewed it     (DEV-332). Only the patient themselves (a guardian holds no \"records\" part, DEV-110)."
    }
   },
   "/exchange/mine/{request_id}/{step}": {
@@ -4162,7 +4205,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "The patient's own signed consultation notes, once the delay has passed (no text here).     Drafts are never shown. A guardian gets none: \"records\" is not granted to them yet.     With the notes switch"
+    "summary": "The patient's own signed consultation notes, once the delay has passed (no text here).     Drafts are never shown. A guardian sees a child's notes only with the \"notes\" part of their     grant and onl"
    }
   },
   "/my/notes/{note_id}": {
@@ -4577,6 +4620,175 @@
     "summary": "One patient's insurance. The patient (or someone acting for them) always sees their own.     Clinic staff see it only if the patient has chosen to share it (`shared` says which)."
    }
   },
+  "/people/{person_id}/death": {
+   "get": {
+    "operationId": "get_person_death",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: whether this patient is recorded as having died. POST {died_on, source}: a clinic     ADMINISTRATOR records it; the patient's future bookings are cancelled with the reason \"the     patient has di"
+   },
+   "post": {
+    "operationId": "post_person_death",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: whether this patient is recorded as having died. POST {died_on, source}: a clinic     ADMINISTRATOR records it; the patient's future bookings are cancelled with the reason \"the     patient has di"
+   }
+  },
+  "/people/{person_id}/death/withdraw": {
+   "post": {
+    "operationId": "post_person_death_withdraw",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A second administrator withdraws a death recorded in error {reason}. Cancelled bookings     are not restored: the clinic books again with the patient."
+   }
+  },
   "/people/{person_id}/identity": {
    "get": {
     "operationId": "get_person_identity",
@@ -4851,6 +5063,112 @@
      }
     ],
     "summary": "GET: one patient's details, if this login may read that patient. POST: save them (the     patient themselves, or clinic staff for their patient)."
+   }
+  },
+  "/platform/codemaps": {
+   "get": {
+    "operationId": "get_platform_codemaps",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Local codes partners sent, and where each stands: needs review, proposed, approved,     rejected."
+   }
+  },
+  "/platform/codemaps/{mapping_id}/{step}": {
+   "post": {
+    "operationId": "post_platform_codemap_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "mapping_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "propose {target_code} (regional support, R11) | approve | reject {reason} (the clinical     safety officer, R12). Nobody approves or rejects their own proposal."
    }
   },
   "/platform/connectors": {
@@ -5205,6 +5523,40 @@
      }
     ],
     "summary": "Support asks to suspend (or reinstate) a customer. Nothing changes until a DIFFERENT     support person approves."
+   }
+  },
+  "/platform/delivery-attempts": {
+   "get": {
+    "operationId": "get_platform_delivery_attempts",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Regional support's view of delivery attempts across every customer in this region (GHE-13     T-54, DEV-328): per customer, counts by state and the attempts not yet delivered, STATUS ONLY:     never a"
    }
   },
   "/platform/hazards": {
@@ -7483,6 +7835,94 @@
     "summary": "portal member end"
    }
   },
+  "/portal/order-system": {
+   "get": {
+    "operationId": "get_portal_order_system",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the system this lab, pharmacy or home-care partner receives orders in, and the ones it     may choose. POST {system}: choose one (\"\" = work in the partner app only). Only a system Zoiko     has c"
+   },
+   "post": {
+    "operationId": "post_portal_order_system",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the system this lab, pharmacy or home-care partner receives orders in, and the ones it     may choose. POST {system}: choose one (\"\" = work in the partner app only). Only a system Zoiko     has c"
+   }
+  },
   "/portal/overview": {
    "get": {
     "operationId": "get_portal_overview",
@@ -7765,6 +8205,96 @@
      }
     ],
     "summary": "enrol | withdraw {refs: [...]}: opaque references, never names."
+   }
+  },
+  "/portal/sandbox": {
+   "get": {
+    "operationId": "get_portal_sandbox",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A developer's sandbox (DEV-329): fixed synthetic patients, each with the FHIR order Zoiko     would send and an example report back, and whether the intake would accept or hold it.     Nothing here is"
+   }
+  },
+  "/portal/sandbox/check": {
+   "post": {
+    "operationId": "post_portal_sandbox_check",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Check a developer's own FHIR resource against the intake's rules (UK Core). Says whether it     would be accepted or held, and why. Nothing is kept or logged except that a check was made."
    }
   },
   "/portal/team": {
@@ -9312,6 +9842,150 @@
      }
     ],
     "summary": "staff ai permit sign"
+   }
+  },
+  "/staff/alert-phone": {
+   "get": {
+    "operationId": "get_staff_alert_phone",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A clinician's (or clinic staff member's) own mobile number for urgent alerts (DEV-334).     GET: masked number, whether it is proved, whether critical-result texts are on.     POST {number}: save it a"
+   },
+   "post": {
+    "operationId": "post_staff_alert_phone",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A clinician's (or clinic staff member's) own mobile number for urgent alerts (DEV-334).     GET: masked number, whether it is proved, whether critical-result texts are on.     POST {number}: save it a"
+   }
+  },
+  "/staff/alert-phone/confirm": {
+   "post": {
+    "operationId": "post_staff_alert_phone_confirm",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The clinician types back the code texted to their alert number."
    }
   },
   "/staff/billing/fees": {

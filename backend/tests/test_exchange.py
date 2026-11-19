@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from django.test import Client
 
+from foundation import fhir
 from foundation.cell_context import tenant_transaction
 from modules.trust import api as trust
 from tests.test_api import API
@@ -958,3 +959,442 @@ def test_a_delivered_message_a_critical_rating_and_an_opened_summary_never_count
     after = body(clinic.get("exchange/requests", subject="doc"))["requests"][0]
     assert after["state"] == "result_available"
     assert clinic.post(f"exchange/requests/{request_id}/review", subject="doc").status_code == 200
+
+
+# ------------------------------------------------ the lab chooses its order system (DEV-323)
+def test_a_lab_chooses_only_a_system_it_may_use_and_can_go_back_to_the_app(world):
+    from modules.connector import api as connector
+    from modules.connector.simulator import SimulatorAdapter
+
+    _, clinic, lab = world
+    if "simulator" not in connector.registered():
+        connector.register(SimulatorAdapter())
+    got = body(lab.call("get", "portal/order-system"))
+    assert got["system"] == "" and "simulator" in [c["key"] for c in got["choices"]]
+    assert lab.call("post", "portal/order-system", {"system": "no-such-system"}).status_code == 422
+    done = lab.call("post", "portal/order-system", {"system": "simulator"})
+    assert done.status_code == 200 and body(done)["system"] == "simulator"
+    back = lab.call("post", "portal/order-system", {"system": ""})
+    assert body(back)["system"] == ""
+    assert clinic.get("portal/order-system", subject="ops").status_code == 403
+
+
+# ------------------------------------------------ the patient's agreement sends the order (DEV-323)
+def _lab_uses_simulator(lab):
+    from modules.connector import api as connector
+    from modules.connector.simulator import SimulatorAdapter
+
+    if "simulator" not in connector.registered():
+        connector.register(SimulatorAdapter())
+    assert lab.call("post", "portal/order-system", {"system": "simulator"}).status_code == 200
+
+
+def _orders(clinic, request_id):
+    from modules.connector import api as connector
+
+    with tenant_transaction(clinic.clinic.ctx):
+        return [
+            o
+            for o in connector.list_operations(subject_ref=request_id)
+            if o["operation_type"] == "exchange.order"
+        ]
+
+
+def test_a_coded_order_goes_to_the_labs_system_once_when_the_patient_agrees(world):
+    _, clinic, lab = world
+    _lab_uses_simulator(lab)
+    give_profile(clinic)
+    request_id = made(clinic, lab, consent=False, order_code="26604007")
+    assert _orders(clinic, request_id) == []  # nothing before the agreement
+    assert agree(clinic, request_id).status_code == 200
+    assert agree(clinic, request_id).status_code == 200  # a repeat sends nothing new
+    sent = _orders(clinic, request_id)
+    assert len(sent) == 1 and sent[0]["connector_key"] == "simulator"
+
+
+def test_what_is_sent_is_references_only_and_names_nobody(world):
+    from modules.connector.models import ExternalOperation
+
+    _, clinic, lab = world
+    _lab_uses_simulator(lab)
+    give_profile(clinic, "Zuleikha Brandtmann", "1981-02-03")
+    request_id = made(clinic, lab, consent=False, order_code="26604007")
+    agree(clinic, request_id)
+    with tenant_transaction(clinic.clinic.ctx):
+        op = ExternalOperation.objects.get(subject_ref=request_id)
+        payload = dict(op.request)
+        assert op.requested_by_ref == clinic.patient_actor  # who asked stays true
+    assert set(payload) == {
+        "request_ref",
+        "order_no",
+        "order_code",
+        "kind",
+        "urgency",
+        "consent_at",
+    }
+    text = json.dumps(payload)
+    assert "Zuleikha" not in text and "1981" not in text and clinic.person not in text
+
+
+def test_no_order_is_sent_without_a_code_a_chosen_system_or_an_agreement(world):
+    _, clinic, lab = world
+    give_profile(clinic)
+    uncoded = made(clinic, lab, consent=False)
+    agree(clinic, uncoded)
+    assert _orders(clinic, uncoded) == []  # no code: stays in the app
+    coded = made(clinic, lab, consent=False, order_code="26604007", token="ORD-0400")
+    agree(clinic, coded)
+    assert _orders(clinic, coded) == []  # the lab chose no system
+    _lab_uses_simulator(lab)
+    declined = made(clinic, lab, consent=False, order_code="26604007", token="ORD-0401")
+    agree(clinic, declined, "decline")
+    assert _orders(clinic, declined) == []  # the patient said no
+
+
+def test_a_bad_order_code_is_refused_when_the_clinic_sends(world):
+    _, clinic, lab = world
+    for bad in ("26604008", "abc", "1234", 5):
+        assert send(clinic, lab, order_code=bad).status_code == 422, bad
+
+
+
+# ------------------------------------------------ corrections and versions (DEV-325, FHIR step 5)
+FIXED = "Haemoglobin 128 g/L (normal). The earlier figure was another sample."
+
+
+def correct(lab, request_id, **over):
+    data = dict(result_ref="RES-0043", summary=FIXED, flag="normal", correction="corrected")
+    data.update(over)
+    return step(lab, request_id, "correct", **data)
+
+
+def test_a_correction_is_a_new_version_and_the_first_stays_readable(world):
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab, "abnormal")
+    assert clinic.post(f"exchange/requests/{request_id}/review", subject="doc").status_code == 200
+    r = correct(lab, request_id)
+    assert r.status_code == 200, r.content
+    got = body(r)["request"]
+    assert got["result_version"] == 2 and got["result_correction"] == "corrected"
+    assert got["state"] == "result_available"  # reviewed before, so it must be reviewed again
+    now = body(result(clinic, request_id))["result"]
+    assert now["summary"] == FIXED and now["version"] == 2 and now["flag"] == "normal"
+    [first] = now["earlier"]
+    assert first["version"] == 1 and first["summary"] == SUMMARY and first["flag"] == "abnormal"
+    assert first["reviewed"] is True and first["result_ref"] == "RES-0042"
+    hist = body(clinic.get(f"exchange/requests/{request_id}/history", subject="ops"))["history"]
+    assert hist[-1]["what"] == "correct"
+
+
+def test_the_same_correction_twice_changes_nothing_and_a_second_one_is_version_3(world):
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab)
+    correct(lab, request_id)
+    again = correct(lab, request_id)
+    assert again.status_code == 200 and body(again)["request"]["result_version"] == 2
+    third = correct(lab, request_id, summary=FIXED + " Added: ferritin normal.",
+                    correction="appended")
+    assert body(third)["request"]["result_version"] == 3
+    earlier = body(result(clinic, request_id))["result"]["earlier"]
+    assert [v["version"] for v in earlier] == [2, 1]
+
+
+def test_only_a_delivered_result_can_be_corrected_and_bad_input_is_refused(world):
+    _, clinic, lab = world
+    request_id = made(clinic, lab)
+    assert correct(lab, request_id).status_code == 409  # nothing delivered yet
+    request_id = delivered_with(clinic, lab, token="ORD-0500")
+    for bad in ({"flag": "huge"}, {"flag": None}, {"correction": "rewritten"},
+                {"result_ref": "!"}, {"summary": "x" * 2001}):
+        assert correct(lab, request_id, **bad).status_code == 422, bad
+    assert body(result(clinic, request_id))["result"]["version"] == 1
+
+
+def test_a_correction_to_critical_alerts_the_orderer(world):
+    _, clinic, lab = world
+    give_email(clinic, clinic.desk, "desk@clinic.test")
+    request_id = delivered_with(clinic, lab, "normal")
+    assert mails("critical_result") == []
+    correct(lab, request_id, flag="critical", summary="Potassium 6.8 mmol/L.")
+    assert len(mails("critical_result")) == 1
+
+
+def test_earlier_versions_are_stored_encrypted(world):
+    from django.db import connection
+
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab, summary="Unmistakable sentinel zebra-quokka-5519")
+    correct(lab, request_id)
+    with connection.cursor() as cur:
+        cur.execute("select summary_enc from exchange_exchangeresultversion")
+        stored = " ".join(row[0] for row in cur.fetchall())
+    assert stored and "zebra" not in stored
+
+
+
+# ------------------------------------------------ a lab's FHIR report, end to end (DEV-326)
+def _fhir_partner(world):
+    """The clinic registers the lab's system as a signed FHIR sender (T-43), with Zoiko's checks
+    done by the platform space this world already has."""
+    from tests.test_fhir_api import partner
+
+    platform, clinic, _ = world
+    platform.sam = platform.staff("zsam", "R11")
+    platform.tess = platform.staff("ztess", "R11")
+    clinic._zoiko = platform
+    clinic.login("boss", FAC, "R13")
+    return partner(clinic)
+
+
+def _report(request_id, rid="rep-901", status="final", flag="N", text="Haemoglobin 128 g/L."):
+    return json.dumps({
+        "resourceType": "DiagnosticReport",
+        "id": rid,
+        "status": status,
+        "code": {"coding": [{"system": "http://snomed.info/sct", "code": "26604007"}]},
+        "subject": {"reference": "Patient/p-1"},
+        "basedOn": [{"reference": f"ServiceRequest/{fhir.to_fhir_id(request_id)}"}],
+        "conclusion": text,
+        "conclusionCode": [{"coding": [{
+            "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+            "code": flag}]}],
+    }).encode()
+
+
+def test_a_labs_fhir_report_really_delivers_the_result_and_a_correction_versions_it(world):
+    from tests.test_fhir_api import send_fhir
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    r = send_fhir(sender, _report(request_id), "fhir-e2e-0001")
+    assert r.status_code == 202 and r.json()["quarantined"] is False, r.content
+    got = body(result(clinic, request_id))["result"]
+    assert got["summary"] == "Haemoglobin 128 g/L." and got["flag"] == "normal"
+    r = send_fhir(sender, _report(request_id, "rep-902", "corrected", text="Haemoglobin 131 g/L."),
+                  "fhir-e2e-0002")
+    assert r.status_code == 202 and r.json()["quarantined"] is False, r.content
+    got = body(result(clinic, request_id))["result"]
+    assert got["version"] == 2 and got["earlier"][0]["summary"] == "Haemoglobin 128 g/L."
+
+
+def test_a_critical_fhir_report_emails_the_person_who_ordered_it(world):
+    from tests.test_fhir_api import send_fhir
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    give_email(clinic, clinic.desk, "desk@clinic.test")
+    request_id = accepted(clinic, lab)
+    raw = _report(request_id, flag="CRIT", text="Potassium 6.8 mmol/L.")
+    assert send_fhir(sender, raw, "fhir-e2e-0003").json()["quarantined"] is False
+    assert send_fhir(sender, raw, "fhir-e2e-0003").status_code == 202  # the same delivery again
+    sent = mails("critical_result")
+    assert len(sent) == 1 and sent[0].to_address == "desk@clinic.test"
+    assert "Potassium" not in sent[0].subject + sent[0].body
+
+
+def test_a_fhir_report_for_another_clinics_request_is_held(world):
+    from tests.test_fhir_api import send_fhir
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    r = send_fhir(sender, _report("req-of-nobody"), "fhir-e2e-0004")
+    assert r.json()["quarantined"] is True and r.json()["error"] == "request_not_found"
+
+
+
+# ------------------------------------------------ approved code mappings in the intake (DEV-327)
+def _local_report(request_id, rid="rep-loinc-1"):
+    raw = json.loads(_report(request_id, rid))
+    raw["code"] = {"coding": [{"system": "http://loinc.org", "code": "57021-8",
+                               "display": "CBC W Auto Differential panel"}]}
+    return json.dumps(raw).encode()
+
+
+def _approve_mapping(platform, system, code, snomed):
+    from modules.codemap import api as codemap
+
+    with tenant_transaction(platform.ctx):
+        codemap.note_seen([{"system": system, "code": code, "display": ""}])
+        [row] = [m for m in codemap.list_mappings() if m["source_code"] == code]
+        codemap.propose(mapping_ref=row["id"], target_code=snomed, by="zsam-actor")
+        codemap.approve(mapping_ref=row["id"], by="ziyer-actor")
+
+
+def test_a_local_code_is_accepted_once_its_mapping_is_approved(world):
+    from modules.evidence.models import AuditEvent
+    from tests.test_fhir_api import send_fhir
+
+    platform, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    held = send_fhir(sender, _local_report(request_id), "fhir-map-0001")
+    assert held.json()["quarantined"] is True  # UK Core needs SNOMED CT; none approved yet
+    _approve_mapping(platform, "http://loinc.org", "57021-8", "26604007")
+    ok = send_fhir(sender, _local_report(request_id, "rep-loinc-2"), "fhir-map-0002")
+    assert ok.json()["quarantined"] is False, ok.content
+    assert body(result(clinic, request_id))["result"]["summary"] == "Haemoglobin 128 g/L."
+    with tenant_transaction(clinic.clinic.ctx):
+        assert AuditEvent.objects.filter(action="integration.fhir_code_mapped").count() == 1
+
+
+def test_a_proposed_but_unapproved_mapping_is_never_used(world):
+    from modules.codemap import api as codemap
+    from tests.test_fhir_api import send_fhir
+
+    platform, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    with tenant_transaction(platform.ctx):
+        codemap.note_seen([{"system": "http://loinc.org", "code": "57021-8", "display": ""}])
+        [row] = codemap.list_mappings()
+        codemap.propose(mapping_ref=row["id"], target_code="26604007", by="zsam-actor")
+    r = send_fhir(sender, _local_report(request_id), "fhir-map-0003")
+    assert r.json()["quarantined"] is True
+
+
+def _obs_x(oid, value, unit="g/L", low=115, high=165, flag="N", subject="Patient/p-1",
+         code="26604007"):
+    return {
+        "resourceType": "Observation", "id": oid, "status": "final",
+        "code": {"coding": [{"system": "http://snomed.info/sct", "code": code}],
+                 "text": "Haemoglobin"},
+        "subject": {"reference": subject},
+        "valueQuantity": {"value": value, "unit": unit},
+        "referenceRange": [{"low": {"value": low}, "high": {"value": high}}],
+        "interpretation": [{"coding": [{
+            "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+            "code": flag}]}],
+    }
+
+
+def _bundle_of(report, *observations):
+    report = {**report, "result": [{"reference": f"Observation/{o['id']}"} for o in observations]}
+    return {"resourceType": "Bundle", "type": "collection",
+            "entry": [{"resource": report}, *[{"resource": o} for o in observations]]}
+
+
+# ------------------------------------------------ measured values of a result (DEV-330)
+VALUES = [
+    {"name": "Haemoglobin", "code": "26604007", "value": 128, "unit": "g/L", "low": 115,
+     "high": 165, "flag": "normal"},
+    {"name": "Blood group", "value": "O positive"},
+]
+
+
+def test_a_lab_sends_values_and_only_the_treating_doctor_reads_them(world):
+    _, clinic, lab = world
+    request_id = accepted(clinic, lab)
+    r = step(lab, request_id, "deliver", result_ref="RES-0042", flag="normal", values=VALUES)
+    assert r.status_code == 200, r.content
+    row = body(clinic.get("exchange/requests", subject="doc"))["requests"][0]
+    assert row["has_values"] is True and "Haemoglobin" not in json.dumps(row)
+    got = body(result(clinic, request_id))["result"]
+    assert got["values"][0]["value"] == 128 and got["values"][1]["value"] == "O positive"
+    assert got["values"][1]["unit"] == "" and got["summary"] == ""  # values with no summary
+    assert result(clinic, request_id, "ops").status_code == 403
+    assert result(clinic, request_id, "pat").status_code == 403
+
+
+def test_bad_values_are_refused(world):
+    _, clinic, lab = world
+    request_id = accepted(clinic, lab)
+    for bad in ([{"name": "Hb"}], [{"value": 1}], [{"name": "Hb", "value": True}],
+                [{"name": "Hb", "value": 1, "note": "free text"}],
+                [{"name": "Hb", "value": 1, "flag": "weird"}],
+                [{"name": "Hb", "value": 1, "code": "123"}],
+                [{"name": "Hb", "value": 1}] * 51, "not a list"):
+        r = step(lab, request_id, "deliver", result_ref="RES-0042", flag="normal", values=bad)
+        assert r.status_code == 422, bad
+    no_rating = step(lab, request_id, "deliver", result_ref="RES-0042", values=VALUES)
+    assert no_rating.status_code == 422
+
+
+def test_values_are_stored_encrypted_and_a_correction_keeps_the_old_ones(world):
+    from django.db import connection
+
+    _, clinic, lab = world
+    request_id = accepted(clinic, lab)
+    step(lab, request_id, "deliver", result_ref="RES-0042", flag="normal",
+         values=[{"name": "Sentinel zebra-quokka", "value": 5519}])
+    with connection.cursor() as cur:
+        cur.execute("select result_values_enc from exchange_exchangerequest")
+        stored = " ".join(row[0] for row in cur.fetchall())
+    assert stored and "zebra" not in stored and "5519" not in stored
+    correct(lab, request_id, values=[{"name": "Haemoglobin", "value": 131, "unit": "g/L"}])
+    got = body(result(clinic, request_id))["result"]
+    assert got["values"][0]["value"] == 131
+    assert got["earlier"][0]["values"][0]["name"] == "Sentinel zebra-quokka"
+
+
+def test_a_labs_fhir_bundle_delivers_its_values(world):
+    from tests.test_fhir_api import send_fhir
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    report = json.loads(_report(request_id))
+    bundle = _bundle_of(report, _obs_x("o1", 128), _obs_x("o2", 6.8, "mmol/L", 3.5, 5.3, "HH"))
+    r = send_fhir(sender, json.dumps(bundle).encode(), "fhir-values-0001")
+    assert r.status_code == 202 and r.json()["quarantined"] is False, r.content
+    got = body(result(clinic, request_id))["result"]
+    assert [v["value"] for v in got["values"]] == [128, 6.8]
+    assert got["values"][1]["flag"] == "critical" and got["values"][1]["unit"] == "mmol/L"
+
+
+
+# ------------------------------------------------ the patient sees values after review (DEV-332)
+def _reviewed_with_values(clinic, lab, hours_ago):
+    from datetime import timedelta
+
+    from modules.exchange.models import ExchangeRequest
+
+    request_id = accepted(clinic, lab)
+    step(lab, request_id, "deliver", result_ref="RES-0042", flag="normal", values=VALUES,
+         summary="Clinician-only wording.")
+    assert clinic.post(f"exchange/requests/{request_id}/review", subject="doc").status_code == 200
+    from modules.trust import api as trust_api
+
+    platform = next(t for t in trust_api.list_tenants() if t["type"] == "platform")
+    with tenant_transaction(trust_api.context_for(platform["public_id"])):
+        row = ExchangeRequest.objects.get(public_id=request_id)
+        row.reviewed_at = row.reviewed_at - timedelta(hours=hours_ago)
+        row.save(update_fields=["reviewed_at"])
+    return request_id
+
+
+def mine_values(clinic, request_id, subject="pat"):
+    return clinic.get(f"exchange/mine/{request_id}/values", subject=subject)
+
+
+def test_the_patient_sees_values_a_day_after_the_doctor_reviewed_them(world):
+    _, clinic, lab = world
+    early = _reviewed_with_values(clinic, lab, hours_ago=2)
+    assert mine_values(clinic, early).status_code == 404  # inside the day
+    [row] = [r for r in body(clinic.get("exchange/mine"))["requests"] if r["id"] == early]
+    assert row["values_ready"] is False
+    late = _reviewed_with_values(clinic, lab, hours_ago=25)
+    got = body(mine_values(clinic, late))["result"]
+    assert got["values"][0]["name"] == "Haemoglobin" and "summary" not in got
+    assert "Clinician-only" not in mine_values(clinic, late).content.decode()
+    [row] = [r for r in body(clinic.get("exchange/mine"))["requests"] if r["id"] == late]
+    assert row["values_ready"] is True
+
+
+def test_values_wait_for_review_and_a_correction_waits_again(world):
+    _, clinic, lab = world
+    request_id = accepted(clinic, lab)
+    step(lab, request_id, "deliver", result_ref="RES-0042", flag="normal", values=VALUES)
+    assert mine_values(clinic, request_id).status_code == 404  # delivered, not reviewed
+    shown = _reviewed_with_values(clinic, lab, hours_ago=30)
+    assert mine_values(clinic, shown).status_code == 200
+    correct(lab, shown, values=[{"name": "Haemoglobin", "value": 131}])
+    assert mine_values(clinic, shown).status_code == 404  # the new version needs review
+
+
+def test_nobody_but_the_patient_reads_their_values(world):
+    _, clinic, lab = world
+    request_id = _reviewed_with_values(clinic, lab, hours_ago=30)
+    clinic.patient("other")
+    assert mine_values(clinic, request_id, "other").status_code == 404
+    assert mine_values(clinic, request_id, "ops").status_code == 404

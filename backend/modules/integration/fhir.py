@@ -24,6 +24,7 @@ import datetime as dt
 import hashlib
 import hmac
 import json
+import logging
 import re
 from typing import Any
 
@@ -312,8 +313,12 @@ def _accept_fhir(
         )
         return _reply(202, received=True, quarantined=True, id=q.public_id, error="invalid_json")
 
-    # 2. Strict FHIR R4 validation (DEV-315)
-    issues = fhir_validator.validate(data)
+    # A local code with a mapping two Zoiko people approved also carries its SNOMED CT code, so a
+    # lab that sends only its own codes is not held for that alone (DEV-327). Nothing else changes.
+    data, mapped = _with_approved_mappings(data)
+
+    # 2. Strict FHIR R4 validation (DEV-315) with the UK Core rules the lead switched on (DEV-321)
+    issues = fhir_validator.validate(data, profile=fhir_validator.UK_CORE)
     resource_type = str(data.get("resourceType", "unknown"))[:64]
     partner_ref = str(data.get("id", ""))[:64]
     if issues:
@@ -334,9 +339,22 @@ def _accept_fhir(
             issues=[{"path": i.path, "code": i.code, "text": i.text} for i in issues],
         )
 
-    # 3. Route valid resource
-    if resource_type == "DiagnosticReport":
-        return _handle_diagnostic_report(client, data, delivery_id, digest, raw_body, clock)
+    if mapped:  # which approved mapping let this message through, recorded without content
+        record(
+            actor_ref=client.public_id,
+            action="integration.fhir_code_mapped",
+            object_type="fhir_resource",
+            object_ref=partner_ref or delivery_id,
+            outcome=AuditOutcome.ALLOWED,
+            reason_code="approved_code_mapping",
+        )
+
+    # 3. Route valid resource. A Bundle is a report with its measured values (DEV-330).
+    if resource_type in ("DiagnosticReport", "Bundle"):
+        return _handle_diagnostic_report(
+            client, fhir_validator.report_of(data), delivery_id, digest, raw_body, clock,
+            values=fhir_validator.values_of(data),
+        )
 
     if resource_type == "ServiceRequest":
         record(
@@ -385,6 +403,7 @@ def _handle_diagnostic_report(
     digest: str,
     raw_body: bytes,
     clock: Clock | None,
+    values: list[dict[str, Any]] | None = None,
 ) -> Answer:
     based_on = data.get("basedOn") or []
     ref_str = based_on[0]["reference"] if based_on else ""
@@ -406,87 +425,71 @@ def _handle_diagnostic_report(
         )
         return _reply(202, received=True, quarantined=True, id=q.public_id, error="bad_based_on")
 
-    request_public_id = ref_str.split("/", 1)[1]
+    # The FHIR id of our request turned back into its Zoiko id ("." stands for "_", DEV-331).
+    request_public_id = fhir_validator.from_fhir_id(ref_str.split("/", 1)[1])
+    status = str(data.get("status") or "")
+    if status in ("cancelled", "entered-in-error"):
+        # A withdrawn result is never applied automatically: a person decides (DEV-325).
+        q = _quarantine(
+            client=client,
+            delivery_id=delivery_id,
+            resource_type="DiagnosticReport",
+            partner_ref=str(data.get("id", ""))[:64],
+            digest=digest,
+            raw_body=raw_body,
+            issues=[{"path": "status", "code": "business-rule",
+                     "text": "a withdrawn result needs a person to act on it"}],
+        )
+        return _reply(202, received=True, quarantined=True, id=q.public_id, error="withdrawn")
+    correction = status if status in ("amended", "corrected", "appended") else ""
     summary = str(data.get("conclusion") or "")
     flag = _map_flag(data.get("conclusionCode"))
     result_ref = _clean_result_ref(data.get("id") or delivery_id)
 
-    from modules.exchange.models import ExchangeRequest, State
-
     ctx = require_context()
     clinic_tenant_public = trust.tenant_public_id(ctx.tenant_id)
 
-    with tenant_transaction():  # platform space for ExchangeRequest
-        req = ExchangeRequest.objects.filter(public_id=request_public_id).first()
-        if req is None or req.from_tenant_ref != clinic_tenant_public:
-            q = _quarantine(
-                client=client,
-                delivery_id=delivery_id,
-                resource_type="DiagnosticReport",
-                partner_ref=result_ref,
-                digest=digest,
-                raw_body=raw_body,
-                issues=[
-                    {
-                        "path": "basedOn[0]",
-                        "code": "not_found",
-                        "text": "referenced ServiceRequest not found for this clinic",
-                    }
-                ],
-            )
-            return _reply(
-                202,
-                received=True,
-                quarantined=True,
-                id=q.public_id,
-                error="request_not_found",
-            )
-
-        try:
-            # Advance to in_progress if currently accepted
-            if req.state == State.ACCEPTED:
-                exchange.partner_step(
-                    request_ref=request_public_id,
-                    tenant_ref=req.to_tenant_ref,
-                    step="start",
-                    actor_ref=client.public_id,
-                    clock=clock,
-                )
-
-            done = exchange.partner_step(
-                request_ref=request_public_id,
-                tenant_ref=req.to_tenant_ref,
-                step="deliver",
-                actor_ref=client.public_id,
-                result_ref=result_ref,
-                summary=summary,
-                flag=flag,
-                clock=clock,
-            )
-        except ZoikoError as ze:
-            reason_text = "cannot deliver result: patient agreement missing or invalid state"
-            if ze.code == ErrorCode.NOT_FOUND:
-                reason_text = "referenced request not found"
-            q = _quarantine(
-                client=client,
-                delivery_id=delivery_id,
-                resource_type="DiagnosticReport",
-                partner_ref=result_ref,
-                digest=digest,
-                raw_body=raw_body,
-                issues=[{"path": "status", "code": "conflict", "text": reason_text}],
-            )
-            return _reply(
-                202,
-                received=True,
-                quarantined=True,
-                id=q.public_id,
-                error="exchange_conflict",
-            )
+    # The exchange lives in Zoiko's platform space: look the request up and change it THERE, so it
+    # works under the database's row-level security (DEV-326). A quarantine row belongs to the
+    # clinic, so it is written after the platform block, back in the clinic's space.
+    done: dict[str, Any] = {}
+    problem: tuple[str, str, str, str] | None = None
+    with tenant_transaction(_platform_ctx()):
+        req = exchange.delivery_lookup(request_public_id)
+        if req is None or req["from_tenant_ref"] != clinic_tenant_public:
+            problem = ("basedOn[0]", "not_found",
+                       "referenced ServiceRequest not found for this clinic", "request_not_found")
+        else:
+            try:
+                done = _apply_report(req, request_public_id, client.public_id, result_ref,
+                                     summary, flag, correction, clock, values or [])
+            except ZoikoError as ze:
+                reason_text = "cannot deliver result: patient agreement missing or invalid state"
+                if ze.code == ErrorCode.NOT_FOUND:
+                    reason_text = "referenced request not found"
+                problem = ("status", "conflict", reason_text, "exchange_conflict")
+    if problem is not None:
+        path, code, text, error = problem
+        q = _quarantine(
+            client=client,
+            delivery_id=delivery_id,
+            resource_type="DiagnosticReport",
+            partner_ref=result_ref,
+            digest=digest,
+            raw_body=raw_body,
+            issues=[{"path": path, "code": code, "text": text}],
+        )
+        return _reply(202, received=True, quarantined=True, id=q.public_id, error=error)
+    if req is not None and done.get("changed", True) and done.get("result_flag") == "critical":
+        _alert_critical(request_public_id, req["to_tenant_ref"])
 
     record(
         actor_ref=client.public_id,
-        action="integration.fhir_report_delivered",
+        action=(
+            "integration.fhir_report_corrected"
+            if correction
+            else "integration.fhir_report_delivered"
+        ),
         object_type="exchange_request",
         object_ref=request_public_id,
         outcome=AuditOutcome.ALLOWED,
@@ -499,3 +502,103 @@ def _handle_diagnostic_report(
         state="result_available",
         changed=done.get("changed", True),
     )
+
+
+def _platform_ctx() -> Any:
+    platform = next(
+        (t for t in trust.list_tenants() if t["type"] == "platform" and t["status"] == "active"),
+        None,
+    )
+    if platform is None:
+        raise ZoikoError(ErrorCode.SERVICE_UNAVAILABLE)
+    return trust.context_for(platform["public_id"])
+
+
+def _apply_report(
+    req: dict[str, str],
+    request_ref: str,
+    actor_ref: str,
+    result_ref: str,
+    summary: str,
+    flag: str,
+    correction: str,
+    clock: Clock | None,
+    values: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Deliver the result, or a new version of one already delivered (DEV-325), with its measured
+    values (DEV-330). Call with the platform tenant bound."""
+    if correction and req["state"] in ("result_available", "reviewed"):
+        return exchange.correct_result(
+            request_ref=request_ref,
+            tenant_ref=req["to_tenant_ref"],
+            actor_ref=actor_ref,
+            result_ref=result_ref,
+            summary=summary,
+            flag=flag or None,
+            correction=correction,
+            clock=clock,
+            values=values,
+        )
+    if req["state"] == "accepted":
+        exchange.partner_step(
+            request_ref=request_ref,
+            tenant_ref=req["to_tenant_ref"],
+            step="start",
+            actor_ref=actor_ref,
+            clock=clock,
+        )
+    return exchange.partner_step(
+        request_ref=request_ref,
+        tenant_ref=req["to_tenant_ref"],
+        step="deliver",
+        actor_ref=actor_ref,
+        result_ref=result_ref,
+        summary=summary,
+        flag=flag,
+        clock=clock,
+        values=values,
+    )
+
+
+def _alert_critical(request_ref: str, partner_ref: str) -> None:
+    """A critical result from a lab's system emails the person who ordered it, as the partner
+    app's delivery does (DEV-310, DEV-326). The delivery stands even if the alert fails."""
+    from modules.comms import api as comms  # late: comms is only needed for this alert
+
+    try:
+        with tenant_transaction(_platform_ctx()):
+            target = exchange.critical_target(request_ref=request_ref, tenant_ref=partner_ref)
+        if target is not None:
+            with tenant_transaction(trust.context_for(target["clinic"])):
+                comms.alert_critical_result(target["orderer"])
+    except Exception as exc:  # noqa: BLE001 - never let an alert undo a delivery
+        logging.getLogger("zoiko.alerts").warning("critical alert failed: %s", type(exc).__name__)
+
+
+def _with_approved_mappings(data: Any) -> tuple[Any, list[dict[str, str]]]:
+    """The resource with the approved SNOMED CT code added to its `code`, when it has none of its
+    own and one of its local codes was mapped and approved (DEV-322, DEV-327). Returns the
+    resource (a copy when changed) and what was mapped. Any failure leaves it as it came."""
+    if not isinstance(data, dict) or not isinstance(data.get("code"), dict):
+        return data, []
+    codings = data["code"].get("coding")
+    if not isinstance(codings, list) or not codings:
+        return data, []
+    if any(isinstance(c, dict) and c.get("system") == fhir_validator.SNOMED for c in codings):
+        return data, []
+    from modules.codemap import api as codemap  # late: only needed here
+
+    try:
+        with tenant_transaction(_platform_ctx()):
+            for c in codings:
+                if not (isinstance(c, dict) and isinstance(c.get("system"), str)
+                        and isinstance(c.get("code"), str)):
+                    continue
+                target = codemap.lookup(c["system"], c["code"])
+                if target:
+                    added = {"system": fhir_validator.SNOMED, "code": target}
+                    copy = {**data, "code": {**data["code"], "coding": [*codings, added]}}
+                    return copy, [{"system": c["system"], "code": c["code"], "snomed": target}]
+    except Exception as exc:  # noqa: BLE001 - mapping is a help, never a reason to fail
+        logging.getLogger("zoiko.codemap").warning("mapping lookup failed: %s", type(exc).__name__)
+    return data, []

@@ -15,6 +15,8 @@ from foundation.timeutil import Clock, utc_now
 from modules.exchange import api as exchange
 from modules.trust import api as trust
 
+from .alert_phone import text_critical, text_hold
+
 CRITICAL_KIND = "critical_result"
 ESCALATION_KIND = "hold_escalation"
 ESCALATION_EVERY_SECONDS = 3600.0
@@ -24,9 +26,10 @@ ADMIN_ROLE = "R13"
 def alert_critical_result(orderer_ref: str) -> int:
     """Tell the person who placed an order that its result came back critical. Runs with the
     CLINIC's tenant bound, inside a transaction. Returns 1 if an email was queued."""
+    texted = text_critical(orderer_ref)  # DEV-334: a text too, if they asked and proved the number
     address = trust.verified_login_email_of_actor(orderer_ref)
     if address is None:
-        return 0  # no confirmed address: the red mark on their page remains
+        return texted  # no confirmed address: the red mark on their page remains
     queue_email(
         kind=CRITICAL_KIND,
         to_address=address,
@@ -60,6 +63,10 @@ def send_escalation_alerts(clock: Clock | None = None) -> int:
             continue
         with tenant_transaction(trust.context_for(tenant["public_id"])):
             ctx = require_context()
+            today = utc_now(clock).date()
+            for org in trust.organization_names():
+                for admin in trust.actors_with_role(org, ADMIN_ROLE, clock):
+                    queued += text_hold(admin, today)  # DEV-336: once a day, if they asked
             for org, name in trust.organization_names().items():
                 subject = f"Held partner requests need a decision at {name}: {day}"[:200]
                 if QueuedEmail.objects.filter(

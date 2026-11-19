@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { answerMyRequest, getMyRequests, type MyRequest } from "../api";
+import { answerMyRequest, getMyRequests, getMyValues, type MyValue, type MyRequest } from "../api";
 import { Card, Pill, type PillKind } from "../ui";
 
 const KIND: Record<MyRequest["kind"], string> = {
@@ -25,6 +25,13 @@ export function MyRequests() {
   const [rows, setRows] = useState<MyRequest[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [values, setValues] = useState<Record<string, MyValue[]>>({});
+  async function showValues(id: string) {
+    setBusy(id); setError("");
+    try { const got = await getMyValues(id); setValues({ ...values, [id]: got.values }); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load the values"); }
+    finally { setBusy(""); }
+  }
   const load = () => getMyRequests().then(setRows).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load"));
   useEffect(() => { void load(); }, []);
   async function answer(id: string, step: "agree" | "decline" | "withdraw") {
@@ -40,7 +47,7 @@ export function MyRequests() {
     <>
       <div className="hero"><div>
         <h1>My Tests &amp; Requests</h1>
-        <p>When your clinic asks a laboratory, pharmacy or home-care service to do something for you, it appears here with how far it has got. Results are not shown here: your clinic goes through them with you.</p>
+        <p>When your clinic asks a laboratory, pharmacy or home-care service to do something for you, it appears here with how far it has got. Your clinic goes through results with you; a day after your doctor has reviewed a result, you can also see its measured values here.</p>
       </div></div>
       {error && <div className="error" role="alert">{error}</div>}
       <div className="grid">
@@ -74,6 +81,25 @@ export function MyRequests() {
                     )}
                     {r.consent === "granted" && (
                       <span><button className="btn ghost" disabled={busy === r.id} onClick={() => void answer(r.id, "withdraw")}>Take my agreement back</button></span>
+                    )}
+                    {r.values_ready && !values[r.id] && (
+                      <span><button className="btn ghost" disabled={busy === r.id} onClick={() => void showValues(r.id)}>See the measured values</button></span>
+                    )}
+                    {values[r.id] && (
+                      <div role="region" aria-label={`Measured values for ${r.label}`}>
+                        <table style={{ width: "100%", fontSize: 13 }}>
+                          <thead><tr><th align="left">Test</th><th align="right">Value</th><th align="left">Unit</th><th align="left">Usual range</th></tr></thead>
+                          <tbody>
+                            {values[r.id].map((v, i) => (
+                              <tr key={i}>
+                                <td>{v.name}</td><td align="right"><b>{String(v.value)}</b>{v.flag && v.flag !== "normal" ? ` (${v.flag})` : ""}</td>
+                                <td>{v.unit ?? ""}</td><td>{v.low != null || v.high != null ? `${v.low ?? ""} to ${v.high ?? ""}` : ""}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <small>Your doctor has reviewed these. If something worries you, contact your clinic. Opening them is recorded in your privacy log.</small>
+                      </div>
                     )}
                   </div>
                   {r.urgency === "urgent" && <Pill kind="warn">Urgent</Pill>}

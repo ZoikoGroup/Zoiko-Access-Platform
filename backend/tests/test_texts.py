@@ -37,7 +37,7 @@ def queued(p, **kw):
 
 # ------------------------------------------------------------------ only approved wording
 def test_only_the_approved_templates_exist_and_none_can_hold_free_text():
-    assert set(TEMPLATES) == {"update", "code"}
+    assert set(TEMPLATES) == {"update", "code", "urgent", "urgent_staff"}
     for wording, allowed in TEMPLATES.values():
         assert len(wording) <= 160 and set(allowed) <= {"code"}
 

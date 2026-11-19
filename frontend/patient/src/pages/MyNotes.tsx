@@ -35,6 +35,7 @@ export function MyNotes() {
               <div className="appt" key={n.id}>
                 <div className="info">
                   <b>Visit on {n.note_date} {n.corrected && <Pill kind="info">Corrected later</Pill>}</b>
+                  {n.for_name && <small>About {n.for_name}</small>}
                   <small>Written by {n.author_name || "your doctor"} · version {n.version}{n.amend_reason ? ` (${n.amend_reason.replace(/_/g, " ")})` : ""}</small>
                 </div>
                 <button className="btn ghost" onClick={() => void show(n.id)}>Read</button>
@@ -43,7 +44,7 @@ export function MyNotes() {
         </Card>
         {open && (
           <Card title={`Visit on ${open.note_date}`}>
-            <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }} aria-label="Note text">{open.body}</pre>
+            <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }} aria-label="Note text">{open.erased ? "The text of this note was erased when the time the NHS keeps notes ran out." : open.body}</pre>
             {open.addenda && open.addenda.length > 0 && (
               <div role="region" aria-label="Addenda" style={{ marginTop: 8 }}>
                 <b>Added later by your doctor</b>

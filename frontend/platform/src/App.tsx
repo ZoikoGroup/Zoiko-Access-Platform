@@ -14,6 +14,8 @@ import { Planned } from "./pages/Planned";
 import { Hazards } from "./pages/Hazards";
 import { Incidents } from "./pages/Incidents";
 import { Matrix } from "./pages/Matrix";
+import { CodeMaps } from "./pages/CodeMaps";
+import { DeliveryAttempts } from "./pages/DeliveryAttempts";
 import { Connectors } from "./pages/Connectors";
 import { Packs } from "./pages/Packs";
 import { Readiness } from "./pages/Readiness";
@@ -90,6 +92,8 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "readiness") body = <Readiness canWrite={session.roles.some((r) => r.role === "R11")} canAttest={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "levels") body = <ServiceLevels />;
   else if (page === "connectors") body = <Connectors />;
+  else if (page === "codemaps") body = <CodeMaps />;
+  else if (page === "attempts") body = <DeliveryAttempts />;
   else if (page === "packs") body = <Packs canWrite={session.roles.some((r) => r.role === "R11")} canAttest={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "releases") body = <Releases canAdd={session.roles.some((r) => r.role === "R11")} />;
   else if (denied) body = <div className="notice">Your account is not allowed to use the platform console.</div>;

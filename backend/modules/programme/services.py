@@ -12,6 +12,7 @@ from typing import Any
 
 from django.db import IntegrityError, transaction
 
+from foundation import pagination
 from foundation.cell_context import require_context
 from foundation.crypto import blind_index
 from foundation.errors import ErrorCode, ZoikoError
@@ -156,6 +157,20 @@ def list_for_employer(*, employer_tenant_ref: str) -> list[dict[str, Any]]:
         employer_tenant_ref=employer_tenant_ref, **_scope()
     ).order_by("-created_at")
     return [employer_dict(r) for r in rows[:500]]
+
+
+def page_for_employer(
+    *, employer_tenant_ref: str, limit: int, cursor: str | None, actor_ref: str
+) -> tuple[list[dict[str, Any]], str | None]:
+    """One page of the employer's codes, newest first (DEV-320)."""
+    found, nxt = pagination.page(
+        ProgrammeLink.objects.filter(employer_tenant_ref=employer_tenant_ref, **_scope()),
+        limit=limit,
+        cursor=cursor,
+        actor=actor_ref,
+        lst="programme.codes",
+    )
+    return [employer_dict(r) for r in found], nxt
 
 
 def redeem(

@@ -404,3 +404,35 @@ def deliver_all_tenants(*, transport: Transport | None = None, limit: int = 50) 
             for key, value in deliver_due(transport=transport, limit=limit).items():
                 total[key] += value
     return total
+
+
+
+# ------------------------------------------------------------------ regional support (T-54)
+SUPPORT_FIELDS = (
+    "public_id", "event_type", "state", "attempts", "next_attempt_at", "last_status",
+    "last_error", "created_at", "delivered_at",
+)
+
+
+def support_attempts(limit: int = 50) -> dict[str, Any]:
+    """What Zoiko's regional support may see of this customer's delivery attempts (GHE-13 T-54,
+    DEV-328): counts by state, and the attempts not yet delivered with STATUS ONLY. Never the
+    message, its fingerprint, the address it goes to, or who registered it. Plus how many FHIR
+    messages are held for the customer's staff (a count only)."""
+    from .models import FhirQuarantine, FhirQuarantineState
+
+    rows = WebhookDelivery.objects.filter(**_scope())
+    counts = {state: rows.filter(state=state).count() for state in DeliveryState.values}
+    stuck = rows.exclude(state=DeliveryState.DELIVERED).order_by("next_attempt_at")
+    attempts = []
+    for d in stuck[: min(limit, 200)]:
+        full = {
+            "public_id": d.public_id, "event_type": d.event_type, "state": d.state,
+            "attempts": d.attempts, "next_attempt_at": d.next_attempt_at.isoformat(),
+            "last_status": d.last_status, "last_error": d.last_error,
+            "created_at": d.created_at.isoformat(),
+            "delivered_at": d.delivered_at.isoformat() if d.delivered_at else None,
+        }
+        attempts.append({k: full[k] for k in SUPPORT_FIELDS})
+    held = FhirQuarantine.objects.filter(state=FhirQuarantineState.HELD, **_scope()).count()
+    return {"counts": counts, "attempts": attempts, "fhir_held": held}

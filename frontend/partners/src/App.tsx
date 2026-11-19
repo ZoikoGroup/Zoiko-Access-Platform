@@ -4,6 +4,7 @@ import { changePassword, clearDisplayName, getDisplayName, getNameCheck, saveDis
 import { navFor, type PageId } from "./nav";
 import { Account } from "./Account";
 import { Documents } from "./pages/Documents";
+import { Sandbox } from "./pages/Sandbox";
 import { Home } from "./pages/Home";
 import { Keys } from "./pages/Keys";
 import { Webhooks } from "./pages/Webhooks";
@@ -58,6 +59,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (item.id === "keys") body = <Keys />;
   else if (item.id === "webhooks") body = <Webhooks />;
   else if (item.id === "documents") body = <Documents />;
+  else if (item.id === "sandbox") body = <Sandbox />;
   else if (item.id === "programme") body = <Programme />;
   else if (item.id === "plans") body = <Plans />;
   else body = <Home />;

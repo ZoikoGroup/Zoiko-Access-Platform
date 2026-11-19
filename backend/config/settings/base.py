@@ -44,7 +44,8 @@ ZOIKO_BUILD = env("ZOIKO_BUILD", "dev")
 METRICS_TOKEN = env("ZOIKO_METRICS_TOKEN", "")
 # Clinical workflow paths (review, handoff) stay unpublishable until this is "true" (DEV-132).
 WORKFLOW_CLINICAL_ENABLED = env("ZOIKO_WORKFLOW_CLINICAL", "").lower() == "true"
-CLINICAL_NOTES_ENABLED = env("ZOIKO_CLINICAL_NOTES", "").lower() == "true"  # DEV-304: off unless set
+# DEV-304: off unless set (DEV-324: development turns it on; production needs a safety sign-off)
+CLINICAL_NOTES_ENABLED = env("ZOIKO_CLINICAL_NOTES", "").lower() == "true"
 CLINICAL_REFERENCES_ENABLED = False  # pointers to records in a clinic's own system; off (DEV-041)
 if METRICS_TOKEN and len(METRICS_TOKEN) < 24:
     raise ValueError("ZOIKO_METRICS_TOKEN must be at least 24 characters (or empty to turn it off)")
@@ -85,6 +86,7 @@ INSTALLED_APPS = [
     "modules.exchange",
     "modules.claim",
     "modules.programme",
+    "modules.codemap",
     "modules.connector",
     "modules.bookingflow",
 ]

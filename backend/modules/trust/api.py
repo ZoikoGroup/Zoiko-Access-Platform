@@ -12,6 +12,7 @@ from .auth import (
     revoke_sessions,
     set_password,
 )
+from .death import death_dates, death_of, record_death, withdraw_death
 from .dev_auth import Authenticated, authenticate
 from .directory import actor_labels, counts, inactive_actors, patient_registry, staff_directory
 from .display_names import (
@@ -103,6 +104,7 @@ from .releases import add_release, list_releases
 from .services import (
     MAX_RESPONSE_TARGET_HOURS,
     active_roles,
+    actors_with_role,
     assign_role,
     booking_system_of,
     clinicians_at,
@@ -136,6 +138,7 @@ from .staff_admin import (
 from .suspensions import cancel_change, decide_change, list_changes, request_change
 
 __all__ = [
+    "actors_with_role",
     "acknowledge_incident", "assign_incident", "incident_timeline", "on_call_staff",
     "ActorType", "Authenticated", "CareBasis", "INVITABLE_ROLES", "LoginResult", "Status",
     "TenantType", "active_roles", "actor_labels", "approve_proxy_grant", "assign_role",
@@ -166,6 +169,7 @@ __all__ = [
     "pending_family_count", "pending_family_requests",
     "reject_family_member", "request_family_member", "withdraw_family_member",
     "get_person_profiles",
+    "death_dates", "death_of", "record_death", "withdraw_death",
     "set_person_profile", "propose_proxy_grant", "reachable_persons", "register_actor",
     "register_patient", "relationship_verified", "request_password_reset", "resend_invitation",
     "EmailChange", "PasswordChange", "verified_login_email_of_person", "clear_display_name",

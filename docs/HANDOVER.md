@@ -42,12 +42,12 @@ Turn notes on only where the legal and clinical-safety reviews are done.
 
 ## What is not built
 
-- **Clinical:** orders with structured codes, structured result values, an addendum that does not replace a note, diagnosis and medicine fields, attachments, a note retention rule.
-- **Interoperability:** FHIR (decided, not started), HL7, imaging, terminology mapping, source amendments.
+- **Clinical:** result values for the patient and trends across results (the doctor sees values, DEV-330), diagnosis and medicine fields, attachments, the NHS "8 years after death" retention rule.
+- **Interoperability:** HL7 v2, imaging, a real adapter for a named lab (only the pretend one exists), re-running held messages once a code mapping is approved.
 - **Money and cover:** employer counts by kind of service (declined for now); claim attachments and remittance advice.
-- **Partners:** a sandbox with synthetic patients (certification stages are built, DEV-230, by the other session).
+- **Partners:** a pretend clinic for end-to-end sandbox orders; separate sandbox keys (the synthetic-patient sandbox is built, DEV-329).
 - **Channels:** text messages and push (email alerts for critical results and escalations are built, DEV-310).
-- **Operations:** more than one region, regional support view of delivery attempts, paging on lists other than the two request lists.
+- **Operations:** more than one region; paging on lists other than the two request lists. (Regional support's view of delivery attempts is built, DEV-328.)
 
 ## What only people can supply
 

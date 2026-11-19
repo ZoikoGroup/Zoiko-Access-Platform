@@ -27,6 +27,14 @@ class EmailPreference(CellScopedModel):
     # DEV-198: a keyed fingerprint of the number this login proved it holds, and when.
     phone_digest = models.CharField(max_length=64, blank=True, default="")
     phone_verified_at = models.DateTimeField(null=True, blank=True)
+    # DEV-334: a clinician's own mobile number for urgent alerts, ENCRYPTED, and whether they want
+    # a text when a result they ordered comes back critical.
+    alert_phone_enc = models.TextField(blank=True, default="")
+    critical_texts = models.BooleanField(default=False)
+    # DEV-336: an administrator's text when partner requests have been on hold over 3 days, at
+    # most once a day (the last day one was queued).
+    hold_texts = models.BooleanField(default=False)
+    hold_texted_on = models.DateField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="emailpref_scope_idx")]

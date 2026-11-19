@@ -4,6 +4,7 @@ This is the ONLY module other domain modules may import from `modules.comms`.
 Everything else (models, services, domain rules) is private. Enforced by import-linter.
 """
 
+from . import alert_phone
 from .exchange_alerts import alert_critical_result, send_escalation_alerts
 from .phone import confirm_code, phone_verified, send_code
 from .services import (
@@ -21,6 +22,7 @@ from .services import (
 from .subscribers import register_subscribers
 
 __all__ = [
+    "alert_phone",
     "alert_critical_result",
     "confirm_code",
     "email_notices_enabled",

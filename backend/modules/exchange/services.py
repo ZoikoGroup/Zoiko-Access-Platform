@@ -9,6 +9,7 @@ partner never reads a request sent to someone else; a row that does not name the
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 import secrets
@@ -18,7 +19,7 @@ from typing import Any
 from django.db import transaction
 from django.db.models import Q
 
-from foundation import pagination
+from foundation import fhir, pagination
 from foundation.cell_context import require_context
 from foundation.crypto import CryptoError, decrypt, encrypt
 from foundation.errors import ErrorCode, ZoikoError
@@ -33,8 +34,10 @@ from .models import (
     KIND_ROLE,
     MAX_SUMMARY,
     Consent,
+    Correction,
     ExchangeEvent,
     ExchangeRequest,
+    ExchangeResultVersion,
     Kind,
     ResultFlag,
     State,
@@ -100,6 +103,84 @@ def _clean_summary(value: Any) -> str:
     return text
 
 
+MAX_VALUES = 50
+VALUE_FLAGS = ("", "normal", "abnormal", "high", "low", "critical")
+_VALUE_KEYS = {"name", "code", "value", "unit", "low", "high", "flag"}
+
+
+def _plain(value: Any, field: str, most: int, *, required: bool = False) -> str:
+    if value in (None, "") and not required:
+        return ""
+    if not isinstance(value, str) or not 1 <= len(value.strip()) <= most or any(
+        ord(ch) < 32 for ch in value
+    ):
+        raise _bad(field)
+    return value.strip()
+
+
+def _number(value: Any, field: str) -> float | int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value:
+        raise _bad(field)
+    return value
+
+
+def _clean_values(values: Any) -> list[dict[str, Any]]:
+    """The measured values of a result (DEV-330): at most 50, each with a name (up to 80
+    characters), an optional SNOMED CT code, a value (a number, or a short text), an optional unit,
+    normal range and flag. Nothing else is accepted, so no free text can hide in them."""
+    if values in (None, []):
+        return []
+    if not isinstance(values, list) or len(values) > MAX_VALUES:
+        raise _bad("values")
+    out = []
+    for v in values:
+        if not isinstance(v, dict) or not set(v) <= _VALUE_KEYS:
+            raise _bad("values")
+        code = _plain(v.get("code"), "values", 18)
+        if code and not fhir.sctid_ok(code):
+            raise _bad("values")
+        value = v.get("value")
+        if isinstance(value, str):
+            value = _plain(value, "values", 40, required=True)
+        else:
+            value = _number(value, "values")
+            if value is None:
+                raise _bad("values")
+        flag = v.get("flag") or ""
+        if flag not in VALUE_FLAGS:
+            raise _bad("values")
+        out.append({
+            "name": _plain(v.get("name"), "values", 80, required=True),
+            "code": code,
+            "value": value,
+            "unit": _plain(v.get("unit"), "values", 20),
+            "low": _number(v.get("low"), "values"),
+            "high": _number(v.get("high"), "values"),
+            "flag": flag,
+        })
+    return out
+
+
+def _seal_values(row: ExchangeRequest, values: list[dict[str, Any]]) -> str:
+    if not values:
+        return ""
+    return encrypt(json.dumps(values), tenant_id=require_context().tenant_id,
+                   context=f"exchange:{row.public_id}:values")
+
+
+def _open_values(row: ExchangeRequest, sealed: str) -> list[dict[str, Any]]:
+    if not sealed:
+        return []
+    try:
+        found = json.loads(decrypt(sealed, tenant_id=row.tenant_id,
+                                   context=f"exchange:{row.public_id}:values"))
+    except (CryptoError, ValueError):
+        return []
+    return found if isinstance(found, list) else []
+
+
 def consent_of(r: ExchangeRequest) -> str:
     """pending, granted, declined, withdrawn, or expired (a granted one past its end)."""
     if (
@@ -139,12 +220,16 @@ def clinic_dict(r: ExchangeRequest) -> dict[str, Any]:
         "token": r.subject_token,
         "patient": r.person_ref,
         "label": r.label,
+        "order_code": r.order_code or None,
         "urgency": r.urgency,
         "state": r.state,
         "decision_note": r.decision_note,
         "result_ref": r.result_ref,
         "result_flag": r.result_flag,
         "has_summary": bool(r.result_summary_enc),
+        "has_values": bool(r.result_values_enc),
+        "result_version": r.result_version,
+        "result_correction": r.result_correction or None,
         "on_hold": r.on_hold_at is not None,
         "hold_owner": r.on_hold_owner_ref,
         "hold_escalated": r.on_hold_escalated_at is not None,
@@ -170,6 +255,8 @@ def partner_dict(r: ExchangeRequest) -> dict[str, Any]:
         "decision_note": r.decision_note,
         "result_ref": r.result_ref,
         "result_flag": r.result_flag,
+        "result_version": r.result_version,
+        "result_correction": r.result_correction or None,
         "on_hold": r.on_hold_at is not None,
         "consent": consent_of(r),
         "identity": shared_identity(r),
@@ -194,7 +281,45 @@ def patient_dict(r: ExchangeRequest) -> dict[str, Any]:
         "created_at": r.created_at.isoformat(),
         "result_at": r.result_at.isoformat() if r.result_at else None,
         "reviewed_at": r.reviewed_at.isoformat() if r.reviewed_at else None,
+        "values_ready": _patient_may_see_values(r, utc_now()),
         "person": r.person_ref,
+    }
+
+
+PATIENT_VALUES_DELAY_HOURS = 24  # after the doctor's review, as for notes (DEV-332)
+
+
+def _patient_may_see_values(r: ExchangeRequest, now: dt.datetime) -> bool:
+    """A patient sees a result's values only once a doctor has reviewed THIS version, and a day
+    after that, so the doctor can speak to them first (DEV-332, LEAD DECISION). A correction sends
+    the result back to review, so its values wait again."""
+    return (
+        r.state == State.REVIEWED
+        and r.reviewed_at is not None
+        and bool(r.result_values_enc)
+        and r.reviewed_at + dt.timedelta(hours=PATIENT_VALUES_DELAY_HOURS) <= now
+    )
+
+
+def patient_values(
+    *, request_ref: str, tenant_ref: str, person_refs: list[str], actor_ref: str,
+    clock: Clock | None = None,
+) -> dict[str, Any]:
+    """The measured values of a reviewed result, for the patient it is about (DEV-332). Not found
+    before the review and the delay, or for anyone else. The doctor's summary text is not shown:
+    it is written for clinicians. Every read is audited. Call with the platform tenant bound."""
+    row = ExchangeRequest.objects.filter(
+        public_id=request_ref, from_tenant_ref=tenant_ref, person_ref__in=person_refs, **_scope()
+    ).first()
+    if row is None or not _patient_may_see_values(row, utc_now(clock)):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    _audit(actor_ref, "exchange.values_read_by_patient", row)
+    return {
+        "id": row.public_id,
+        "label": row.label,
+        "reviewed_at": row.reviewed_at.isoformat() if row.reviewed_at else None,
+        "version": row.result_version,
+        "values": _open_values(row, row.result_values_enc),
     }
 
 
@@ -210,6 +335,7 @@ def send(
     label: Any,
     urgency: Any,
     actor_ref: str,
+    order_code: Any = "",
 ) -> dict[str, Any]:
     if kind not in Kind.values:
         raise _bad("kind")
@@ -225,6 +351,9 @@ def send(
         raise _bad("urgency")
     if not isinstance(person_ref, str) or not _PERSON.match(person_ref):
         raise _bad("patient")
+    code = order_code.strip() if isinstance(order_code, str) else None
+    if code is None or (code and not fhir.sctid_ok(code)):
+        raise _bad("order_code")
     if from_tenant_ref == to_tenant_ref:
         raise _bad("partner")
     with transaction.atomic():
@@ -247,6 +376,7 @@ def send(
             person_ref=person_ref,
             label=label.strip(),
             urgency=urgency,
+            order_code=code,
             created_by_ref=actor_ref,
             **_scope(),
         )
@@ -428,6 +558,7 @@ def partner_step(
     summary: Any = None,
     flag: Any = None,
     clock: Clock | None = None,
+    values: Any = None,
 ) -> dict[str, Any]:
     if step not in PARTNER_STEPS:
         raise ZoikoError(ErrorCode.NOT_FOUND)
@@ -445,6 +576,9 @@ def partner_step(
     elif step == "deliver" and flag not in (None, ""):
         if flag not in ResultFlag.values:
             raise _bad("flag")
+    clean_values = _clean_values(values) if step == "deliver" else []
+    if clean_values and flag not in ResultFlag.values:
+        raise _bad("flag")  # values always come with the lab's overall rating
     now = utc_now(clock)
     with transaction.atomic():
         row = (
@@ -469,6 +603,8 @@ def partner_step(
         if step == "deliver":
             row.result_ref, row.result_at = result_ref, now
             row.result_flag = str(flag or "")
+            row.result_version = 1
+            row.result_values_enc = _seal_values(row, clean_values)
             if clean_summary:
                 row.result_summary_enc = encrypt(
                     clean_summary,
@@ -725,14 +861,14 @@ def read_result(*, request_ref: str, tenant_ref: str, actor_ref: str) -> dict[st
     ).first()
     if row is None or row.state not in (State.RESULT_AVAILABLE, State.REVIEWED):
         raise ZoikoError(ErrorCode.NOT_FOUND)
-    if not row.result_summary_enc:
+    if not row.result_summary_enc and not row.result_values_enc:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     try:
         text = decrypt(
             row.result_summary_enc,
             tenant_id=row.tenant_id,
             context=f"exchange:{row.public_id}:result",
-        )
+        ) if row.result_summary_enc else ""
     except CryptoError:
         text = ""
     _audit(actor_ref, "exchange.result_read", row)
@@ -742,7 +878,125 @@ def read_result(*, request_ref: str, tenant_ref: str, actor_ref: str) -> dict[st
         "summary": text,
         "result_ref": row.result_ref,
         "delivered_at": row.result_at.isoformat() if row.result_at else None,
+        "values": _open_values(row, row.result_values_enc),
+        "version": row.result_version,
+        "correction": row.result_correction or None,
+        "earlier": _earlier_versions(row),
     }
+
+
+def _earlier_versions(row: ExchangeRequest) -> list[dict[str, Any]]:
+    """The versions a correction replaced, newest first, each exactly as delivered (DEV-325)."""
+    out = []
+    for v in ExchangeResultVersion.objects.filter(request=row, **_scope()).order_by("-version"):
+        try:
+            text = decrypt(
+                v.summary_enc, tenant_id=row.tenant_id, context=f"exchange:{row.public_id}:result"
+            ) if v.summary_enc else ""
+        except CryptoError:
+            text = ""
+        out.append({
+            "version": v.version,
+            "flag": v.result_flag,
+            "summary": text,
+            "values": _open_values(row, v.values_enc),
+            "result_ref": v.result_ref,
+            "correction": v.correction or None,
+            "delivered_at": v.delivered_at.isoformat() if v.delivered_at else None,
+            "reviewed": v.reviewed_at is not None,
+            "replaced_at": v.created_at.isoformat(),
+        })
+    return out
+
+
+def correct_result(
+    *,
+    request_ref: str,
+    tenant_ref: str,
+    actor_ref: str,
+    result_ref: Any,
+    summary: Any = None,
+    flag: Any = None,
+    correction: Any = Correction.CORRECTED,
+    clock: Clock | None = None,
+    values: Any = None,
+) -> dict[str, Any]:
+    """The lab sends a later version of a result it already delivered (DEV-325, FHIR step 5). The
+    current version is kept as it was (ExchangeResultVersion) and the new one replaces it. The
+    result goes back to "result available": a clinician must review the new version, even if the
+    old one was reviewed. Sending the same version twice changes nothing. It needs no new
+    agreement from the patient: a correction to a result already given must always reach the
+    doctor. Call with the platform tenant bound."""
+    if correction not in Correction.values:
+        raise _bad("correction")
+    if not isinstance(result_ref, str) or not _RESULT.match(result_ref):
+        raise _bad("result_ref")
+    clean_summary = _clean_summary(summary) if summary not in (None, "") else ""
+    clean_values = _clean_values(values)
+    if flag not in ResultFlag.values:
+        raise _bad("flag")  # a correction always says how the lab now rates the result
+    now = utc_now(clock)
+    with transaction.atomic():
+        row = (
+            ExchangeRequest.objects.select_for_update()
+            .filter(public_id=request_ref, to_tenant_ref=tenant_ref, **_scope())
+            .first()
+        )
+        if row is None:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        if row.state not in (State.RESULT_AVAILABLE, State.REVIEWED):
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)  # nothing delivered yet to correct
+        current = ""
+        if row.result_summary_enc:
+            try:
+                current = decrypt(
+                    row.result_summary_enc,
+                    tenant_id=row.tenant_id,
+                    context=f"exchange:{row.public_id}:result",
+                )
+            except CryptoError:
+                current = ""
+        if (row.result_ref, row.result_flag, current, row.result_correction,
+                _open_values(row, row.result_values_enc)) == (
+            result_ref, flag, clean_summary, correction, clean_values
+        ):
+            return {**partner_dict(row), "changed": False}  # the same correction again
+        ExchangeResultVersion.objects.create(
+            request=row,
+            version=max(row.result_version, 1),
+            result_ref=row.result_ref,
+            result_flag=row.result_flag,
+            summary_enc=row.result_summary_enc,
+            values_enc=row.result_values_enc,
+            delivered_at=row.result_at,
+            delivered_by_ref=row.responded_by_ref,
+            correction=row.result_correction,
+            reviewed_by_ref=row.reviewed_by_ref,
+            reviewed_at=row.reviewed_at,
+            replaced_by_ref=actor_ref,
+            **_scope(),
+        )
+        row.result_version = max(row.result_version, 1) + 1
+        row.result_correction = correction
+        row.result_ref, row.result_at, row.result_flag = result_ref, now, flag
+        row.result_summary_enc = (
+            encrypt(
+                clean_summary,
+                tenant_id=require_context().tenant_id,
+                context=f"exchange:{row.public_id}:result",
+            )
+            if clean_summary
+            else ""
+        )
+        row.result_values_enc = _seal_values(row, clean_values)
+        row.state = State.RESULT_AVAILABLE
+        row.reviewed_by_ref, row.reviewed_at = "", None
+        row.responded_by_ref = actor_ref
+        row.entity_version += 1
+        row.save()
+        _event(row, "correct", "partner", actor_ref)
+        _audit(actor_ref, "exchange.result_corrected", row)
+        return {**partner_dict(row), "changed": True}
 
 
 def critical_target(*, request_ref: str, tenant_ref: str) -> dict[str, str] | None:
@@ -759,3 +1013,52 @@ def critical_target(*, request_ref: str, tenant_ref: str) -> dict[str, str] | No
     if row is None:
         return None
     return {"clinic": row.from_tenant_ref, "orderer": row.created_by_ref}
+
+
+ORDER_OPERATION = "exchange.order"
+
+
+def order_to_send(*, request_ref: str, tenant_ref: str) -> dict[str, Any] | None:
+    """What goes to the lab's own system once the patient has agreed (DEV-323): references only
+    (the request, the clinic's order number, the SNOMED CT code, the kind and urgency, and when the
+    agreement was given). None when there is nothing to send: no code, or no current agreement.
+    The FHIR ServiceRequest itself is built from these by the adapter at send time
+    (`foundation.fhir.service_request`). Call with the platform tenant bound."""
+    row = ExchangeRequest.objects.filter(
+        public_id=request_ref, from_tenant_ref=tenant_ref, **_scope()
+    ).first()
+    if (
+        row is None
+        or not row.order_code
+        or consent_of(row) != Consent.GRANTED
+        or row.consent_at is None
+        or row.state not in OPEN_STATES
+    ):
+        return None
+    return {
+        "partner": row.to_tenant_ref,
+        "payload": {
+            "request_ref": row.public_id,
+            "order_no": row.subject_token,
+            "order_code": row.order_code,
+            "kind": row.kind,
+            "urgency": row.urgency,
+            "consent_at": row.consent_at.isoformat(),
+        },
+        "key": f"order-{row.public_id}-{int(row.consent_at.timestamp())}",
+    }
+
+
+def delivery_lookup(request_ref: str) -> dict[str, str] | None:
+    """For the FHIR intake (modules/integration/fhir.py): who a request is from and to, and its
+    state, so a partner's report can be matched to it. Kept here so no other module reads the
+    exchange's tables directly (the import contract). Call with the platform tenant bound: the
+    query is scoped to it, so it works under row-level security (DEV-326)."""
+    row = ExchangeRequest.objects.filter(public_id=request_ref, **_scope()).first()
+    if row is None:
+        return None
+    return {
+        "from_tenant_ref": row.from_tenant_ref,
+        "to_tenant_ref": row.to_tenant_ref,
+        "state": str(row.state),
+    }

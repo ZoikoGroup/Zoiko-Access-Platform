@@ -14,6 +14,7 @@ import { Providers } from "./pages/Providers";
 import { PartnerSystems } from "./pages/PartnerSystems";
 import { Retention } from "./pages/Retention";
 import { Settings } from "./pages/Settings";
+import { AlertPhone } from "./pages/AlertPhone";
 import { WorkQueue } from "./pages/WorkQueue";
 import { FamilyRequests } from "./pages/FamilyRequests";
 import { Messages } from "./pages/Messages";
@@ -93,7 +94,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "providers") body = <Providers staff={staff} />;
   else if (page === "retention") body = <Retention staff={staff} />;
   else if (page === "partner-systems") body = <PartnerSystems staff={staff} />;
-  else if (page === "settings") body = <Settings staff={staff} />;
+  else if (page === "settings") body = <><Settings staff={staff} /><AlertPhone admin={session.roles.some((r) => r.role === "R13")} /></>;
   else if (page === "workflows") body = <WorkQueue staff={staff} onGo={setPage} />;
   else if (page === "messages") body = <Messages staff={staff} />;
   else if (page === "family") body = <FamilyRequests staff={staff} />;

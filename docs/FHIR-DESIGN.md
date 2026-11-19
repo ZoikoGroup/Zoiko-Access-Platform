@@ -4,7 +4,7 @@ Written 2026-11-17; updated 2026-11-18. Steps 1 and 2 are built (validator, quar
 
 **Decided 18 Nov 2026:** the first country profile is **UK Core**, pinned to FHIR R4 (4.0.1). The
 lead also chose the UK as the first market and confirmed that clinical notes stay switched off until
-a clinical-safety review. Stage 1 and 2 of the plan below are built; UK Core checks are step 4.
+a clinical-safety review. Stage 1 and 2 of the plan below are built; UK Core checks are step 4: the first part (SNOMED CT codes, the Verhoeff check, no NHS number in a message) is built as DEV-319; the intake does not apply it yet.
 
 ## Scope of the first slice
 
@@ -17,7 +17,7 @@ Only what the exchange already carries, in the standard's shape:
 | A claim | not in the first slice (needs `Claim` and payer profiles) | later |
 
 Not in the first slice: `Patient` as a shared resource (a partner learns only name and birth date after the patient
-agrees, DEV-300, and that stays as it is), `Observation` values, `Encounter`, `Condition`, `MedicationRequest`.
+agrees, DEV-300, and that stays as it is), `Encounter`, `Condition`, `MedicationRequest`. (`Observation` values were added later, in a `Bundle` with their report, for the treating doctor only: DEV-330.)
 
 ## Decisions to make
 
@@ -54,9 +54,9 @@ agrees, DEV-300, and that stays as it is), `Observation` values, `Encounter`, `C
 
 1. A validator for the pinned profile and the quarantine table with its staff screen (no clinical effect yet).
 2. Receive `DiagnosticReport` for an existing request, mapped onto "result available".
-3. Send `ServiceRequest` to a certified partner.
-4. Code mapping with the review queue for unmapped codes.
-5. Corrections and versions.
+3. Send `ServiceRequest` to a certified partner. **Built (DEV-323):** sent when the patient agrees, to the system the lab chose; references only.
+4. Code mapping with the review queue for unmapped codes. **Built (DEV-319, DEV-321, DEV-322):** UK Core checks on the intake and two-person mapping; approved mappings are used by the intake (DEV-327).
+5. Corrections and versions. **Built (DEV-325):** a correction is a new version; earlier versions are kept and readable by the treating doctor; the result is reviewed again; a withdrawn result is held for a person.
 
 Each step adds tests that a bad resource creates no state, that the same resource twice has one effect, and that a
 partner not certified for the profile is refused.

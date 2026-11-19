@@ -75,6 +75,11 @@ class ExchangeRequest(CellScopedModel):
     subject_token = models.CharField(max_length=40)  # the clinic's own order number
     person_ref = models.CharField(max_length=22)  # the clinic's patient (clinic only)
     label = models.CharField(max_length=80)  # what is asked, in plain words
+    # What is asked, as a SNOMED CT concept, when the clinic gives one (DEV-323). Only a coded
+    # order can be sent to a lab's own system; an uncoded one stays in the partner app.
+    order_code = models.CharField(
+        max_length=18, blank=True, default=""
+    )  # what is asked, in plain words
     urgency = models.CharField(max_length=10, choices=Urgency.choices, default=Urgency.ROUTINE)
     state = models.CharField(max_length=20, choices=State.choices, default=State.REQUESTED)
     created_by_ref = models.CharField(max_length=22)
@@ -106,6 +111,13 @@ class ExchangeRequest(CellScopedModel):
     )
     on_hold_escalated_at = models.DateTimeField(null=True, blank=True)
     on_hold_owner_ref = models.CharField(max_length=22, blank=True, default="")
+    # Which version of the result this is (DEV-325, FHIR step 5): 1 for the first delivery, one
+    # higher for each correction. Earlier versions are kept in ExchangeResultVersion.
+    result_version = models.PositiveSmallIntegerField(default=0)
+    # The measured values of the result (DEV-330, LEAD DECISION): name, code, value, unit, normal
+    # range and flag, as JSON, ENCRYPTED; only the ordering clinic's treating doctors open them.
+    result_values_enc = models.TextField(blank=True, default="")
+    result_correction = models.CharField(max_length=10, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [
@@ -113,6 +125,39 @@ class ExchangeRequest(CellScopedModel):
             models.Index(fields=["from_tenant_ref", "state"], name="exchange_from_idx"),
             models.Index(fields=["to_tenant_ref", "state"], name="exchange_to_idx"),
         ]
+
+
+class Correction(models.TextChoices):
+    """Why a lab sent a later version of a result (the FHIR DiagnosticReport statuses)."""
+
+    AMENDED = "amended", "Amended"
+    CORRECTED = "corrected", "Corrected"
+    APPENDED = "appended", "Added to"
+
+
+class ExchangeResultVersion(CellScopedModel):
+    """An earlier version of a delivered result, kept exactly as it was when a correction replaced
+    it (DEV-325, T-30). Never changed or deleted. The summary stays ENCRYPTED, bound to its
+    request as when it was delivered."""
+
+    request = models.ForeignKey(ExchangeRequest, on_delete=models.PROTECT, related_name="+")
+    version = models.PositiveSmallIntegerField()
+    result_ref = models.CharField(max_length=40)
+    result_flag = models.CharField(max_length=10, blank=True, default="")
+    summary_enc = models.TextField(blank=True, default="")
+    values_enc = models.TextField(blank=True, default="")  # DEV-330, encrypted as delivered
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    delivered_by_ref = models.CharField(max_length=22, blank=True, default="")
+    correction = models.CharField(max_length=10, blank=True, default="")  # how THIS one came
+    reviewed_by_ref = models.CharField(max_length=22, blank=True, default="")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    replaced_by_ref = models.CharField(max_length=22)  # who sent the correction
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["request", "version"], name="exchange_result_version")
+        ]
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="exchange_resver_scope_idx")]
 
 
 class ExchangeEvent(CellScopedModel):

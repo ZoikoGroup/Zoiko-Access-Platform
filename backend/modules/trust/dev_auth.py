@@ -61,6 +61,11 @@ def authenticate(authorization_header: str | None) -> Authenticated:
             issuer=issuer, subject=subject, status=Status.ACTIVE,
         ).first()
         roles = tuple(r for r, _ in active_roles(actor.public_id)) if actor else ()
+        if actor is not None:
+            from .auth import login_of_deceased
+
+            if login_of_deceased(actor):  # DEV-335: the patient is recorded as having died
+                actor = None
     if actor is None:
         raise ZoikoError(ErrorCode.UNAUTHENTICATED)  # same answer for every failure: no hints
     return Authenticated(
