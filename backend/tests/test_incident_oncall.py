@@ -160,3 +160,24 @@ def test_the_incident_screens_can_reach_the_on_call_api(world):
         "recorded", "assigned", "acknowledged"
     ]
 
+
+
+def test_the_platform_app_names_who_is_on_call_acknowledges_and_reads_the_timeline(world):
+    ref = made(world, severity="sev1")
+    staff = json.loads(world.client.get(
+        "/api/v1/platform/incidents/on-call-staff",
+        **world.header(world.tenant_public_id, "sam")).content)["staff"]
+    assert {p["id"] for p in staff} >= {world.tess, world.iyer}
+    r = post(world, f"platform/incidents/{ref}/assign", {"owner": world.tess,
+                                                          "deputy": world.iyer})
+    assert r.status_code == 200 and json.loads(r.content)["incident"]["owner_ref"] == world.tess
+    assert post(world, f"platform/incidents/{ref}/assign", {"owner": world.tess,
+                                                            "deputy": world.iyer},
+                "iyer").status_code == 403                # only support names them
+    assert post(world, f"platform/incidents/{ref}/acknowledge", {}, "sam").status_code == 403
+    done = post(world, f"platform/incidents/{ref}/acknowledge", {}, "tess")
+    assert json.loads(done.content)["incident"]["acknowledged_at"]
+    timeline = json.loads(world.client.get(
+        f"/api/v1/platform/incidents/{ref}/timeline",
+        **world.header(world.tenant_public_id, "sam")).content)["timeline"]
+    assert [e["kind"] for e in timeline] == ["recorded", "assigned", "acknowledged"]
