@@ -19,3 +19,10 @@ class CommsConfig(AppConfig):
         from .digest import DIGEST_EVERY_SECONDS, send_late_digests
 
         periodic.register("comms.late_digest", DIGEST_EVERY_SECONDS, send_late_digests)
+
+        # A patient-record merge moves this module's rows from one patient to the other.
+        from foundation import person_refs
+
+        from .models import Notification
+
+        person_refs.register("comms.Notification", Notification)

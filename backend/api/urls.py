@@ -153,6 +153,8 @@ urlpatterns = [
     path("staff/billing", billing.staff_billing),
     path("staff/matches", identity.staff_matches),
     path("staff/matches/<str:case_id>/decide", identity.staff_match_decide),
+    path("staff/matches/<str:case_id>/merge", identity.staff_match_merge),
+    path("staff/matches/<str:case_id>/unmerge", identity.staff_match_unmerge),
     path("people/<str:person_id>/identity", identity.person_identity),
     path("people/<str:person_id>/identity/check", identity.person_identity_check),
     path("people/<str:person_id>/identity/withdraw", identity.person_identity_withdraw),

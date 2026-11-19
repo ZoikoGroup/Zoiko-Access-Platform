@@ -4,7 +4,7 @@ import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
 import type {
-  BillingData, BookingSystem, DeveloperClient, IdentityData, MatchesData, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
+  BillingData, BookingSystem, DeveloperClient, IdentityData, MatchesData, MergeInfo, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
 } from "./consoleTypes";
 import type {
   ClinicSettings, CoverageRow, ExchangeRequest, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, RightsCase, FeeRow, InvoiceRow, Escalation, WorkflowHistory, WorkflowInstance, InboundEvent, PartnerClient, WebhookDelivery, WebhookEndpoint, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
@@ -407,6 +407,10 @@ export const getJourneyHistory = async (id: string) =>
 
 export const getBilling = () => v1<BillingData>("staff/billing");
 export const getMatches = () => v1<MatchesData>("staff/matches");
+export const mergeMatch = (id: string, primary = "") =>
+  post<{ merge: MergeInfo }>(`staff/matches/${enc(id)}/merge`, primary ? { primary } : {});
+export const unmergeMatch = (id: string) =>
+  post<{ merge: MergeInfo }>(`staff/matches/${enc(id)}/unmerge`);
 export const decideMatch = (id: string, action: string, note = "") =>
   post(`staff/matches/${enc(id)}/decide`, { action, note });
 export const getIdentity = (person: string) => v1<IdentityData>(`people/${enc(person)}/identity`);

@@ -14,3 +14,10 @@ class CoverageConfig(AppConfig):
         from .rotation import rotate
 
         rotation.register("coverage", rotate)
+
+        # A patient-record merge moves this module's rows from one patient to the other.
+        from foundation import person_refs
+
+        from .models import Coverage
+
+        person_refs.register("coverage.Coverage", Coverage)

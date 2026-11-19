@@ -43,12 +43,14 @@ def staff_matches(request: HttpRequest, auth: trust.Authenticated) -> HttpRespon
     with tenant_transaction():
         cases = trust.list_cases(org)
         labels = trust.actor_labels()
+        merged = trust.merge_of([c["public_id"] for c in cases])
     for case in cases:
         for step in case["history"]:
             step["by"] = _who(step.pop("actor_ref"), labels)
         first = case.pop("first_reviewer_ref")
         case["first_reviewer"] = labels.get(first, "") if first else ""
         case["you_agreed_first"] = bool(first) and first == auth.actor_public_id
+        case["merge"] = merged.get(case["public_id"])
     return JsonResponse({"cases": cases, "can_decide": can_decide})
 
 
@@ -64,6 +66,37 @@ def staff_match_decide(
             case_ref=case_id, action=text(body, "action"), actor_public_id=auth.actor_public_id,
             organization_ref=org, note=text(body, "note", required=False))
     return JsonResponse({"case": {"id": done["public_id"], "state": done["state"]}})
+
+
+@endpoint("POST")
+def staff_match_merge(
+    request: HttpRequest, auth: trust.Authenticated, case_id: str
+) -> HttpResponse:
+    """Merge the two records of a confirmed link into one. A separate step from confirming. The
+    reviewer may name which record survives (`primary`); otherwise the older one does."""
+    org = _org(auth)
+    _authorize(auth, "write:person", organization_public_id=org)
+    body = json_body(request)
+    with tenant_transaction():
+        done = trust.merge_people(
+            case_ref=case_id, actor_public_id=auth.actor_public_id, organization_ref=org,
+            primary_ref=text(body, "primary", required=False))
+    return JsonResponse({"case": {"id": done["case"]["public_id"], "state": done["case"]["state"]},
+                         "merge": done["merge"]})
+
+
+@endpoint("POST")
+def staff_match_unmerge(
+    request: HttpRequest, auth: trust.Authenticated, case_id: str
+) -> HttpResponse:
+    """Undo a merge: what it moved goes back, and the case returns to review."""
+    org = _org(auth)
+    _authorize(auth, "write:person", organization_public_id=org)
+    with tenant_transaction():
+        done = trust.unmerge_people(
+            case_ref=case_id, actor_public_id=auth.actor_public_id, organization_ref=org)
+    return JsonResponse({"case": {"id": done["case"]["public_id"], "state": done["case"]["state"]},
+                         "merge": done["merge"]})
 
 
 # --------------------------------------------------------------------------- identity checks

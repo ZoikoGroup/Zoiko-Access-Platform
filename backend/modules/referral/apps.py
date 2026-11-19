@@ -12,3 +12,10 @@ class ReferralConfig(AppConfig):
         from .subscribers import register_subscribers
 
         register_subscribers()
+
+        # A patient-record merge moves this module's rows from one patient to the other.
+        from foundation import person_refs
+
+        from .models import Referral
+
+        person_refs.register("referral.Referral", Referral)

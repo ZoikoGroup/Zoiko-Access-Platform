@@ -14,3 +14,10 @@ class MessagingConfig(AppConfig):
         from .rotation import rotate
 
         rotation.register("messaging", rotate)
+
+        # A patient-record merge moves this module's rows from one patient to the other.
+        from foundation import person_refs
+
+        from .models import Thread
+
+        person_refs.register("messaging.Thread", Thread)

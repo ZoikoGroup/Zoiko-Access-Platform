@@ -16,3 +16,10 @@ class WaitlistConfig(AppConfig):
 
         register_subscribers()
         periodic.register("waitlist.expire_offers", EXPIRE_EVERY_SECONDS, expire_all_tenants)
+
+        # A patient-record merge moves this module's rows from one patient to the other.
+        from foundation import person_refs
+
+        from .models import WaitEntry
+
+        person_refs.register("waitlist.WaitEntry", WaitEntry)

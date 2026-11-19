@@ -1,8 +1,9 @@
 """Possible duplicate patient records, and the people who decide (GHE-06 sections 04 and W03).
 
 Rules this follows, from the specification:
-- A possible match is HELD for a human. Nothing is ever merged automatically, and no data is merged
-  at all: a confirmed link records the decision and nothing else.
+- A possible match is HELD for a human. Nothing is ever merged automatically: a confirmed link
+  records the decision and nothing else. Merging the records is a separate, deliberate step that can
+  be undone (identity_merge.py).
 - Two reviewers when it is critical (a wrong link could harm someone), and nobody reviews a case
   about themselves or someone they act for (separation of duties).
 - "Not the same" is remembered: the pair is not proposed again unless new evidence appears.
@@ -41,7 +42,9 @@ from .models import (
     MatchCase,
     MatchDecision,
     MatchState,
+    MergeState,
     Person,
+    PersonMerge,
     PersonProfile,
     PersonSite,
     ProxyGrant,
@@ -398,8 +401,9 @@ def decide(
             else:
                 raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         else:                                                   # split
-            if state != MatchState.LINKED:
-                raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+            if state != MatchState.LINKED or PersonMerge.objects.filter(
+                    case=case, state=MergeState.MERGED, **_scope()).exists():
+                raise ZoikoError(ErrorCode.CONFLICT_VERSION)    # a merged link is undone first
             new, case.first_reviewer_ref = MatchState.SPLIT_REVIEW, ""
         case.state = new
         case.entity_version += 1

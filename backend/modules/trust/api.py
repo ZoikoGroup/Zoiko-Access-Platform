@@ -53,6 +53,9 @@ from .identity_match import (
     open_case_people,
     rebuild_match_keys,
 )
+from .identity_merge import canonical_person_ref, merge_of
+from .identity_merge import merge as merge_people
+from .identity_merge import unmerge as unmerge_people
 from .identity_proof import history as identity_history
 from .identity_proof import record_check as record_identity_check
 from .identity_proof import refresh_expired as refresh_expired_identities
@@ -147,6 +150,7 @@ __all__ = [
     "link_person_to_site", "people_at_site", "person_at_site", "end_care_links",
     "MAX_RESPONSE_TARGET_HOURS", "response_target_hours", "set_response_target",
     "booking_system_of", "set_booking_system",
+    "canonical_person_ref", "merge_of", "merge_people", "unmerge_people",
     "decide_match", "identity_history", "identity_status_of", "linked_people", "list_cases",
     "open_case_people", "rebuild_match_keys", "record_identity_check",
     "refresh_expired_identities", "withdraw_identity_check",
