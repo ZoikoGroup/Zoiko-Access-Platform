@@ -36,6 +36,7 @@ from modules.integration import api as integration
 from modules.jurisdiction import api as jurisdiction
 from modules.messaging import api as messaging
 from modules.orchestration import api as orchestration
+from modules.packs import api as packs
 from modules.policy import api as policy
 from modules.readiness import api as readiness
 from modules.referral import api as referral
@@ -1773,6 +1774,10 @@ def platform_packs(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
             "packs": [_pack_json(r, labels) for r in rows],
             "can_write": "R11" in auth.roles,
             "can_attest": "R12" in auth.roles,
+            "enforced": settings.PACKS_ENFORCED,
+            "country": settings.ZOIKO_COUNTRY,
+            "country_capabilities": sorted(packs.enabled_capabilities(settings.ZOIKO_COUNTRY))
+            if settings.ZOIKO_COUNTRY else [],
         }
     )
 

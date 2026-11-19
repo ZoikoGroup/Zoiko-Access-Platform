@@ -398,8 +398,9 @@ def test_registrations_are_capped_per_organization(site, monkeypatch):
 def test_the_sign_in_options_list_only_what_is_really_set_up(site, settings):
     client = Client()
     assert client.get("/api/v1/auth/providers").json() == {
-        "google": {"enabled": False, "client_id": None}}
+        "google": {"enabled": False, "client_id": None}, "sso": []}
     settings.GOOGLE_CLIENT_ID = "example-client-id.apps.googleusercontent.com"
+    settings.GOOGLE_CLIENT_SECRET = "example-secret"
     assert client.get("/api/v1/auth/providers").json()["google"]["enabled"] is True
     assert client.post("/api/v1/auth/providers").status_code == 405
 
