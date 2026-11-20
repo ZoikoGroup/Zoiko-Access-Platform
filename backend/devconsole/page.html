@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zoiko Access Dev Console</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1c2330; --muted: #5d6778; --line: #dfe3ea;
+    --accent: #2457d6; --ok: #137a43; --okbg: #e3f5ea; --bad: #b3261e; --badbg: #fdebea;
+    --warn: #8a5a00; --warnbg: #fff4d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b2029; --ink: #e8ecf3; --muted: #9aa5b8; --line: #2c3341;
+      --accent: #7fa4ff; --ok: #6bd49a; --okbg: #173325; --bad: #ff8e86; --badbg: #3a1c1a;
+      --warn: #f0c36a; --warnbg: #3a2e12;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--card);
+           display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  header h1 { font-size: 18px; margin: 0; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--warnbg);
+           color: var(--warn); font-weight: 600; }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px; display: grid; gap: 16px;
+         grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+            padding: 14px 16px; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { font-size: 15px; margin: 0 0 4px; }
+  p.hint { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 2px; }
+  input, select, button { font: inherit; padding: 7px 9px; border-radius: 7px;
+                          border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  input, select { width: 100%; }
+  button { cursor: pointer; background: var(--accent); color: #fff; border: 0; font-weight: 600;
+           margin-top: 10px; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button.small { padding: 3px 8px; margin: 0; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+  .row > * { flex: 1; min-width: 120px; }
+  .row > button { flex: 0 0 auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line);
+           vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  code, .mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px;
+          font-weight: 600; }
+  .pill.ok { background: var(--okbg); color: var(--ok); }
+  .pill.bad { background: var(--badbg); color: var(--bad); }
+  .pill.warn { background: var(--warnbg); color: var(--warn); }
+  #result { margin-top: 12px; padding: 12px; border-radius: 8px; display: none; }
+  #result.ok { background: var(--okbg); color: var(--ok); display: block; }
+  #result.bad { background: var(--badbg); color: var(--bad); display: block; }
+  #result b { font-size: 18px; display: block; }
+  #toast { position: fixed; bottom: 16px; right: 16px; max-width: 360px; padding: 10px 14px;
+           border-radius: 8px; display: none; font-size: 13px; z-index: 5; }
+  #toast.ok { background: var(--okbg); color: var(--ok); display: block; }
+  #toast.bad { background: var(--badbg); color: var(--bad); display: block; }
+  .scroll { max-height: 320px; overflow: auto; }
+  .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Zoiko Access Dev Console</h1>
+  <span class="badge">DEV ONLY - no login, never expose</span>
+  <span class="mono" id="cell"></span>
+  <span style="flex:1"></span>
+  <div style="min-width:260px">
+    <select id="tenant" aria-label="Tenant"></select>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>1. Tenant</h2>
+    <p class="hint">A tenant is one customer inside this cell. Everything below happens inside the selected tenant, and no other tenant can see it.</p>
+    <label for="tenant-name">New tenant name</label>
+    <input id="tenant-name" placeholder="Alpha Clinics">
+    <div class="row">
+      <button id="make-tenant">Create tenant</button>
+      <button id="demo" class="ghost" title="Creates a tenant with 2 clinics and 4 people">Load demo data</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Organization</h2>
+    <p class="hint">A clinic, lab or company inside the tenant. Roles are held <i>at</i> an organization.</p>
+    <label for="org-name">Name</label>
+    <input id="org-name" placeholder="North Clinic">
+    <button id="make-org" data-needs-tenant>Create organization</button>
+  </section>
+
+  <section>
+    <h2>3. Person (actor)</h2>
+    <p class="hint">Someone who can log in. Registering the same identity twice returns the same person.</p>
+    <div class="row">
+      <div><label for="actor-type">Type</label><select id="actor-type"></select></div>
+      <div><label for="actor-subject">Login id (subject)</label><input id="actor-subject" placeholder="priya@example.org"></div>
+    </div>
+    <button id="make-actor" data-needs-tenant>Register person</button>
+  </section>
+
+  <section>
+    <h2>4. Give a role</h2>
+    <p class="hint">A role says what someone may do <i>at an organization</i>. By itself it grants nothing; the access check in step 5 decides.</p>
+    <div class="row">
+      <div><label for="role-actor">Person</label><select id="role-actor"></select></div>
+      <div><label for="role-org">Organization</label><select id="role-org"></select></div>
+      <div><label for="role-code">Role</label><select id="role-code"></select></div>
+    </div>
+    <button id="assign" data-needs-tenant>Assign role</button>
+  </section>
+
+  <section class="wide">
+    <h2>5. Patients and who may reach them</h2>
+    <p class="hint">A patient is a record, separate from a login. A clinician needs a care relationship, a guardian needs an approved proxy, and a patient reaches their own record through their login. Without a link, step 6 refuses patient data.</p>
+    <div class="row">
+      <button id="make-person" data-needs-tenant>Create patient</button>
+      <div><label for="l-person">Patient</label><select id="l-person"></select></div>
+      <div><label for="l-actor">Their login (a patient-type person)</label><select id="l-actor"></select></div>
+      <button id="link-person" data-needs-tenant>Link login</button>
+    </div>
+    <div class="row">
+      <div><label for="c-actor">Clinician</label><select id="c-actor"></select></div>
+      <div><label for="c-person">Patient</label><select id="c-person"></select></div>
+      <div><label for="c-basis">Reason</label><select id="c-basis"></select></div>
+      <button id="care-start" data-needs-tenant>Start care relationship</button>
+    </div>
+    <div class="row">
+      <div><label for="x-delegate">Guardian or caregiver</label><select id="x-delegate"></select></div>
+      <div><label for="x-person">Patient</label><select id="x-person"></select></div>
+      <div><label for="x-type">Relationship</label><input id="x-type" value="parent"></div>
+      <div><label for="x-approver">Approved by (someone else)</label><select id="x-approver"></select></div>
+      <button id="proxy-propose" data-needs-tenant>Propose proxy</button>
+    </div>
+    <div class="scroll" id="links" style="margin-top:10px"></div>
+  </section>
+
+  <section class="wide">
+    <h2>6. Access check - may this person do this?</h2>
+    <p class="hint">Asks the real policy engine. Default is deny. Every check is recorded and audited, allowed or not.</p>
+    <div class="row">
+      <div><label for="d-actor">Who</label><select id="d-actor"></select></div>
+      <div><label for="d-op">Operation</label><select id="d-op"></select></div>
+      <div><label for="d-purpose">Purpose</label><select id="d-purpose"></select></div>
+      <div><label for="d-org">At organization</label><select id="d-org"></select></div>
+      <div><label for="d-subject">Patient (when it concerns one)</label><select id="d-subject"></select></div>
+      <button id="decide" data-needs-tenant>Check access</button>
+    </div>
+    <div class="chips" style="margin-top:10px" id="presets"></div>
+    <div id="result" role="status"></div>
+  </section>
+
+  <section class="wide">
+    <h2>People and roles</h2>
+    <div class="scroll" id="people"></div>
+  </section>
+
+  <section class="wide">
+    <h2>Access decisions (newest first)</h2>
+    <div class="scroll" id="decisions"></div>
+  </section>
+
+  <section class="wide">
+    <h2>Audit log <span id="chain" class="pill warn">not checked</span></h2>
+    <p class="hint">Each entry carries a fingerprint of the one before it. Changing an old entry would break the chain, and this badge would turn red.</p>
+    <div class="scroll" id="events"></div>
+  </section>
+</main>
+<div id="toast" role="alert"></div>
+
+<script>
+"use strict";
+const VERBS = ["read", "write", "attest"];
+const CLASSES = ["person","booking","referral","workflow","diagnostic","attestation","medication",
+  "coverage","billing","comms","evidence","catalog","partner","analytics","ops"];
+const PURPOSES = ["SELF_SERVICE","DIRECT_CARE","CONTINUITY_OF_CARE","OPERATIONS","PAYMENT_COVERAGE",
+  "PROGRAM_ADMIN","INTEGRATION","SUPPORT","SAFETY_REVIEW"];
+const ACTOR_TYPES = ["patient","clinician","facility_user","proxy","payer_user","employer_user",
+  "workload","support"];
+const REASONS = {
+  ALLOWED: "Every check passed.",
+  ACTOR_UNKNOWN: "No such person in this tenant.",
+  NO_ROLE: "This person holds no active role (none given, ended, or the person is suspended).",
+  UNKNOWN_OPERATION: "That operation is not one the system knows, so it is refused.",
+  HARD_PROHIBITION: "This role is never allowed this kind of data, whatever else is true.",
+  ROLE_NOT_PERMITTED: "The person's role does not include this action on this kind of data.",
+  PURPOSE_NOT_ALLOWED: "The stated purpose is not one this role may act under.",
+  ORG_REQUIRED: "This action needs an organization to be named.",
+  ORG_MISMATCH: "The person holds this role at a different organization.",
+  RELATIONSHIP_UNVERIFIED: "A verified link to the patient is needed, and none exists yet (patient links are not built, so this always denies).",
+};
+const PRESETS = [
+  ["Clinic ops books at their clinic", "R04", "write:booking", "OPERATIONS", "own", "none"],
+  ["Clinic ops books at the OTHER clinic", "R04", "write:booking", "OPERATIONS", "other", "none"],
+  ["Employer reads a patient record", "R08", "read:person", "PROGRAM_ADMIN", "own", "any"],
+  ["Employer reads billing summary", "R08", "read:billing", "PROGRAM_ADMIN", "own", "none"],
+  ["Support reads a patient record", "R11", "read:person", "SUPPORT", "own", "any"],
+  ["Clinician reads THEIR patient", "R03", "read:person", "DIRECT_CARE", "own", "linked"],
+  ["Clinician reads an UNRELATED patient", "R03", "read:person", "DIRECT_CARE", "own", "unlinked"],
+  ["Patient reads own record", "R01", "read:person", "SELF_SERVICE", "none", "linked"],
+  ["Patient reads another patient", "R01", "read:person", "SELF_SERVICE", "none", "unlinked"],
+  ["Guardian reads the child record", "R02", "read:person", "SELF_SERVICE", "none", "linked"],
+];
+
+const $ = (id) => document.getElementById(id);
+let state = { tenants: [], overview: null };
+
+function el(tag, props, ...kids) {
+  const node = document.createElement(tag);
+  Object.assign(node, props || {});
+  for (const k of kids.flat()) node.append(k);
+  return node;
+}
+function toast(text, ok) {
+  const t = $("toast");
+  t.className = ok ? "ok" : "bad";
+  t.textContent = text;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { t.className = ""; }, 4500);
+}
+async function call(action, body) {
+  const res = await fetch("/dev/api/" + action, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tenant: $("tenant").value, ...body }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const fields = data.fields ? " (" + data.fields.join(", ") + ")" : "";
+    throw new Error((data.title || "Request failed") + fields + (data.code ? " [" + data.code + "]" : ""));
+  }
+  return data;
+}
+async function run(button, work, success) {
+  if (button) button.disabled = true;
+  try {
+    const out = await work();
+    if (success) toast(success, true);
+    await refresh();
+    return out;
+  } catch (e) { toast(e.message, false); }
+  finally { if (button) button.disabled = false; }
+}
+function fill(select, items, keepValue) {
+  const old = keepValue ? select.value : "";
+  select.replaceChildren(...items.map(([value, label]) => el("option", { value, textContent: label })));
+  if (old && items.some(([v]) => v === old)) select.value = old;
+}
+function shortId(x) { return x ? x.slice(0, 8) + "…" : ""; }
+function table(headers, rows, emptyText) {
+  if (!rows.length) return el("div", { className: "empty", textContent: emptyText });
+  return el("table", {},
+    el("thead", {}, el("tr", {}, headers.map((h) => el("th", { textContent: h })))),
+    el("tbody", {}, rows.map((r) => el("tr", {}, r.map((c) =>
+      el("td", {}, c instanceof Node ? c : String(c)))))));
+}
+function pill(text, kind) { return el("span", { className: "pill " + kind, textContent: text }); }
+
+async function refresh(again = true) {
+  const tenant = $("tenant").value;
+  const res = await fetch("/dev/api/state?tenant=" + encodeURIComponent(tenant));
+  state = await res.json();
+  $("cell").textContent = "cell " + state.cell;
+  fill($("tenant"), state.tenants.length
+    ? state.tenants.map((t) => [t.public_id, t.name + " (" + t.type + ")"])
+    : [["", "(no tenants yet - create one)"]], true);
+  if (tenant && state.tenants.some((t) => t.public_id === tenant)) $("tenant").value = tenant;
+  const has = !!$("tenant").value;
+  if (has && !state.overview && again) return refresh(false);  // first load: pick up the default tenant
+  document.querySelectorAll("[data-needs-tenant]").forEach((b) => { b.disabled = !has; });
+  if (!has || !state.overview) { render(null); return; }
+  render(state);
+}
+
+function render(s) {
+  const ov = s && s.overview;
+  const actors = ov ? ov.actors : [], orgs = ov ? ov.organizations : [], roles = ov ? ov.roles : [];
+  const actorItems = actors.map((a) => [a.public_id,
+    a.subject + " - " + (a.roles.filter((r) => r.status === "active").map((r) => r.role).join(", ") || "no role") +
+    (a.status !== "active" ? " [" + a.status + "]" : "")]);
+  const orgItems = orgs.map((o) => [o.public_id, o.name]);
+  fill($("role-actor"), actorItems, true);
+  fill($("d-actor"), actorItems, true);
+  fill($("role-org"), orgItems, true);
+  fill($("d-org"), [["", "(none)"], ...orgItems], true);
+  fill($("role-code"), roles.map((r) => [r.code, r.code + " - " + r.name]), true);
+
+  const persons = ov ? ov.persons : [], care = ov ? ov.care : [], proxies = ov ? ov.proxies : [];
+  const subjOf = Object.fromEntries(actors.map((a) => [a.public_id, a.subject]));
+  const personItems = persons.map((p) => [p.public_id, shortId(p.public_id) +
+    (p.linked_actor ? " (login: " + subjOf[p.linked_actor] + ")" : " (no login)")]);
+  const actorsOf = (types) => actors.filter((a) => types.includes(a.type)).map((a) => [a.public_id, a.subject]);
+  fill($("l-person"), personItems, true); fill($("c-person"), personItems, true);
+  fill($("x-person"), personItems, true);
+  fill($("d-subject"), [["", "(none)"], ...personItems], true);
+  fill($("l-actor"), actorsOf(["patient"]), true);
+  fill($("c-actor"), actors.map((a) => [a.public_id, a.subject]), true);
+  fill($("x-delegate"), actors.map((a) => [a.public_id, a.subject]), true);
+  fill($("x-approver"), actors.map((a) => [a.public_id, a.subject]), true);
+  const pname = Object.fromEntries(persons.map((p) => [p.public_id, shortId(p.public_id)]));
+  const linkRows = [
+    ...care.map((c) => [pill("care", "warn"), subjOf[c.actor] + " treats " + pname[c.person] + " (" + c.basis + ")",
+      pill(c.status + (c.contested ? ", contested" : ""), c.status === "active" && !c.contested ? "ok" : "bad"),
+      el("span", {},
+        c.status === "active" ? el("button", { className: "ghost small", textContent: "end", onclick: (e) => run(e.target, () => call("care-end", { link: c.public_id }), "Care relationship ended") }) : "",
+        " ", el("button", { className: "ghost small", textContent: c.contested ? "clear dispute" : "contest",
+          onclick: (e) => run(e.target, () => call("care-contest", { link: c.public_id, contested: !c.contested }), "Updated") }))]),
+    ...proxies.map((g) => [pill("proxy", "warn"), subjOf[g.delegate] + " acts for " + pname[g.person] + " (" + g.type + ")",
+      pill(g.status, g.status === "active" ? "ok" : g.status === "proposed" ? "warn" : "bad"),
+      el("span", {},
+        g.status === "proposed" ? el("button", { className: "ghost small", textContent: "approve",
+          onclick: (e) => run(e.target, () => call("proxy-approve", { grant: g.public_id, approver: $("x-approver").value }), "Proxy approved") }) : "",
+        " ", g.status !== "revoked" ? el("button", { className: "ghost small", textContent: "revoke",
+          onclick: (e) => run(e.target, () => call("proxy-revoke", { grant: g.public_id }), "Proxy revoked") }) : "")]),
+  ];
+  $("links").replaceChildren(table(["Kind", "Link", "Status", "Actions"], linkRows,
+    "No care relationships or proxies yet."));
+
+  const orgName = Object.fromEntries(orgs.map((o) => [o.public_id, o.name]));
+  $("people").replaceChildren(table(
+    ["Person", "Type", "Status", "Roles (organization)", "Actions"],
+    actors.map((a) => [
+      a.subject, a.type, pill(a.status, a.status === "active" ? "ok" : "bad"),
+      el("span", {}, a.roles.length ? a.roles.map((r) => el("div", {},
+        pill(r.role, r.status === "active" ? "ok" : "warn"), " at " + (orgName[r.organization] || "?") +
+        (r.status !== "active" ? " (ended)" : " "),
+        r.status === "active" ? el("button", { className: "ghost small", textContent: "end",
+          onclick: (e) => run(e.target, () => call("end-assignment", { assignment: r.assignment, reason: "console" }), "Role ended") }) : "")) : "none"),
+      el("button", { className: "ghost small",
+        textContent: a.status === "active" ? "suspend" : "restore",
+        onclick: (e) => run(e.target, () => call("actor-status", { actor: a.public_id, status: a.status === "active" ? "suspended" : "active" }), "Status changed") }),
+    ]), "No people yet."));
+
+  const dec = s ? s.decisions : [];
+  const nameOf = Object.fromEntries(actors.map((a) => [a.public_id, a.subject]));
+  $("decisions").replaceChildren(table(
+    ["When (UTC)", "Who", "Operation", "Purpose", "Result", "Reason"],
+    dec.map((d) => [d.at.slice(11, 19), nameOf[d.actor] || shortId(d.actor), d.operation, d.purpose,
+      pill(d.allowed ? "ALLOWED" : "DENIED", d.allowed ? "ok" : "bad"), d.reason]),
+    "No checks yet."));
+
+  const ev = s ? s.events : [];
+  $("events").replaceChildren(table(
+    ["#", "When (UTC)", "Action", "Result", "Object", "Fingerprint", "Previous"],
+    ev.map((e) => [e.seq, e.at.slice(11, 19), e.action, e.outcome + (e.reason ? " / " + e.reason : ""),
+      e.object.length > 30 ? e.object.slice(0, 30) + "…" : e.object, el("code", { textContent: e.hash }), el("code", { textContent: e.prev })]),
+    "Nothing audited yet."));
+  const chain = $("chain");
+  if (s && s.chain) {
+    chain.className = "pill " + (s.chain.ok ? "ok" : "bad");
+    chain.textContent = s.chain.ok ? "chain intact (" + s.chain.checked + " entries)"
+      : "TAMPERING at #" + s.chain.bad_seq + ": " + s.chain.problem;
+  } else { chain.className = "pill warn"; chain.textContent = "not checked"; }
+
+  const holder = {};
+  for (const a of actors) for (const r of a.roles) if (r.status === "active") holder[r.role] ||= { actor: a.public_id, org: r.organization };
+  const subjectFor = (h, kind) => {
+    if (kind === "none") return "";
+    if (kind === "any") return persons.length ? persons[0].public_id : "";
+    const mine = new Set(persons.filter((p) =>
+      p.linked_actor === h.actor ||
+      care.some((c) => c.person === p.public_id && c.actor === h.actor && c.status === "active" && !c.contested) ||
+      proxies.some((g) => g.person === p.public_id && g.delegate === h.actor && g.status === "active")).map((p) => p.public_id));
+    const pick = persons.find((p) => (kind === "linked") === mine.has(p.public_id));
+    return pick ? pick.public_id : "";
+  };
+  $("presets").replaceChildren(el("span", { className: "empty", textContent: "Try: " }),
+    ...PRESETS.map(([label, role, op, purpose, which, kind]) => {
+      const h = holder[role];
+      const other = orgs.find((o) => !h || o.public_id !== h.org);
+      const subject = h ? subjectFor(h, kind) : "";
+      const ready = !!h && (kind === "none" || !!subject);
+      return el("button", { className: "ghost small", textContent: label, disabled: !ready,
+        title: ready ? "" : "Load demo data first",
+        onclick: () => { $("d-actor").value = h.actor; $("d-op").value = op; $("d-purpose").value = purpose;
+          $("d-org").value = which === "own" ? h.org : which === "other" ? (other ? other.public_id : "") : "";
+          $("d-subject").value = subject; $("decide").click(); } });
+    }));
+}
+
+$("make-tenant").onclick = (e) => run(e.target, async () => {
+  const out = await call("tenant", { name: $("tenant-name").value, type: "provider_org" });
+  await refresh(); $("tenant").value = out.public_id; $("tenant-name").value = "";
+}, "Tenant created");
+$("make-org").onclick = (e) => run(e.target, () => call("organization", { name: $("org-name").value }).then(() => { $("org-name").value = ""; }), "Organization created");
+$("make-actor").onclick = (e) => run(e.target, () => call("actor", { actor_type: $("actor-type").value, issuer: "dev-idp", subject: $("actor-subject").value }).then(() => { $("actor-subject").value = ""; }), "Person registered");
+$("assign").onclick = (e) => run(e.target, () => call("assign-role", { actor: $("role-actor").value, organization: $("role-org").value, role_code: $("role-code").value }), "Role assigned");
+$("decide").onclick = (e) => run(e.target, async () => {
+  const out = await call("decide", { actor: $("d-actor").value, operation: $("d-op").value,
+    purpose: $("d-purpose").value, organization: $("d-org").value, subject: $("d-subject").value });
+  const box = $("result");
+  box.className = out.allowed ? "ok" : "bad";
+  box.replaceChildren(el("b", { textContent: out.allowed ? "ALLOWED" + (out.role ? " (as " + out.role + ")" : "") : "DENIED - " + out.reason }),
+    el("span", { textContent: REASONS[out.reason] || "" }));
+});
+$("demo").onclick = (e) => run(e.target, async () => {
+  const stamp = Date.now().toString(36);
+  const t = await call("tenant", { name: "Demo " + stamp, type: "provider_org" });
+  const c = (action, body) => fetch("/dev/api/" + action, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tenant: t.public_id, ...body }) }).then((r) => r.json());
+  const north = await c("organization", { name: "North Clinic" });
+  const south = await c("organization", { name: "South Clinic" });
+  const people = [["ops@north.example", "facility_user", "R04"], ["hr@employer.example", "employer_user", "R08"],
+    ["dr.rao@north.example", "clinician", "R03"], ["support@zoiko.example", "support", "R11"],
+    ["asha.patient@example.org", "patient", "R01"], ["parent@example.org", "proxy", "R02"]];
+  const ids = {};
+  for (const [subject, type, role] of people) {
+    const a = await c("actor", { actor_type: type, issuer: "dev-idp", subject });
+    await c("assign-role", { actor: a.public_id, organization: north.public_id, role_code: role });
+    ids[role] = a.public_id;
+  }
+  const mine = await c("person", {});          // Asha, who has a login and a doctor
+  const child = await c("person", {});         // a child, reached through the parent
+  await c("person", {});                       // a stranger: nobody is linked to this one
+  await c("link-person", { person: mine.public_id, actor: ids.R01 });
+  await c("care-start", { actor: ids.R03, person: mine.public_id, basis: "referral" });
+  const grant = await c("proxy-propose", { delegate: ids.R02, person: child.public_id, relationship_type: "parent" });
+  await c("proxy-approve", { grant: grant.public_id, approver: ids.R04 });
+  await refresh(); $("tenant").value = t.public_id; await refresh();
+}, "Demo data loaded - try the buttons under step 5");
+
+$("make-person").onclick = (e) => run(e.target, () => call("person", {}), "Patient created");
+$("link-person").onclick = (e) => run(e.target, () => call("link-person", { person: $("l-person").value, actor: $("l-actor").value }), "Login linked");
+$("care-start").onclick = (e) => run(e.target, () => call("care-start", { actor: $("c-actor").value, person: $("c-person").value, basis: $("c-basis").value }), "Care relationship started");
+$("proxy-propose").onclick = (e) => run(e.target, () => call("proxy-propose", { delegate: $("x-delegate").value, person: $("x-person").value, relationship_type: $("x-type").value }), "Proxy proposed - now approve it in the table");
+
+fill($("c-basis"), [["care_team", "care team"], ["referral", "referral"], ["appointment", "appointment"]]);
+fill($("actor-type"), ACTOR_TYPES.map((t) => [t, t]));
+fill($("d-op"), VERBS.flatMap((v) => CLASSES.map((c) => [v + ":" + c, v + " " + c])));
+fill($("d-purpose"), PURPOSES.map((p) => [p, p]));
+$("d-op").value = "write:booking"; $("d-purpose").value = "OPERATIONS";
+refresh();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+-r base.txt
+
+# pytest 9.2.0 crashed at session start in our environment (internal NodeId error); 9.1.x works.
+pytest>=8,<9.2
+pytest-django>=4.9,<5
+ruff>=0.8
+mypy>=1.13
+django-stubs>=5.1,<6
+import-linter>=2.1,<3

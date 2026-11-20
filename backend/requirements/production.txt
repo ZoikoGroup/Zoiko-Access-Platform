@@ -1,0 +1,3 @@
+# Only in the production image (Dockerfile.production): the web server. Pinned to a range until the
+# lock file with hashes arrives with the supply-chain step.
+gunicorn>=23,<24

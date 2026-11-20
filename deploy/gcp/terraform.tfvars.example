@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (which git ignores) and fill in. No secrets go in this file.
+project_id      = "your-gcp-project"
+build           = "2026.11.16-abc1234"
+image           = "europe-west2-docker.pkg.dev/your-gcp-project/zoiko/backend:2026.11.16-abc1234"
+domain          = "example.co.uk"     # gives patient., staff., doctor., platform., partners. and api.
+alert_email     = "oncall@example.co.uk"
+email_host      = "smtp.your-mail-provider.example"
+email_user      = "apikey"
+email_from      = "Zoiko Access <no-reply@example.co.uk>"
+# twilio_account_sid = "AC..."           # leave empty until the Twilio account exists
+# twilio_from        = "+447..."
+# manual_secrets_ready = true            # only after the e-mail and Twilio secrets have values
