@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol
 
+from django.conf import settings
+
 
 class Outcome(str, Enum):
     ACCEPTED = "accepted"        # the partner has it (a technical receipt, not a result)
@@ -54,6 +56,11 @@ class AdapterUnavailable(Exception):
     """The call did not reach the partner. Safe to send again."""
 
 
+class AdapterUnsupported(Exception):
+    """The partner does not support what we sent (a profile, version or kind of operation). Waiting
+    will not help: the connector is halted until a person resets it (DEV-221, T-32)."""
+
+
 class Adapter(Protocol):
     key: str
     # True when the partner honours our idempotency key, so asking twice does the thing once.
@@ -68,12 +75,24 @@ _adapters: dict[str, Adapter] = {}
 
 
 def register(adapter: Adapter) -> None:
-    """Make an adapter available. Registering the same key again replaces it."""
+    """Make an adapter available. Registering the same key again replaces it.
+
+    A pretend partner (an adapter marked `simulated`) is refused unless this deployment's settings
+    say CONNECTOR_SIMULATOR = True, which only the development and test settings do. Production
+    never has it, so a clinic there can never be pointed at a partner that does not exist."""
+    if getattr(adapter, "simulated", False) and not getattr(settings, "CONNECTOR_SIMULATOR", False):
+        raise RuntimeError("the pretend partner is only for development and tests")
     _adapters[adapter.key] = adapter
 
 
 def get(key: str) -> Adapter | None:
     return _adapters.get(key)
+
+
+def is_simulated(key: str) -> bool:
+    """True for a pretend partner (development and tests only, synthetic data)."""
+    found = _adapters.get(key)
+    return bool(found is not None and getattr(found, "simulated", False))
 
 
 def registered() -> list[str]:

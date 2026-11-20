@@ -25,6 +25,7 @@ import json
 import re
 from typing import Any
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 
@@ -32,11 +33,12 @@ from foundation.cell_context import require_context, tenant_transaction
 from foundation.chain import GENESIS, chain_digest, verify_chain
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.outbox import emit
-from foundation.timeutil import Clock, utc_now
+from foundation.timeutil import UTC, Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
 
+from .definitions import CLINICAL
 from .models import (
     DefinitionStatus,
     Escalation,
@@ -104,21 +106,45 @@ def _clean_note(value: str, low: int = 0) -> str:
     return text
 
 
-def check_evidence(items: Any, required: str | None) -> list[dict[str, str]]:
-    """Typed, small, and never a transport receipt. `required` must be present."""
+SOURCE_SKEW = dt.timedelta(minutes=5)     # clocks at a source may run a little ahead of ours
+
+
+def _source_time(value: Any, now: dt.datetime) -> str:
+    """When the evidence came into being at its source (GHE-12 WF-T31, DEV-225): an instant with
+    its offset, never in the future beyond a small clock skew. Kept apart from when we processed
+    it, so evidence delivered late keeps its true time and the order of steps stays ours."""
+    if not isinstance(value, str):
+        raise _bad("evidence")
+    try:
+        at = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise _bad("evidence") from None
+    if at.tzinfo is None or at > now + SOURCE_SKEW:
+        raise _bad("evidence")
+    return at.astimezone(UTC).isoformat()
+
+
+def check_evidence(items: Any, required: str | None, now: dt.datetime | None = None
+                   ) -> list[dict[str, str]]:
+    """Typed, small, and never a transport receipt. `required` must be present. Each item may say
+    when it happened at its source (`at`)."""
     if items is None:
         items = []
     if not isinstance(items, list) or len(items) > MAX_EVIDENCE:
         raise _bad("evidence")
     clean: list[dict[str, str]] = []
     for item in items:
-        if not isinstance(item, dict) or set(item) != {"kind", "ref"}:
+        if (not isinstance(item, dict) or not {"kind", "ref"} <= set(item)
+                or set(item) - {"kind", "ref", "at"}):
             raise _bad("evidence")
         kind, ref = item["kind"], item["ref"]
         if (not isinstance(kind, str) or kind in REFUSED_KINDS or kind not in ALLOWED_KINDS
                 or not isinstance(ref, str) or not _REF.match(ref)):
             raise _bad("evidence")
-        clean.append({"kind": kind, "ref": ref})
+        entry = {"kind": kind, "ref": ref}
+        if "at" in item:
+            entry["at"] = _source_time(item["at"], now or utc_now())
+        clean.append(entry)
     if required and not any(e["kind"] == required for e in clean):
         raise _bad("evidence")
     return clean
@@ -203,6 +229,9 @@ def history(instance_ref: str, organization_ref: str) -> dict[str, Any]:
             "seq": r.seq, "kind": r.kind, "from_state": r.from_state, "to_state": r.to_state,
             "overlay": r.overlay_after, "actor": r.actor_ref, "role": r.role_code,
             "evidence": r.evidence, "note": r.note, "occurred_at": r.occurred_at.isoformat(),
+            # WF-T31: evidence that happened at its source before we processed it (delivered late)
+            "late_evidence": [e for e in r.evidence if e.get("at")
+                              and dt.datetime.fromisoformat(e["at"]) < r.occurred_at],
             "definition_version": r.definition_version, "decision": r.decision_ref}
             for r in rows],
     }
@@ -258,6 +287,15 @@ def _check_owner(owner_ref: str) -> None:
 
 
 # ------------------------------------------------------------------ timers
+def _clinical_must_be_on(definition: Any) -> None:
+    """GHE-12 WF-T07: the clinical switch is checked every time a clinical path runs, not only when
+    it was published. Switching it off later stops new clinical workflows and stops existing ones
+    moving forward; cancelling and blocking stay possible so nothing is stranded."""
+    on = getattr(settings, "WORKFLOW_CLINICAL_ENABLED", False)
+    if set(definition.path) & CLINICAL and not on:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+
+
 def _stale_timers(inst: WorkflowInstance, only_state: str | None = None) -> None:
     pending = WorkflowTimer.objects.filter(
         instance=inst, status=TimerStatus.PENDING, **_scope())
@@ -309,6 +347,7 @@ def start(
             .order_by("-version").first())
         if definition is None:
             raise ZoikoError(ErrorCode.NOT_FOUND)
+        _clinical_must_be_on(definition)
         # GHE-12 WF-T01 (DEV-156): a definition that needs country-pack capabilities starts only
         # where a signed, current pack switches every one of them on. No answer means no.
         if set(definition.required_capabilities) - (enabled_capabilities or frozenset()):
@@ -390,6 +429,8 @@ def advance(
                 and set(inst.definition.required_capabilities) - (enabled_capabilities
                                                                   or frozenset())):
             raise ZoikoError(ErrorCode.JURISDICTION_INACTIVE)
+        if to_state not in ("cancelled", "blocked"):
+            _clinical_must_be_on(inst.definition)
         if to_state in OWNER_ONLY_TARGETS and actor_public_id != inst.owner_ref:
             raise ZoikoError(ErrorCode.POLICY_DENIED)  # not on the responsible person's behalf
         if inst.entity_version != expected_version:
@@ -398,7 +439,7 @@ def advance(
             raise _conflict()
         path = list(inst.definition.path)
         required = EDGE_EVIDENCE.get(to_state)
-        clean = check_evidence(evidence, required)
+        clean = check_evidence(evidence, required, now)
         text = ""
         if to_state in ("cancelled", "blocked"):
             text = _clean_note(note, low=3)

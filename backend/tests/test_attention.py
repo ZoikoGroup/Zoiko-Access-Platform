@@ -65,7 +65,7 @@ def test_a_quiet_clinic_has_nothing_waiting(p):
         "workflows_without_owner": 0,
         "partner_results": 0,
         "partner_on_hold": 0,
-        "partner_held_mine": 0,
+        "partner_held_mine": 0, "partner_hold_escalated": 0,
         "webhooks_gave_up": 0,
     }
 
@@ -98,7 +98,7 @@ def test_each_kind_of_waiting_work_is_counted_and_clears_when_handled(p):
         "workflows_without_owner": 0,
         "partner_results": 0,
         "partner_on_hold": 0,
-        "partner_held_mine": 0,
+        "partner_held_mine": 0, "partner_hold_escalated": 0,
         "webhooks_gave_up": 0,
     }
     p.post(f"bookings/{waiting_booking}/confirm", subject="ops")
@@ -118,7 +118,7 @@ def test_each_kind_of_waiting_work_is_counted_and_clears_when_handled(p):
         "workflows_without_owner": 0,
         "partner_results": 0,
         "partner_on_hold": 0,
-        "partner_held_mine": 0,
+        "partner_held_mine": 0, "partner_hold_escalated": 0,
         "webhooks_gave_up": 0,
     }
 
@@ -160,7 +160,7 @@ def test_the_counts_are_only_for_this_customer(p):
         "workflows_without_owner": 0,
         "partner_results": 0,
         "partner_on_hold": 0,
-        "partner_held_mine": 0,
+        "partner_held_mine": 0, "partner_hold_escalated": 0,
         "webhooks_gave_up": 0,
     }
 

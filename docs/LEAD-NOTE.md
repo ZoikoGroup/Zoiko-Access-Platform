@@ -92,8 +92,25 @@ A partner app now exists for the lab, pharmacy, home-care, payer and employer ro
 
 A status exchange now lets a clinic send a request to a laboratory, pharmacy or home-care partner and track it (DEV-163). It carries only an order number, a short description, the urgency and the status, held in Zoiko's platform space; a partner is never told who the patient is and a result stays with the partner. Still open: whether Zoiko may hold even that, how a lab learns who the patient is, and what the patient consents to share.
 
+Decisions the lead gave on 17 Nov 2026 are now built (see `docs/HANDOVER.md`): a partner learns only a patient's name and birth date, per order, with the patient's agreement (DEV-300); consultation notes are stored encrypted, signed and never edited, behind a switch that is off by default (DEV-304); a patient reads their own signed notes after 24 hours (DEV-306); a lab sends a short summary and a rating, and a critical result alerts the person who ordered it by email (DEV-307, DEV-310); payer claims show the payer only member id, service, amount and date, and the patient agrees to each (DEV-308, DEV-311); an employer sees monthly totals for people who join with a one-time code, groups of 10 or more only (DEV-312). Decided on 19 Nov 2026 and built (DEV-324): notes are kept by the NHS rules, a guardian reads a child's notes only while the child is under 16 (a doctor can keep a single note from them), and notes stay off in production until the clinical safety review signs them off.
+
 Still waiting for a decision, so not built: where the master key is kept, a real AI provider and a clinical review of what it says, a workflow engine, signed releases, single sign-in accounts, and how AI permits pair a lane with a level and remove personal details before a model is called. Say which of these you want first and the developer will start there.
+
+## Decisions given by the team lead on 18 November 2026
+
+| Question | Answer |
+|---|---|
+| First market, buyer and journey | One UK clinic; the book-and-attend journey already built |
+| Zoiko's legal role | Coordination platform (arranges visits, holds no medical advice) |
+| Hosting and keys | GCP managed PostgreSQL in the market's region, managed KMS; recovery copy with Security/CTO |
+| Clinical notes | Stay switched off until a clinical-safety review signs off |
+| FHIR country profile | UK Core, pinned to FHIR R4 |
+| Insurers, claims and billing | Out of the first release (patients may still record which insurance they hold) |
+| AI | All features stay off; no outside model |
+| Doctor verification | One clinic administrator attests (temporary rule DEV-095) |
+
+Recorded in `docs/decisions/REGISTER.md` as DEV-316. These answers unblock UK Core validation in the FHIR checker, a signed release scope for the first slice, and production setup design. They do **not** turn on any switch: named reviewers, a real partner, provider contracts, retention periods and clinical-safety sign-off are still needed.
 
 ## What happens next
 
-Send this note. When your answers come back, the developer changes the proposals that differ, in the order you give. Until then nothing is blocked: everything above works and is tested; it is simply not yet confirmed by you or by a clinical-safety owner.
+The decisions above are answered. The developer builds the newly unblocked items in the order the lead gives; the remaining open items are in `docs/decisions/REGISTER.md` section B. Nothing is blocked: everything built works and is tested; it is simply not yet confirmed by a clinical-safety owner.

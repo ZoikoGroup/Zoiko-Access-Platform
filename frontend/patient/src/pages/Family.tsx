@@ -7,6 +7,7 @@ const RELATIONSHIP: Record<string, string> = { parent: "Your child", guardian: "
 const SCOPE_WORDS: Record<string, string> = {
   appointments: "book and see appointments", messages: "send and read messages",
   referrals: "see referrals", insurance: "see and manage insurance",
+  notes: "read their consultation notes until they turn 16",
 };
 /** What the clinic allowed this person to do, in words. */
 const allowed = (scopes?: string[]) => {
@@ -32,7 +33,7 @@ function Row({ f, onChanged }: { f: FamilyRow; onChanged: () => Promise<void> })
           : f.status === "approval_pending" ? "The clinic has seen your proof and is deciding. Nothing is shared until they approve."
           : waiting ? "Waiting for the clinic to check your proof of identity. Nothing is shared until they approve."
           : paused ? "The clinic has paused this link. Contact the clinic to ask why."
-          : `${allowed(f.scopes)}${f.valid_until ? ` This lasts until ${f.valid_until.slice(0, 10)}.` : ""} Their medical records are not shared.`}</small>
+          : `${allowed(f.scopes)}${f.valid_until ? ` This lasts until ${f.valid_until.slice(0, 10)}.` : ""} Their other medical records are not shared.`}</small>
       </div>
       <Pill kind={waiting ? "warn" : paused ? "bad" : "ok"}>{waiting ? "Waiting for the clinic" : paused ? "Paused" : "Approved"}</Pill>
       {!asking && <button className="btn ghost" onClick={() => setAsking(true)}>{waiting ? "Withdraw" : "Stop acting for them"}</button>}

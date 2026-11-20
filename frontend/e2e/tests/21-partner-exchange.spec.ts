@@ -20,20 +20,41 @@ test("a clinic sends a lab order, the lab delivers a result and a doctor reviews
   await expect(sent).toBeVisible();
   await expect(sent.getByText("Sent, waiting for the partner")).toBeVisible();
 
-  // 2. the lab answers it, and is never told who the patient is
+  // 2. the lab sees it but is told nothing about the patient and cannot start yet
   await signIn(page, "partners", lab.login, lab.org);
   await page.locator(".nav-item", { hasText: "Incoming requests" }).click();
-  const incoming = page.locator(".appt", { hasText: label });
+  let incoming = page.locator(".appt", { hasText: label });
   await expect(incoming).toBeVisible();
-  await expect(incoming).not.toContainText(/patient/i);
+  await expect(incoming).toContainText("Waiting for the patient to agree");
+  await expect(incoming.getByRole("button", { name: "Accept" })).toHaveCount(0);
+
+  // 2a. the patient agrees to tell the lab their name and birth date, for this one order
+  await signIn(page, "patient", LOGINS.patient);
+  await page.locator(".nav-item", { hasText: "My Profile" }).click();      // a name must be on file
+  await page.getByLabel("Full name").fill("Robot Patient");
+  await page.getByLabel("Birth date").fill("1990-04-12");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.locator(".nav-item", { hasText: "My Tests & Requests" }).click();
+  const ask = page.locator(".appt", { hasText: label });
+  await expect(ask).toContainText("Your agreement is needed");
+  await ask.getByRole("button", { name: /I agree to share/ }).click();
+  await expect(page.locator(".appt", { hasText: label })).toContainText("You agreed to share your name");
+
+  // 2b0. now the lab sees who the patient is (name and birth date only) and can answer
+  await page.goto(`${APPS.partners}/`);                       // its session is still open here
+  await page.locator(".nav-item", { hasText: "Incoming requests" }).click();
+  incoming = page.locator(".appt", { hasText: label });
+  await expect(incoming).toContainText("shared with their agreement");
   await incoming.getByRole("button", { name: "Accept" }).click();
   await page.locator(".appt", { hasText: label }).getByRole("button", { name: "Start work" }).click();
   await page.locator(".appt", { hasText: label }).getByLabel(`Result reference for ${token}`).fill(`RES-${token}`);
+  await page.locator(".appt", { hasText: label }).getByLabel(/Short summary of the result/).fill("Haemoglobin 82 g/L, low.");
+  await page.locator(".appt", { hasText: label }).getByLabel(`Rating for ${token}`).selectOption("critical");
   await page.locator(".appt", { hasText: label }).getByRole("button", { name: "Mark the result as available" }).click();
   await expect(page.locator(".appt", { hasText: label }).getByText("Delivered")).toBeVisible();
 
-  // 2b. the patient sees it is ready, and that a ready result is not a doctor's review
-  await signIn(page, "patient", LOGINS.patient);
+  // 2c. the patient sees it is ready, and that a ready result is not a doctor's review
+  await page.goto(`${APPS.patient}/`);                       // the patient is still signed in
   await page.locator(".nav-item", { hasText: "My Tests & Requests" }).click();
   const mine = page.locator(".appt", { hasText: label });
   await expect(mine.getByText("Result ready", { exact: true })).toBeVisible();
@@ -42,9 +63,12 @@ test("a clinic sends a lab order, the lab delivers a result and a doctor reviews
 
   // 3. a doctor of the clinic reviews it: delivery was not review
   await signIn(page, "doctor", LOGINS.doctor);
-  await page.locator(".nav-item", { hasText: "Partner results" }).click();
+  await page.locator(".nav-item", { hasText: "Orders & results" }).click();
   const ready = page.locator(".appt", { hasText: label });
   await expect(ready.getByText("Result ready: waiting for you")).toBeVisible();
+  await expect(ready.getByText("CRITICAL RESULT")).toBeVisible();          // a critical rating stands out
+  await ready.getByRole("button", { name: "Read the lab's summary" }).click();
+  await expect(ready.getByRole("region", { name: "Result summary" })).toContainText("Haemoglobin 82 g/L");
   await ready.getByRole("button", { name: "I have reviewed this result" }).click();
   await expect(page.locator(".appt", { hasText: label }).getByText("Reviewed", { exact: true })).toBeVisible();
 

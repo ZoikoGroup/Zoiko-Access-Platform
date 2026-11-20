@@ -290,3 +290,47 @@ def test_every_step_is_audited(world):
     assert [e.action for e in found] == [
         "jurisdiction.created", "jurisdiction.validated", "jurisdiction.submitted",
         "jurisdiction.approved_legal", "jurisdiction.approved_clinical", "jurisdiction.signed"]
+
+
+# ------------------------------------------------------------------ AT-16: one signed revision
+def test_two_revisions_of_one_pack_can_never_both_be_signed(world):
+    """Even a second request that races past the application is refused by the database."""
+    from django.db import IntegrityError, transaction
+
+    from foundation.cell_context import tenant_transaction
+    from modules.jurisdiction.models import CountryPack, PackStatus
+    pack = signed(world)
+    with tenant_transaction(world.ctx):
+        first = CountryPack.objects.get(public_id=pack["id"])
+        rival = CountryPack(pack_ref=first.pack_ref, country=first.country, service=first.service,
+                            revision=first.revision + 1, manifest=first.manifest,
+                            author_ref=first.author_ref, content_hash="0" * 64,
+                            status=PackStatus.SIGNED, cell_id=first.cell_id,
+                            tenant_id=first.tenant_id)
+        with pytest.raises(IntegrityError), transaction.atomic():
+            rival.save()
+
+
+# ---------------------------------------------------------- AT-14: a preflight changes nothing
+def test_a_preflight_shows_what_signing_would_enable_and_changes_nothing(world):
+    from foundation.cell_context import tenant_transaction
+    from modules.evidence.models import AuditEvent
+    from modules.jurisdiction.models import CountryPack, PackApproval
+    pack = make(world)
+
+    def state():
+        with tenant_transaction(world.ctx):
+            rows = list(CountryPack.objects.order_by("created_at").values(
+                "public_id", "status", "entity_version", "updated_at"))
+            changes = AuditEvent.objects.filter(action__startswith="jurisdiction.").count()
+            return rows, PackApproval.objects.count(), changes      # the read itself is logged
+
+    before = state()
+    r = call(world, "GET", f"platform/packs/{pack['id']}/preflight")
+    assert r.status_code == 200, r.content
+    got = json.loads(r.content)["preflight"]
+    assert got["changes_nothing"] is True and got["status"] == "draft"
+    assert set(got["would_enable"]) == {n for n, v in pack["manifest"]["capabilities"].items() if v}
+    assert got["newly_enabled"] == got["would_enable"] and got["already_enabled"] == []
+    assert state() == before                                           # not one row changed
+    assert call(world, "GET", "platform/packs/no-such-pack/preflight").status_code == 404

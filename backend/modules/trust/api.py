@@ -14,6 +14,7 @@ from .auth import (
     revoke_sessions,
     set_password,
 )
+from .death import death_dates, death_of, record_death, withdraw_death
 from .dev_auth import Authenticated, authenticate
 from .directory import actor_labels, counts, inactive_actors, patient_registry, staff_directory
 from .display_names import (
@@ -25,10 +26,12 @@ from .display_names import (
 from .email_flows import (
     EmailChange,
     email_status,
+    login_email_of_actor,
     request_password_reset,
     reset_password,
     send_verification,
     set_email,
+    verified_login_email_of_actor,
     verify_email,
 )
 from .family import (
@@ -61,12 +64,25 @@ from .identity_proof import record_check as record_identity_check
 from .identity_proof import refresh_expired as refresh_expired_identities
 from .identity_proof import status_of as identity_status_of
 from .identity_proof import withdraw as withdraw_identity_check
-from .incidents import add_incident, get_incident, list_incidents, resolve_incident
+from .incidents import (
+    add_incident,
+    assess_incident,
+    get_incident,
+    incident_dict,
+    list_incidents,
+    record_handoff,
+    resolve_incident,
+    serious_incident_summary,
+)
 from .models import ActorType, CareBasis, Status, TenantType
 from .name_checks import BASES as NAME_CHECK_BASES
 from .name_checks import states as name_check_states
 from .name_checks import verified_providers, verify_name, withdraw_check
 from .onboarding import onboard_customer, set_customer_country, set_customer_sign_up
+from .oncall import acknowledge as acknowledge_incident
+from .oncall import assign as assign_incident
+from .oncall import staff_choices as on_call_staff
+from .oncall import timeline as incident_timeline
 from .people import (
     approve_proxy_grant,
     care_patients,
@@ -94,6 +110,7 @@ from .releases import add_release, list_releases
 from .services import (
     MAX_RESPONSE_TARGET_HOURS,
     active_roles,
+    actors_with_role,
     assign_role,
     booking_system_of,
     clinicians_at,
@@ -130,16 +147,21 @@ from .staff_admin import (
 from .suspensions import cancel_change, decide_change, list_changes, request_change
 
 __all__ = [
+    "actors_with_role",
+    "acknowledge_incident", "assign_incident", "incident_timeline", "on_call_staff",
     "ActorType", "Authenticated", "CareBasis", "INVITABLE_ROLES", "LoginResult", "Status",
     "TenantType", "active_roles", "actor_labels", "approve_proxy_grant", "assign_role",
-    "inactive_actors",
+    "inactive_actors", "incident_dict",
     "authenticate", "care_patients", "care_team_of", "context_for", "counts", "create_organization",
     "tenant_public_id",
-    "create_person", "create_tenant", "email_status", "end_assignment", "end_care_relationship",
+    "create_person", "create_tenant", "email_status", "login_email_of_actor",
+    "verified_login_email_of_actor", "end_assignment",
+    "end_care_relationship",
     "ensure_care_relationship", "get_organization", "invite_colleague", "invite_staff",
     "is_clinician_at",
     "link_person_to_actor", "list_releases", "list_tenants", "login", "add_release",
-    "add_incident", "get_incident", "list_incidents", "resolve_incident",
+    "add_incident", "assess_incident", "get_incident", "list_incidents", "record_handoff",
+    "resolve_incident", "serious_incident_summary",
     "cancel_change", "decide_change", "list_changes", "request_change",
     "onboard_customer", "organization_names", "set_customer_country", "set_customer_sign_up",
     "sso_finish", "sso_providers", "sso_start",
@@ -159,6 +181,7 @@ __all__ = [
     "pending_family_count", "pending_family_requests",
     "reject_family_member", "request_family_member", "withdraw_family_member",
     "get_person_profiles",
+    "death_dates", "death_of", "record_death", "withdraw_death",
     "set_person_profile", "propose_proxy_grant", "reachable_persons", "register_actor",
     "register_patient", "relationship_verified", "request_password_reset", "resend_invitation",
     "EmailChange", "PasswordChange", "verified_login_email_of_person", "clear_display_name",

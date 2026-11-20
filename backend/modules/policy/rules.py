@@ -20,10 +20,12 @@ POLICY_VERSION = "p1-2026-10-proposed"
 # Which part of a guardian's grant covers each class of data (GHE-06 AT-18, DEV-110). A class not
 # listed (the dependent's own name) needs no scope. "records" is never granted yet: the
 # specification's screen marks it BLOCK until a market rule and evidence process exist.
+# Consultation notes have their own part, "notes" (DEV-324, LEAD DECISION): a guardian may read a
+# child's notes only while the child is under 16; the view checks the age.
 PROXY_SCOPE_OF = {
     "booking": "appointments", "workflow": "appointments",
     "comms": "messages", "referral": "referrals", "coverage": "insurance",
-    "diagnostic": "records", "medication": "records", "billing": "records",
+    "diagnostic": "records", "medication": "records", "billing": "records", "note": "notes",
 }
 
 VERBS = ("read", "write", "attest")
@@ -50,6 +52,7 @@ RESOURCE_CLASSES = (
     "rights",
     "integration",
     "program",
+    "note",
 )
 
 PURPOSES = (
@@ -99,10 +102,13 @@ HARD_PROHIBITIONS: dict[str, frozenset[str]] = {
             "medication",
             "coverage",
             "evidence",
+            "note",
         }
     ),
     # Support sees metadata only (07-roles-access-matrix): never message content either.
-    "R11": frozenset({"person", "diagnostic", "medication", "attestation", "coverage", "comms"}),
+    "R11": frozenset(
+        {"person", "diagnostic", "medication", "attestation", "coverage", "comms", "note"}
+    ),
 }
 
 # role -> resource class -> (verbs, condition)
@@ -122,6 +128,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "workflow": (_v("r"), "OWN"),
         "diagnostic": (_v("r"), "OWN"),
         "medication": (_v("r"), "OWN"),
+        "note": (_v("r"), "OWN"),
         "coverage": (_v("rw"), "OWN"),
         "billing": (_v("r"), "OWN"),
         "comms": (_v("rw"), "OWN"),
@@ -138,6 +145,8 @@ RULES: dict[str, dict[str, Rule]] = {
         "coverage": (_v("r"), "PROXY"),
         "billing": (_v("r"), "PROXY"),
         "comms": (_v("rw"), "PROXY"),
+        # Only with the "notes" part of the grant, and only while the child is under 16 (DEV-324).
+        "note": (_v("r"), "PROXY"),
         "catalog": (_v("r"), "ANY"),
     },
     "R03": {
@@ -148,6 +157,7 @@ RULES: dict[str, dict[str, Rule]] = {
         "diagnostic": (_v("ra"), "REL"),
         "attestation": (_v("a"), "REL"),
         "medication": (_v("r"), "REL"),
+        "note": (_v("rwa"), "REL"),
         "comms": (_v("rw"), "REL"),
         "evidence": (_v("r"), "ORG"),
         "catalog": (_v("r"), "ANY"),

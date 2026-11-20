@@ -12,10 +12,9 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { id: "schedule", label: "My schedule", icon: "appointments", live: true },
   { id: "patients", label: "My patients", icon: "patients", live: true },
-  { id: "notes", label: "Notes & results", icon: "services", live: false,
-    waitsFor: "Clinical notes, orders and results need the clinical record service, a later phase. Nothing here yet is a medical record." },
+  { id: "notes", label: "Notes", icon: "services", live: true },
   { id: "referrals", label: "Referrals", icon: "referrals", live: true },
-  { id: "results", label: "Partner results", icon: "services", live: true },
+  { id: "results", label: "Orders & results", icon: "services", live: true },
   { id: "messages", label: "Messages", icon: "messages", live: true },
   { id: "account", label: "My account", icon: "settings", live: true },
 ];

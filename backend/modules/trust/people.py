@@ -256,8 +256,9 @@ def set_care_contested(link_public_id: str, contested: bool, *, by: str) -> Care
 
 # ------------------------------------------------------------------ proxy grants
 # What a guardian can be allowed to do. "records" (diagnostics, medication, billing) is NOT here:
-# the specification blocks it until market rules and evidence exist (DEV-110).
-PROXY_SCOPES = ("appointments", "messages", "referrals", "insurance")
+# the specification blocks it until market rules and evidence exist (DEV-110). "notes" lets a
+# guardian read a child's consultation notes, only while the child is under 16 (DEV-324).
+PROXY_SCOPES = ("appointments", "messages", "referrals", "insurance", "notes")
 
 
 def propose_proxy_grant(

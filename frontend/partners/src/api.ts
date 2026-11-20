@@ -2,7 +2,7 @@
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
-import type { Dashboard, Delivery, Entitlement, Health, Hook, Incoming, PartnerKey, Overview, PartnerService, Plan, PlanMember, ProgramSummary, TeamMember } from "./types";
+import type { Claim, ClaimCheck, Dashboard, Delivery, Entitlement, Health, Hook, Incoming, PartnerKey, Overview, PartnerService, Plan, PlanMember, ProgramSummary, TeamMember } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -102,6 +102,17 @@ export const inviteColleague = (email: string) => v1<{ member: { id: string } }>
 export const teamStep = (id: string, step: "suspend" | "reinstate" | "resend") =>
   v1<unknown>(`portal/team/${encodeURIComponent(id)}/${step}`, { method: "POST", body: "{}" });
 
+export interface ProgrammeCode { id: string; member_ref: string; state: string; expires_at: string; redeemed_at: string | null }
+export interface ProgrammeActivity {
+  min_group: number; linked: number | null; linked_hidden: boolean;
+  months: { month: string; bookings: number | null; visits: number | null; hidden: boolean }[];
+}
+export const getProgrammeCodes = async () => (await v1<{ codes: ProgrammeCode[] }>("programme/codes")).codes;
+export const getProgrammeActivity = () => v1<ProgrammeActivity>("programme/activity");
+export const issueProgrammeCode = async (member_ref: string) =>
+  (await v1<{ code: ProgrammeCode & { code: string } }>("programme/codes", { method: "POST", body: JSON.stringify({ member_ref }) })).code;
+export const revokeProgrammeCode = async (member_ref: string) =>
+  (await v1<{ code: ProgrammeCode }>(`programme/codes/${encodeURIComponent(member_ref)}/revoke`, { method: "POST", body: "{}" })).code;
 export const getProgram = () => v1<ProgramSummary>("portal/program");
 export const programStep = (step: "enrol" | "withdraw", refs: string[]) =>
   v1<{ added?: number; already_enrolled?: number; withdrawn?: number }>(`portal/program/${step}`, { method: "POST", body: JSON.stringify({ refs }) });
@@ -133,7 +144,7 @@ export const hookStep = async (id: string, step: "verify" | "pause" | "resume" |
 export const getDeliveries = async () => (await v1<{ deliveries: Delivery[] }>("staff/integrations/deliveries")).deliveries;
 
 export const getIncoming = async () => (await v1<{ requests: Incoming[] }>("exchange/incoming")).requests;
-export const incomingStep = async (id: string, step: "accept" | "decline" | "start" | "deliver", extra: { note?: string; result_ref?: string } = {}) =>
+export const incomingStep = async (id: string, step: "accept" | "decline" | "start" | "deliver" | "correct", extra: { note?: string; result_ref?: string; summary?: string; flag?: string; correction?: string; values?: ResultValue[] } = {}) =>
   (await v1<{ request: Incoming }>(`exchange/incoming/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify(extra) })).request;
 
 async function ping(path: string): Promise<Health> {
@@ -227,3 +238,27 @@ export async function saveDisplayName(name: string): Promise<string> {
 export async function clearDisplayName(): Promise<void> {
   await v1("auth/display-name", { method: "DELETE" });
 }
+
+export const getClaims = async () => (await v1<{ claims: Claim[] }>("claims/incoming")).claims;
+export const claimCheck = async (id: string) =>
+  (await v1<{ check: ClaimCheck }>(`claims/incoming/${encodeURIComponent(id)}/check`)).check;
+export const claimStep = async (id: string, step: "approve" | "decline" | "pay", extra: { reason?: string; payment_ref?: string } = {}) =>
+  (await v1<{ claim: Claim }>(`claims/incoming/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify(extra) })).claim;
+
+// The system this partner receives orders in (DEV-323); "" = the partner app only.
+export interface OrderSystem { system: string; choices: { key: string; simulated: boolean }[] }
+export const getOrderSystem = () => v1<OrderSystem>("portal/order-system");
+export const setOrderSystem = (system: string) =>
+  v1<OrderSystem>("portal/order-system", { method: "POST", body: JSON.stringify({ system }) });
+
+// A developer's sandbox (DEV-329): synthetic patients and a message checker. Nothing is stored.
+export interface SandboxPatient {
+  id: string; name: string; birth_date: string; scenario: string; expect: "accepted" | "held";
+  order: Record<string, unknown>; report: Record<string, unknown>;
+}
+export interface SandboxCheck { result: "accepted" | "held"; issues: { path: string; code: string; text: string }[] }
+export const getSandbox = async () => (await v1<{ patients: SandboxPatient[] }>("portal/sandbox")).patients;
+export const checkSandboxMessage = (raw: string) => v1<SandboxCheck>("portal/sandbox/check", { method: "POST", body: raw });
+
+// One measured value of a result (DEV-330): a number or a short text, with unit, normal range, flag.
+export interface ResultValue { name: string; value: number | string; unit?: string; low?: number | null; high?: number | null; flag?: string; code?: string }

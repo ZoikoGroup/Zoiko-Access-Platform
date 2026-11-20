@@ -28,6 +28,7 @@ from .adapters import (
 class SimulatorAdapter:
     key = "simulator"
     idempotent = True
+    simulated = True             # adapters.register() refuses it outside development and tests
 
     def __init__(self) -> None:
         self.reset()

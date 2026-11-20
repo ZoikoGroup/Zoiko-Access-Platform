@@ -33,7 +33,7 @@ from foundation.mail import queue_email
 from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 
-from .models import Actor, ActorType, Credential, Organization, Status, Tenant
+from .models import Actor, ActorType, Credential, Organization, Person, Status, Tenant
 from .people import create_person, link_person_to_actor
 from .services import active_roles, assign_role, organization_names, register_actor
 
@@ -198,7 +198,8 @@ def login(
             locked = cred.locked_until is not None and cred.locked_until > now
             password_ok = verify_password(cred.password_hash, password)
             actor = cred.actor
-            if password_ok and not locked and actor.status == Status.ACTIVE:
+            if (password_ok and not locked and actor.status == Status.ACTIVE
+                    and not login_of_deceased(actor)):
                 cred.failed_attempts, cred.locked_until, cred.last_login_at = 0, None, now
                 cred.save(update_fields=["failed_attempts", "locked_until", "last_login_at",
                                          "updated_at"])
@@ -283,6 +284,13 @@ def register_patient(
     return _sign_in(tenant_name=tenant.name, login=login_id, password=password, clock=clock)
 
 
+def login_of_deceased(actor: Actor) -> bool:
+    """Is this login a patient's OWN login, and is that patient recorded as having died? Then it
+    may not sign in or use a session (DEV-335). Withdrawing the death lets it in again. Guardians
+    and staff are not affected: only the patient's own login is linked to their record."""
+    return Person.objects.filter(linked_actor=actor, died_on__isnull=False).exists()
+
+
 def authenticate_token(token: str, *, clock: Clock | None = None) -> Authenticated:
     """Turn a signed token into an Authenticated result, re-checking the database each time."""
     from .dev_auth import Authenticated
@@ -303,7 +311,9 @@ def authenticate_token(token: str, *, clock: Clock | None = None) -> Authenticat
             tuple(r for r, _ in active_roles(cred.actor.public_id))
             if cred is not None and cred.actor.status == Status.ACTIVE else ()
         )
-    if cred is None or cred.actor.status != Status.ACTIVE or cred.session_epoch != claims.epoch:
+        deceased = cred is not None and login_of_deceased(cred.actor)
+    if (cred is None or cred.actor.status != Status.ACTIVE or cred.session_epoch != claims.epoch
+            or deceased):
         raise _fail()
     return Authenticated(
         ctx, cred.actor.public_id, cred.actor.actor_type, tenant.name, tenant.type, roles)

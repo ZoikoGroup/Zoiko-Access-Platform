@@ -36,6 +36,7 @@ function Row({ c, canClose, onDone }: { c: RightsCase; canClose: boolean; onDone
         )}
         {c.note && <small>Their words: {c.note}</small>}
         <small>{c.identity_checked_at ? `Identity checked ${c.identity_checked_at.slice(0, 10)}.` : "Identity not checked yet."}</small>
+        {c.lawful_hold && <small><Pill kind="bad">lawful hold</Pill> {c.hold_reason}. An erasure cannot be completed while it stands: decline it with a reason, or lift the hold.</small>}
         {c.decision_note && <small>Told the patient: {c.decision_note}</small>}
         {error && <small style={{ color: "var(--bad)" }}>{error}</small>}
       </div>
@@ -45,9 +46,13 @@ function Row({ c, canClose, onDone }: { c: RightsCase; canClose: boolean; onDone
           {!c.identity_checked_at && <button className="btn ghost" disabled={busy} onClick={() => void run(() => rightsStep(c.id, "verify"))}>I have checked who is asking</button>}
           {canClose ? (
             <>
-              <input aria-label={`Note to the patient for ${c.ref}`} placeholder="What the patient is told (needed to decline)" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} />
-              <button className="btn" disabled={busy || !c.identity_checked_at} title={c.identity_checked_at ? "" : "Check who is asking first"}
+              <input aria-label={`Note to the patient for ${c.ref}`} placeholder="What the patient is told, or why (needed to decline or hold)" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} />
+              <button className="btn" disabled={busy || !c.identity_checked_at || (c.lawful_hold && c.type === "erasure")}
+                title={!c.identity_checked_at ? "Check who is asking first" : c.lawful_hold && c.type === "erasure" ? "A lawful hold stands" : ""}
                 onClick={() => void run(() => rightsStep(c.id, "complete", note))}>Mark done</button>
+              {c.lawful_hold
+                ? <button className="btn ghost" disabled={busy || note.trim().length < 3} onClick={() => void run(() => rightsStep(c.id, "release", note))}>Lift the hold</button>
+                : <button className="btn ghost" disabled={busy || note.trim().length < 3} onClick={() => void run(() => rightsStep(c.id, "hold", note))}>Record a lawful hold</button>}
               <button className="btn ghost" disabled={busy || note.trim().length < 3} onClick={() => void run(() => rightsStep(c.id, "decline", note))}>Decline</button>
             </>
           ) : <small>Only your clinic administrator can close a request.</small>}

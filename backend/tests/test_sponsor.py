@@ -294,3 +294,20 @@ def test_one_payers_plans_are_invisible_to_another_customer():
     assert plan(one).status_code == 201
     assert body(two.get("portal/plans", subject="pay"))["plans"] == []
     assert plan(two).status_code == 201                         # the same code in another customer
+
+
+def test_a_member_number_is_never_stored_in_the_clear_but_can_still_be_checked(payer):
+    """DEV-216: sealed, found by a keyed fingerprint, shown by its last four characters only."""
+    from modules.sponsor.models import PlanMember
+
+    assert plan(payer).status_code == 201
+    r = member(payer, member_id="PAYER-998877")
+    assert r.status_code == 201, r.content
+    assert body(r)["member"]["member"] == "…8877"
+    with tenant_transaction(payer.clinic.ctx):
+        row = PlanMember.objects.get()
+        stored = " ".join(str(v) for v in PlanMember.objects.values().get().values())
+    assert row.member_id == "" and "998877" not in stored and row.member_tail == "8877"
+    assert check(payer, member_id="PAYER-998877")["covered"] is True
+    assert check(payer, member_id="PAYER-998878")["reason"] == "no_member"
+    assert member(payer, member_id="PAYER-998877").status_code == 409     # still unique

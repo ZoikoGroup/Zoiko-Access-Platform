@@ -15,12 +15,14 @@ const STATUS: Record<string, { text: string; kind: "ok" | "warn" | "info" | "bad
 };
 
 const RELATIONSHIP: Record<string, string> = { parent: "parent", guardian: "legal guardian", caregiver: "caregiver" };
-// What a guardian can be allowed to do. Medical records are not on this list: they stay closed.
+// What a guardian can be allowed to do. Medical records stay closed; consultation notes are a
+// separate part, read only while the child is under 16 (DEV-324).
 const SCOPES: [string, string][] = [
   ["appointments", "Book, change and see appointments"],
   ["messages", "Send and read messages with the clinic"],
   ["referrals", "See referrals"],
   ["insurance", "See and manage insurance"],
+  ["notes", "Read consultation notes (only while the child is under 16)"],
 ];
 
 const PROOF_KINDS: [string, string][] = [

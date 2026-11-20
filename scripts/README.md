@@ -8,6 +8,7 @@ anything real. They need only Python (no packages), and the backend running (`do
 |---|---|
 | `seed_demo_tenant.py "Alpha Clinics"` | A customer with 2 clinics, 6 demo logins (patient, guardian, clinic ops, support, clinician, employer), a catalog and open times. Prints the tenant id. |
 | `set_demo_passwords.py <tenant id>` | Gives every login in a tenant the demo password. |
+| `seed_uk_pack.py` | Drafts the United Kingdom country pack (`gb-care-navigation`: 999, 30-day data requests, en-GB, Europe/London). A DRAFT only, with every evidence item PENDING: a legal and a clinical reviewer must approve it before it counts (DEV-195). Safe to run again. |
 | `seed_platform_tenant.py` | Zoiko's own platform tenant with two support logins and a safety login. Safe to run again: it adds any that are missing. |
 
 Demo platform logins: organization `Zoiko Platform`, `vikram@zoiko.example` or `priya@zoiko.example` (support, R11:

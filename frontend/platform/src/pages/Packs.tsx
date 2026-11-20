@@ -12,6 +12,7 @@ const STATUS: Record<PackRow["status"], { text: string; kind: PillKind }> = {
 const CAPABILITIES: [string, string][] = [
   ["provider_directory", "Find a doctor"], ["booking", "Booking"], ["messaging", "Messages"],
   ["referrals", "Referrals"], ["waiting_list", "Waiting list"],
+  ["partner_booking", "Bookings confirmed by a partner's system"],
 ];
 const EVIDENCE: [string, string][] = [["legal", "Legal"], ["dpia", "Privacy assessment"], ["cyber", "Security review"], ["clinical", "Clinical"]];
 const EVIDENCE_WORDS: Record<string, string> = { PENDING: "Not yet", PROVIDED: "Provided", NOT_APPLICABLE_REVIEW_NEEDED: "Not applicable (review needed)" };
@@ -79,8 +80,8 @@ function PackCard({ p, canWrite, canAttest, onDone }: { p: PackRow; canWrite: bo
   return (
     <div className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
       <div className="info">
-        <b>{p.country} · {p.pack_ref} (revision {p.revision}) <Pill kind={STATUS[p.status].kind}>{STATUS[p.status].text}</Pill>{p.expired && <> <Pill kind="bad">Review date passed</Pill></>}</b>
-        <small>Written by {p.author}. Fingerprint {p.content_hash.slice(0, 12)}.</small>
+        <b>{p.country} · {p.pack_ref} (revision {p.revision}) <Pill kind={STATUS[p.status].kind}>{STATUS[p.status].text}</Pill>{p.expired && <> <Pill kind="bad">Review date passed</Pill></>}{p.signature && !p.signature.valid && <> <Pill kind="bad">Signature does not match: counts for nothing</Pill></>}</b>
+        <small>Written by {p.author}. Fingerprint {p.content_hash.slice(0, 12)}.{p.signature?.valid && ` Signed with key ${p.signature.key_id}.`}</small>
         <small>Data requests: {p.manifest.settings.data_request_days ? `${p.manifest.settings.data_request_days} days` : "no deadline set"}. Emergency number: {p.manifest.settings.emergency_number || "not set"}. Review by {p.manifest.validity.expires_on ?? "not set"}.</small>
         {p.missing.length > 0 && <small>Still missing: {p.missing.join(", ")}.</small>}
         {Object.keys(p.approvals).length > 0 && <small>Approved by: {Object.entries(p.approvals).map(([r, a]) => `${r} (${a.by})`).join(", ")}.</small>}

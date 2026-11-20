@@ -21,3 +21,9 @@ class MessagingConfig(AppConfig):
         from .models import Thread
 
         person_refs.register("messaging.Thread", Thread)
+        from foundation import retention
+
+        from .retention import count_older
+
+        retention.register("message_threads", "Closed message conversations",
+                           "the last message", count_older)

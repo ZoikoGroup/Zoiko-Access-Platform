@@ -1,4 +1,5 @@
-import type { Booking } from "../api";
+import { useEffect, useState } from "react";
+import { getEmergencyNumber, type Booking } from "../api";
 import { Card } from "../ui";
 import type { PageId } from "../App";
 
@@ -25,6 +26,9 @@ export function sitesOf(bookings: Booking[]): Site[] {
 }
 
 export function Help({ bookings, goTo }: { bookings: Booking[]; goTo: (page: PageId) => void }) {
+  // Shown only when an approved country pack for the clinic's country states one. Otherwise nothing is added.
+  const [emergency, setEmergency] = useState<string | null>(null);
+  useEffect(() => { getEmergencyNumber().then(setEmergency).catch(() => setEmergency(null)); }, []);
   const sites = sitesOf(bookings);
   return (
     <>
@@ -35,6 +39,7 @@ export function Help({ bookings, goTo }: { bookings: Booking[]; goTo: (page: Pag
       <div className="grid">
         <Card title="In an emergency">
           <p><b>Zoiko Access is not an emergency service.</b> If you or someone else is in danger or needs urgent medical help, call your local emergency number straight away. Do not wait for a reply in this app.</p>
+          {emergency && <p>The emergency number for your country is <a href={`tel:${emergency.replace(/[^+0-9]/g, "")}`}><b>{emergency}</b></a>.</p>}
         </Card>
         <Card title="Your clinics" sub="From your appointments. The clinic can change these details.">
           {sites.length === 0 ? (

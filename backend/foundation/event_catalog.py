@@ -15,7 +15,9 @@ from typing import Any
 # type -> (what it is about, fields always present, fields sometimes present)
 _BOOKING = ("booking", ("booking_ref", "slot_ref", "service_ref", "status"), ("side", "actor_ref"))
 _REFERRAL = ("referral", ("referral_ref", "state"), ("actor_ref",))
-_OPERATION = ("external_operation", ("operation_ref", "operation_type", "subject_ref", "state"), ())
+# A partner operation moved on: which one, what kind, what it is about, and where it now stands.
+_OPERATION = (
+    "external_operation", ("operation_ref", "operation_type", "subject_ref", "state"), ())
 _ENTRY = ("waitlist", ("entry_ref", "state"), ("actor_ref",))          # who joined or left
 _ENTRY_SYSTEM = ("waitlist", ("entry_ref", "state"), ())                # done by the product
 
@@ -54,9 +56,14 @@ EVENTS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "workflow.timer.fired.v1": ("workflow_instance", ("instance_ref", "timer", "state"), ()),
     "professional.privilege.revoked.v1": (
         "role_assignment", ("assignment_ref", "actor_ref", "role_code", "organization_ref"), ()),
+    "claim.consent_needed.v1": ("claim", ("claim_ref", "person_ref"), ()),
+    "exchange.consent_needed.v1": ("exchange_request", ("request_ref", "person_ref", "kind"), ()),
     "exchange.reviewed.v1": ("exchange_request", ("request_ref", "person_ref", "kind"), ()),
     "workflow.changed.v1": ("workflow", ("instance_ref", "kind", "state", "overlay"), ()),
     "access.denied.v1": ("access_decision", ("operation", "purpose", "reason"), ()),
+    "connector.operation.accepted.v1": _OPERATION,
+    "connector.operation.unknown.v1": _OPERATION,
+    "connector.operation.dead.v1": _OPERATION,
 }
 
 # Sent straight to a partner when it is being verified, not through the outbox: listed so a partner

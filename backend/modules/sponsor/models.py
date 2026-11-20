@@ -57,7 +57,13 @@ class PlanMember(CellScopedModel):
 
     organization_ref = models.CharField(max_length=22)
     plan = models.ForeignKey(CoveragePlan, on_delete=models.PROTECT, related_name="+")
-    member_id = models.CharField(max_length=40)
+    # DEV-216: the payer's member number is no longer kept in the clear. `member_id` stays as a
+    # column (columns are never dropped) but is left empty; the number is sealed in `member_enc`,
+    # found by its keyed fingerprint `member_key`, and shown by its last four characters only.
+    member_id = models.CharField(max_length=40, blank=True, default="")
+    member_enc = models.TextField(blank=True, default="")
+    member_key = models.CharField(max_length=64, blank=True, default="")
+    member_tail = models.CharField(max_length=4, blank=True, default="")
     valid_from = models.DateField(null=True, blank=True)
     valid_until = models.DateField(null=True, blank=True)
     state = models.CharField(max_length=10, choices=MemberState.choices, default=MemberState.ACTIVE)
@@ -65,5 +71,5 @@ class PlanMember(CellScopedModel):
 
     class Meta(CellScopedModel.Meta):
         constraints = [models.UniqueConstraint(
-            fields=["tenant_id", "organization_ref", "member_id"], name="plan_member_unique")]
+            fields=["tenant_id", "organization_ref", "member_key"], name="plan_member_key_unique")]
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="plan_member_scope_idx")]

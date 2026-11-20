@@ -57,6 +57,22 @@
     }
    }
   },
+  "claim_consent_needed_v1": {
+   "address": "claim.consent_needed.v1",
+   "messages": {
+    "claim_consent_needed_v1": {
+     "$ref": "#/components/messages/claim_consent_needed_v1"
+    }
+   }
+  },
+  "connector_operation_accepted_v1": {
+   "address": "connector.operation.accepted.v1",
+   "messages": {
+    "connector_operation_accepted_v1": {
+     "$ref": "#/components/messages/connector_operation_accepted_v1"
+    }
+   }
+  },
   "connector_operation_confirmed_v1": {
    "address": "connector.operation.confirmed.v1",
    "messages": {
@@ -65,11 +81,27 @@
     }
    }
   },
+  "connector_operation_dead_v1": {
+   "address": "connector.operation.dead.v1",
+   "messages": {
+    "connector_operation_dead_v1": {
+     "$ref": "#/components/messages/connector_operation_dead_v1"
+    }
+   }
+  },
   "connector_operation_rejected_v1": {
    "address": "connector.operation.rejected.v1",
    "messages": {
     "connector_operation_rejected_v1": {
      "$ref": "#/components/messages/connector_operation_rejected_v1"
+    }
+   }
+  },
+  "connector_operation_unknown_v1": {
+   "address": "connector.operation.unknown.v1",
+   "messages": {
+    "connector_operation_unknown_v1": {
+     "$ref": "#/components/messages/connector_operation_unknown_v1"
     }
    }
   },
@@ -102,6 +134,14 @@
    "messages": {
     "developer_ping_v1": {
      "$ref": "#/components/messages/developer_ping_v1"
+    }
+   }
+  },
+  "exchange_consent_needed_v1": {
+   "address": "exchange.consent_needed.v1",
+   "messages": {
+    "exchange_consent_needed_v1": {
+     "$ref": "#/components/messages/exchange_consent_needed_v1"
     }
    }
   },
@@ -516,6 +556,58 @@
     },
     "x-schema-hash": "a5084c72721c8718"
    },
+   "claim_consent_needed_v1": {
+    "contentType": "application/json",
+    "name": "claim.consent_needed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "claim_ref": {
+       "type": "string"
+      },
+      "person_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "claim_ref",
+      "person_ref"
+     ],
+     "type": "object",
+     "x-aggregate": "claim"
+    },
+    "x-schema-hash": "1f06c0bfd95bd8c5"
+   },
+   "connector_operation_accepted_v1": {
+    "contentType": "application/json",
+    "name": "connector.operation.accepted.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation_ref": {
+       "type": "string"
+      },
+      "operation_type": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "subject_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation_ref",
+      "operation_type",
+      "subject_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "external_operation"
+    },
+    "x-schema-hash": "11c4c64cdf4f1db8"
+   },
    "connector_operation_confirmed_v1": {
     "contentType": "application/json",
     "name": "connector.operation.confirmed.v1",
@@ -546,9 +638,69 @@
     },
     "x-schema-hash": "11c4c64cdf4f1db8"
    },
+   "connector_operation_dead_v1": {
+    "contentType": "application/json",
+    "name": "connector.operation.dead.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation_ref": {
+       "type": "string"
+      },
+      "operation_type": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "subject_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation_ref",
+      "operation_type",
+      "subject_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "external_operation"
+    },
+    "x-schema-hash": "11c4c64cdf4f1db8"
+   },
    "connector_operation_rejected_v1": {
     "contentType": "application/json",
     "name": "connector.operation.rejected.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "operation_ref": {
+       "type": "string"
+      },
+      "operation_type": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      },
+      "subject_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "operation_ref",
+      "operation_type",
+      "subject_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "external_operation"
+    },
+    "x-schema-hash": "11c4c64cdf4f1db8"
+   },
+   "connector_operation_unknown_v1": {
+    "contentType": "application/json",
+    "name": "connector.operation.unknown.v1",
     "payload": {
      "additionalProperties": false,
      "properties": {
@@ -691,6 +843,32 @@
      "x-aggregate": "webhook"
     },
     "x-schema-hash": "5d674fe789c74654"
+   },
+   "exchange_consent_needed_v1": {
+    "contentType": "application/json",
+    "name": "exchange.consent_needed.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "kind": {
+       "type": "string"
+      },
+      "person_ref": {
+       "type": "string"
+      },
+      "request_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "request_ref",
+      "person_ref",
+      "kind"
+     ],
+     "type": "object",
+     "x-aggregate": "exchange_request"
+    },
+    "x-schema-hash": "9e057096266b46ef"
    },
    "exchange_reviewed_v1": {
     "contentType": "application/json",
@@ -1287,6 +1465,20 @@
    },
    "summary": "Zoiko publishes booking.rescheduled.v1"
   },
+  "publish_claim_consent_needed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/claim_consent_needed_v1"
+   },
+   "summary": "Zoiko publishes claim.consent_needed.v1"
+  },
+  "publish_connector_operation_accepted_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/connector_operation_accepted_v1"
+   },
+   "summary": "Zoiko publishes connector.operation.accepted.v1"
+  },
   "publish_connector_operation_confirmed_v1": {
    "action": "send",
    "channel": {
@@ -1294,12 +1486,26 @@
    },
    "summary": "Zoiko publishes connector.operation.confirmed.v1"
   },
+  "publish_connector_operation_dead_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/connector_operation_dead_v1"
+   },
+   "summary": "Zoiko publishes connector.operation.dead.v1"
+  },
   "publish_connector_operation_rejected_v1": {
    "action": "send",
    "channel": {
     "$ref": "#/channels/connector_operation_rejected_v1"
    },
    "summary": "Zoiko publishes connector.operation.rejected.v1"
+  },
+  "publish_connector_operation_unknown_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/connector_operation_unknown_v1"
+   },
+   "summary": "Zoiko publishes connector.operation.unknown.v1"
   },
   "publish_consent_changed_v1": {
    "action": "send",
@@ -1328,6 +1534,13 @@
     "$ref": "#/channels/developer_ping_v1"
    },
    "summary": "Zoiko publishes developer.ping.v1"
+  },
+  "publish_exchange_consent_needed_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/exchange_consent_needed_v1"
+   },
+   "summary": "Zoiko publishes exchange.consent_needed.v1"
   },
   "publish_exchange_reviewed_v1": {
    "action": "send",

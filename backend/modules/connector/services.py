@@ -1,4 +1,4 @@
-"""Asking a partner to do something, and keeping honest about what became of it.
+"""Asking a partner to do something, and staying honest about what became of it.
 
 The life of an operation (architecture sections 5 and 9, GHE-13):
 
@@ -17,6 +17,7 @@ Rules that hold throughout
 - A call that may have reached the partner is never simply sent again. We ask first.
 - Failures keep only the exception CLASS, never its message (messages can hold personal data).
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -34,8 +35,15 @@ from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 
-from . import adapters
-from .adapters import AdapterTimeout, AdapterUnavailable, OperationView, Outcome, PartnerResult
+from . import adapters, circuit
+from .adapters import (
+    AdapterTimeout,
+    AdapterUnavailable,
+    AdapterUnsupported,
+    OperationView,
+    Outcome,
+    PartnerResult,
+)
 from .models import (
     ExternalOperation,
     OperationEvent,
@@ -44,7 +52,7 @@ from .models import (
 )
 
 WRITE_PARTNER = "write:partner"
-STUCK_AFTER = dt.timedelta(minutes=5)       # `sent` for longer than this means a worker died
+STUCK_AFTER = dt.timedelta(minutes=5)  # `sent` for longer than this means a worker died
 POLL_BASE_SECONDS = 30.0
 # What an operation's `last_code` says when a PERSON settled it. A partner can never produce it (see
 # _settle), so it cannot be mistaken for the partner's own word.
@@ -58,11 +66,18 @@ def _scope() -> dict[str, Any]:
 
 def operation_dict(op: ExternalOperation) -> dict[str, Any]:
     return {
-        "public_id": op.public_id, "connector_key": op.connector_key,
-        "operation_type": op.operation_type, "subject_ref": op.subject_ref,
-        "organization_ref": op.organization_ref, "state": op.state, "attempts": op.attempts,
-        "polls": op.polls, "partner_ref": op.partner_ref, "last_code": op.last_code,
-        "last_error": op.last_error, "created_at": op.created_at.isoformat(),
+        "public_id": op.public_id,
+        "connector_key": op.connector_key,
+        "operation_type": op.operation_type,
+        "subject_ref": op.subject_ref,
+        "organization_ref": op.organization_ref,
+        "state": op.state,
+        "attempts": op.attempts,
+        "polls": op.polls,
+        "partner_ref": op.partner_ref,
+        "last_code": op.last_code,
+        "last_error": op.last_error,
+        "created_at": op.created_at.isoformat(),
         "sent_at": op.sent_at.isoformat() if op.sent_at else None,
         "finished_at": op.finished_at.isoformat() if op.finished_at else None,
         "source_confirmed": is_source_confirmed(op),
@@ -78,39 +93,82 @@ def is_source_confirmed(op: ExternalOperation) -> bool:
 
 def _view(op: ExternalOperation) -> OperationView:
     return OperationView(
-        operation_ref=op.public_id, operation_type=op.operation_type, subject_ref=op.subject_ref,
-        idempotency_key=op.idempotency_key, partner_ref=op.partner_ref, request=dict(op.request))
+        operation_ref=op.public_id,
+        operation_type=op.operation_type,
+        subject_ref=op.subject_ref,
+        idempotency_key=op.idempotency_key,
+        partner_ref=op.partner_ref,
+        request=dict(op.request),
+    )
 
 
 def _parts(row: OperationEvent) -> list[Any]:
-    return [row.operation.public_id, row.event_type, row.state_after, row.actor_ref, row.code,
-            row.occurred_at.isoformat()]
+    return [
+        row.operation.public_id,
+        row.event_type,
+        row.state_after,
+        row.actor_ref,
+        row.code,
+        row.occurred_at.isoformat(),
+    ]
 
 
-def _log(op: ExternalOperation, event_type: str, *, actor_ref: str = "system", code: str = "",
-         now: dt.datetime) -> None:
+def _log(
+    op: ExternalOperation,
+    event_type: str,
+    *,
+    actor_ref: str = "system",
+    code: str = "",
+    now: dt.datetime,
+) -> None:
     last = OperationEvent.objects.filter(operation=op, **_scope()).order_by("-seq").first()
     seq = last.seq + 1 if last else 1
     prev = last.record_digest if last else GENESIS
-    digest = chain_digest(prev, seq, op.public_id, event_type, op.state, actor_ref, code,
-                          now.isoformat())
+    digest = chain_digest(
+        prev, seq, op.public_id, event_type, op.state, actor_ref, code, now.isoformat()
+    )
     try:
         with transaction.atomic():
             OperationEvent.objects.create(
-                operation=op, seq=seq, event_type=event_type, state_after=op.state,
-                actor_ref=actor_ref, code=code, occurred_at=now, prev_digest=prev,
-                record_digest=digest, **_scope())
+                operation=op,
+                seq=seq,
+                event_type=event_type,
+                state_after=op.state,
+                actor_ref=actor_ref,
+                code=code,
+                occurred_at=now,
+                prev_digest=prev,
+                record_digest=digest,
+                **_scope(),
+            )
     except IntegrityError:
         raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None
 
 
+# Written out in full so the event catalogue check (tests/test_event_catalog.py) can find them.
+_EVENT_TYPES = {
+    "accepted": "connector.operation.accepted.v1",
+    "confirmed": "connector.operation.confirmed.v1",
+    "rejected": "connector.operation.rejected.v1",
+    "unknown": "connector.operation.unknown.v1",
+    "dead": "connector.operation.dead.v1",
+}
+
+
 def _announce(op: ExternalOperation, kind: str) -> None:
     """Tell the rest of the product, by event. Payloads are references and the state only."""
-    emit(event_type=f"connector.operation.{kind}.v1", aggregate_type="external_operation",
-         aggregate_ref=op.public_id,
-         payload={"operation_ref": op.public_id, "operation_type": op.operation_type,
-                  "subject_ref": op.subject_ref, "state": op.state},
-         dedupe_key=f"op:{op.public_id}:{kind}")
+    emit(
+        event_type=_EVENT_TYPES[kind],
+        aggregate_type="external_operation",
+        aggregate_ref=op.public_id,
+        payload={
+            "operation_ref": op.public_id,
+            "operation_type": op.operation_type,
+            "subject_ref": op.subject_ref,
+            "state": op.state,
+        },
+        dedupe_key=f"op:{op.public_id}:{kind}",
+    )
 
 
 def _settle(op: ExternalOperation, result: PartnerResult, now: dt.datetime) -> None:
@@ -126,7 +184,7 @@ def _settle(op: ExternalOperation, result: PartnerResult, now: dt.datetime) -> N
         op.state, op.finished_at = OperationState.REJECTED, now
         _log(op, OperationEventType.REJECTED, code=result.code[:64], now=now)
         _announce(op, "rejected")
-    elif op.state != OperationState.ACCEPTED:              # a receipt: wait for the real answer
+    elif op.state != OperationState.ACCEPTED:  # a receipt: wait for the real answer
         op.state = OperationState.ACCEPTED
         _log(op, OperationEventType.ACCEPTED, now=now)
         _announce(op, "accepted")
@@ -138,10 +196,20 @@ def _settle(op: ExternalOperation, result: PartnerResult, now: dt.datetime) -> N
 
 
 def request_operation(
-    *, connector_key: str, operation_type: str, subject_ref: str, organization_ref: str,
-    idempotency_key: str, request: dict[str, Any], requested_by_ref: str,
-    decision: policy.Decision, max_attempts: int = 5, clock: Clock | None = None,
-    authorized_as: str = WRITE_PARTNER, receipt_subject_ref: str | None = None,
+    *,
+    connector_key: str,
+    operation_type: str,
+    subject_ref: str,
+    organization_ref: str,
+    idempotency_key: str,
+    request: dict[str, Any],
+    requested_by_ref: str,
+    decision: policy.Decision,
+    max_attempts: int = 5,
+    clock: Clock | None = None,
+    authorized_as: str = WRITE_PARTNER,
+    receipt_subject_ref: str | None = None,
+    receipt_without_organization: bool = False,
 ) -> dict[str, Any]:
     """Queue an operation for a partner. The caller must hold a fresh policy receipt for this
     actor at this organization: normally for `write:partner`. A feature that asks a partner on
@@ -150,14 +218,20 @@ def request_operation(
     `receipt_subject_ref`): the receipt must match all of it exactly. Asking again with the same
     key and the same request returns the same operation; the same key with a different request is
     refused."""
+    # A patient's own agreement is authorized for the patient, not at an organisation (DEV-323): it
+    # is still checked exactly, for this actor, operation and patient.
     policy.check_receipt(
-        decision, actor_public_id=requested_by_ref, operation=authorized_as,
-        organization_public_id=organization_ref, subject_ref=receipt_subject_ref)
+        decision,
+        actor_public_id=requested_by_ref,
+        operation=authorized_as,
+        organization_public_id=None if receipt_without_organization else organization_ref,
+        subject_ref=receipt_subject_ref,
+    )
     if adapters.get(connector_key) is None:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["connector"])
     if not 1 <= max_attempts <= 10:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["max_attempts"])
-    if not 16 <= len(idempotency_key) <= 128:                 # GHE-13: 16 to 128 characters
+    if not 16 <= len(idempotency_key) <= 128:  # GHE-13: 16 to 128 characters
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["idempotency_key"])
     try:
         body = check_reference_payload(request)
@@ -168,35 +242,86 @@ def request_operation(
     try:
         with transaction.atomic():
             op = ExternalOperation.objects.create(
-                connector_key=connector_key, operation_type=operation_type,
-                subject_ref=subject_ref, organization_ref=organization_ref,
-                idempotency_key=idempotency_key, request=body, request_digest=digest,
-                requested_by_ref=requested_by_ref, max_attempts=max_attempts,
-                next_attempt_at=now, **_scope())
+                connector_key=connector_key,
+                operation_type=operation_type,
+                subject_ref=subject_ref,
+                organization_ref=organization_ref,
+                idempotency_key=idempotency_key,
+                request=body,
+                request_digest=digest,
+                requested_by_ref=requested_by_ref,
+                max_attempts=max_attempts,
+                next_attempt_at=now,
+                **_scope(),
+            )
             _log(op, OperationEventType.REQUESTED, actor_ref=requested_by_ref, now=now)
-            record(actor_ref=requested_by_ref, action="connector.request",
-                   object_type="external_operation", object_ref=op.public_id,
-                   outcome=AuditOutcome.ALLOWED)
+            record(
+                actor_ref=requested_by_ref,
+                action="connector.request",
+                object_type="external_operation",
+                object_ref=op.public_id,
+                outcome=AuditOutcome.ALLOWED,
+            )
             return operation_dict(op)
     except IntegrityError:
         existing = ExternalOperation.objects.filter(
-            connector_key=connector_key, idempotency_key=idempotency_key, **_scope()).first()
+            connector_key=connector_key, idempotency_key=idempotency_key, **_scope()
+        ).first()
         if existing is None or existing.request_digest != digest:
             raise ZoikoError(ErrorCode.DUPLICATE_COMMAND) from None
-        return operation_dict(existing)                       # the same request: same operation
+        return operation_dict(existing)  # the same request: same operation
 
 
 # --------------------------------------------------------------------------- sending
 
 
+def _passable(
+    ops: list[ExternalOperation], now: dt.datetime, limit: int
+) -> list[ExternalOperation]:
+    """Leave out operations whose connector's circuit is open or halted, and let only ONE through
+    for a connector on trial (DEV-221). Those left out simply stay as they are."""
+    chosen: list[ExternalOperation] = []
+    seen: dict[str, tuple[bool, bool]] = {}
+    trial_used: set[str] = set()
+    for op in ops:
+        key = op.connector_key
+        if key not in seen:
+            seen[key] = circuit.blocked(key, now)
+        is_blocked, trial = seen[key]
+        if is_blocked or (trial and key in trial_used):
+            continue
+        if trial:
+            trial_used.add(key)
+        chosen.append(op)
+        if len(chosen) >= limit:
+            break
+    return chosen
+
+
+def _circuit_after(key: str, outcome: Any, now: dt.datetime) -> None:
+    """Tell the circuit how the call went. A missing adapter is not the partner's failure."""
+    if isinstance(outcome, PartnerResult):
+        circuit.succeeded(key)
+    elif isinstance(outcome, AdapterUnsupported):
+        circuit.halt(key, "unsupported")
+    elif isinstance(outcome, Exception):
+        circuit.failed(key, now, type(outcome).__name__)
+
+
 def _claim_due(now: dt.datetime, limit: int) -> list[ExternalOperation]:
     """Take operations that are due and mark them `sent`, in one short transaction. Several
-    workers may run at once: a locked row is skipped, never taken twice."""
+    workers may run at once: a locked row is skipped, never taken twice. A connector whose
+    circuit is open keeps its operations waiting here (DEV-221)."""
     with tenant_transaction():
-        due = list(
-            ExternalOperation.objects.select_for_update(skip_locked=True)
-            .filter(state=OperationState.PENDING, next_attempt_at__lte=now, **_scope())
-            .order_by("next_attempt_at")[:limit])
+        due = _passable(
+            list(
+                ExternalOperation.objects.select_for_update(skip_locked=True)
+                .filter(state=OperationState.PENDING, next_attempt_at__lte=now, **_scope())
+                .order_by("next_attempt_at")[: limit * 5]
+            ),
+            now,
+            limit,
+        )
         for op in due:
             op.state = OperationState.SENT
             op.attempts += 1
@@ -212,7 +337,7 @@ def _record_outcome(op_ref: str, call: Any, now: dt.datetime) -> None:
     with tenant_transaction():
         op = ExternalOperation.objects.select_for_update().get(public_id=op_ref, **_scope())
         if op.state != OperationState.SENT:
-            return                                              # someone else already settled it
+            return  # someone else already settled it
         if isinstance(call, PartnerResult):
             _settle(op, call, now)
         elif isinstance(call, AdapterTimeout):
@@ -221,7 +346,7 @@ def _record_outcome(op_ref: str, call: Any, now: dt.datetime) -> None:
             op.next_attempt_at = now + dt.timedelta(seconds=POLL_BASE_SECONDS)
             _log(op, OperationEventType.UNKNOWN, code="timeout", now=now)
             _announce(op, "unknown")
-        else:                                                   # it certainly did not arrive
+        else:  # it certainly did not arrive
             op.last_error = type(call).__name__[:64]
             if op.attempts >= op.max_attempts:
                 op.state = OperationState.DEAD
@@ -243,12 +368,20 @@ def send_due(*, clock: Clock | None = None, limit: int = 20) -> int:
         view = _view(op)
         try:
             if adapter is None:
-                raise AdapterUnavailable()                      # not enabled here: treat as down
-            outcome: Any = adapter.submit(view)                # NOT inside a transaction
+                raise AdapterUnavailable()  # not enabled here: treat as down
+            outcome: Any = adapter.submit(view)  # NOT inside a transaction
         except (AdapterTimeout, AdapterUnavailable) as exc:
+            outcome = exc
+        except AdapterUnsupported as exc:
             outcome = exc
         except Exception as exc:  # noqa: BLE001 - an adapter bug: the outcome is unknown, ask
             outcome = AdapterTimeout(type(exc).__name__)
+        if adapter is not None:
+            _circuit_after(op.connector_key, outcome, utc_now(clock))
+        if isinstance(outcome, AdapterUnsupported):
+            # It was refused as a format, not done: it waits (pending) while the connector is
+            # halted, and goes again once a person has reset it.
+            outcome = AdapterUnavailable("unsupported")
         _record_outcome(op.public_id, outcome, utc_now(clock))
     return len(claimed)
 
@@ -259,8 +392,11 @@ def recover_stuck(*, clock: Clock | None = None) -> int:
     now = utc_now(clock)
     fixed = 0
     with tenant_transaction():
-        stuck = list(ExternalOperation.objects.select_for_update(skip_locked=True).filter(
-            state=OperationState.SENT, sent_at__lte=now - STUCK_AFTER, **_scope()))
+        stuck = list(
+            ExternalOperation.objects.select_for_update(skip_locked=True).filter(
+                state=OperationState.SENT, sent_at__lte=now - STUCK_AFTER, **_scope()
+            )
+        )
         for op in stuck:
             op.state, op.last_error = OperationState.UNKNOWN, "WorkerLost"
             op.next_attempt_at = now
@@ -279,12 +415,20 @@ def reconcile_due(*, clock: Clock | None = None, limit: int = 20) -> int:
     were asked."""
     now = utc_now(clock)
     with tenant_transaction():
-        due = list(
-            ExternalOperation.objects.select_for_update(skip_locked=True)
-            .filter(state__in=[OperationState.ACCEPTED, OperationState.UNKNOWN],
-                    next_attempt_at__lte=now, **_scope())
-            .order_by("next_attempt_at")[:limit])
-        for op in due:                                          # claim: push the next ask out
+        due = _passable(
+            list(
+                ExternalOperation.objects.select_for_update(skip_locked=True)
+                .filter(
+                    state__in=[OperationState.ACCEPTED, OperationState.UNKNOWN],
+                    next_attempt_at__lte=now,
+                    **_scope(),
+                )
+                .order_by("next_attempt_at")[: limit * 5]
+            ),
+            now,
+            limit,
+        )
+        for op in due:  # claim: push the next ask out
             op.polls += 1
             op.next_attempt_at = now + dt.timedelta(seconds=backoff_seconds(op.polls + 2))
             op.save(update_fields=["polls", "next_attempt_at", "updated_at"])
@@ -294,8 +438,10 @@ def reconcile_due(*, clock: Clock | None = None, limit: int = 20) -> int:
         if adapter is not None:
             try:
                 answer = adapter.query(_view(op))
-            except Exception:  # noqa: BLE001, S110 - no answer this time: try again later
+                _circuit_after(op.connector_key, answer, utc_now(clock))
+            except Exception as exc:  # noqa: BLE001 - no answer this time: try again later
                 answer = None
+                _circuit_after(op.connector_key, exc, utc_now(clock))
         _apply_answer(op.public_id, answer, adapter, utc_now(clock))
     return len(due)
 
@@ -309,18 +455,25 @@ def _apply_answer(
             return
         if answer is not None and answer.outcome in (Outcome.CONFIRMED, Outcome.REJECTED):
             _settle(op, answer, now)
-        elif answer is not None and answer.outcome is Outcome.NOT_FOUND and (
-                adapter is not None and adapter.idempotent):
+        elif (
+            answer is not None
+            and answer.outcome is Outcome.NOT_FOUND
+            and (adapter is not None and adapter.idempotent)
+        ):
             # The partner has no record and honours our key: sending again cannot do it twice.
             op.state = OperationState.PENDING
             op.next_attempt_at = now
             _log(op, OperationEventType.RETRY, code="not_found", now=now)
-        elif answer is not None and answer.outcome is Outcome.ACCEPTED and (
-                op.state == OperationState.UNKNOWN):
+        elif (
+            answer is not None
+            and answer.outcome is Outcome.ACCEPTED
+            and (op.state == OperationState.UNKNOWN)
+        ):
             _settle(op, answer, now)
         if op.state in (OperationState.ACCEPTED, OperationState.UNKNOWN) and (
-                op.polls >= op.max_polls):
-            op.state = OperationState.DEAD                      # the partner never settled it
+            op.polls >= op.max_polls
+        ):
+            op.state = OperationState.DEAD  # the partner never settled it
             _log(op, OperationEventType.DEAD, code="no_final_answer", now=now)
             _announce(op, "dead")
         op.save()
@@ -329,26 +482,52 @@ def _apply_answer(
 # --------------------------------------------------------------------------- people step in
 
 
+def _may_have_arrived(op: ExternalOperation) -> bool:
+    """True when the partner may already have the call: it acknowledged it, or it went out and no
+    final answer ever came. False only when every try failed before reaching the partner."""
+    return OperationEvent.objects.filter(
+        operation=op,
+        event_type__in=[OperationEventType.ACCEPTED, OperationEventType.UNKNOWN],
+    ).exists()
+
+
 def redrive(
     *, operation_ref: str, actor_ref: str, organization_ref: str = "", clock: Clock | None = None
 ) -> dict[str, Any]:
-    """A person puts a dead operation back in the queue. The attempt counters start again."""
+    """A person puts a dead operation back in the queue. The attempt counters start again.
+
+    Only when sending again cannot do the thing twice (GHE-12 WF-T55, DEV-223): either the call
+    certainly never reached the partner, or the partner honours our idempotency key. An operation
+    that died WITHOUT a final answer may already have been done; for a partner that cannot promise
+    idempotence it is refused, and a person checks with the partner and settles it by hand."""
     now = utc_now(clock)
     with transaction.atomic():
         op = _locked(operation_ref, organization_ref)
         if op.state != OperationState.DEAD:
             raise ZoikoError(ErrorCode.UNSAFE_REPLAY)
+        adapter = adapters.get(op.connector_key)
+        if _may_have_arrived(op) and not (adapter is not None and adapter.idempotent):
+            raise ZoikoError(ErrorCode.UNSAFE_REPLAY)
         op.state, op.attempts, op.polls = OperationState.PENDING, 0, 0
         op.next_attempt_at = now
         op.save()
         _log(op, OperationEventType.REDRIVEN, actor_ref=actor_ref, now=now)
-        record(actor_ref=actor_ref, action="connector.redrive", object_type="external_operation",
-               object_ref=op.public_id, outcome=AuditOutcome.ALLOWED)
+        record(
+            actor_ref=actor_ref,
+            action="connector.redrive",
+            object_type="external_operation",
+            object_ref=op.public_id,
+            outcome=AuditOutcome.ALLOWED,
+        )
         return operation_dict(op)
 
 
 def resolve_by_hand(
-    *, operation_ref: str, outcome: str, actor_ref: str, organization_ref: str = "",
+    *,
+    operation_ref: str,
+    outcome: str,
+    actor_ref: str,
+    organization_ref: str = "",
     clock: Clock | None = None,
 ) -> dict[str, Any]:
     """A person who has checked with the partner records the real outcome of an operation that
@@ -368,14 +547,18 @@ def resolve_by_hand(
         op.save()
         _log(op, OperationEventType.RESOLVED, actor_ref=actor_ref, code=outcome, now=now)
         _announce(op, outcome)
-        record(actor_ref=actor_ref, action="connector.resolve", object_type="external_operation",
-               object_ref=op.public_id, outcome=AuditOutcome.ALLOWED)
+        record(
+            actor_ref=actor_ref,
+            action="connector.resolve",
+            object_type="external_operation",
+            object_ref=op.public_id,
+            outcome=AuditOutcome.ALLOWED,
+        )
         return operation_dict(op)
 
 
 def _locked(operation_ref: str, organization_ref: str = "") -> ExternalOperation:
-    rows = ExternalOperation.objects.select_for_update().filter(
-        public_id=operation_ref, **_scope())
+    rows = ExternalOperation.objects.select_for_update().filter(public_id=operation_ref, **_scope())
     if organization_ref:
         rows = rows.filter(organization_ref=organization_ref)
     op = rows.first()
@@ -419,13 +602,26 @@ def operation_history(operation_ref: str, organization_ref: str = "") -> dict[st
     op = candidates.first()
     if op is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)
-    rows = list(OperationEvent.objects.select_related("operation")
-                .filter(operation=op, **scope).order_by("seq"))
+    rows = list(
+        OperationEvent.objects.select_related("operation")
+        .filter(operation=op, **scope)
+        .order_by("seq")
+    )
     ok, bad = verify_chain(rows, _parts)
     return {
-        "operation_ref": op.public_id, "state": op.state, "chain_ok": ok, "bad_seq": bad,
+        "operation_ref": op.public_id,
+        "state": op.state,
+        "chain_ok": ok,
+        "bad_seq": bad,
         "events": [
-            {"seq": r.seq, "event_type": r.event_type, "state_after": r.state_after,
-             "actor_ref": r.actor_ref, "code": r.code, "occurred_at": r.occurred_at.isoformat()}
-            for r in rows],
+            {
+                "seq": r.seq,
+                "event_type": r.event_type,
+                "state_after": r.state_after,
+                "actor_ref": r.actor_ref,
+                "code": r.code,
+                "occurred_at": r.occurred_at.isoformat(),
+            }
+            for r in rows
+        ],
     }

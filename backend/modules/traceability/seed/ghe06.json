@@ -52,8 +52,8 @@
   "req_id": "AT-07",
   "group": "Acceptance",
   "title": "Same name and DOB for twins",
-  "status": "not_built",
-  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+  "status": "partly",
+  "evidence": "Records with the same birth date and family name but different first names are flagged as possible twins and marked critical, so two different reviewers must agree before any link (DEV-180, test_identity.py). Matching works on a clinic's own records only: there are no outside identifiers or lab-supplied data."
  },
  {
   "source": "GHE-06",
@@ -92,8 +92,8 @@
   "req_id": "AT-12",
   "group": "Acceptance",
   "title": "Erroneous historical merge discovered",
-  "status": "not_built",
-  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+  "status": "partly",
+  "evidence": "A confirmed link can be sent back and split, and the decision history keeps every step and cannot be rewritten (DEV-180, test_identity.py). Only the decision is recorded: records are not actually merged or unmerged, so there is nothing downstream to repair."
  },
  {
   "source": "GHE-06",
@@ -108,8 +108,8 @@
   "req_id": "AT-14",
   "group": "Acceptance",
   "title": "Reviewer tries approve own critical match decision",
-  "status": "not_built",
-  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+  "status": "partly",
+  "evidence": "A critical case needs two different reviewers, a second can overrule the first, and nobody can decide a case about themselves (DEV-180, test_identity.py). There is no separate approver role for critical matches, only \"two different staff\"."
  },
  {
   "source": "GHE-06",
@@ -308,8 +308,8 @@
   "req_id": "AT-39",
   "group": "Acceptance",
   "title": "Unauthorized reviewer exports identity-match evidence",
-  "status": "not_built",
-  "evidence": "Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built."
+  "status": "partly",
+  "evidence": "Only clinic staff can see or decide cases, another clinic cannot, the review screen shows masked details only, and the fingerprints hold nothing readable (DEV-180, test_identity.py). There is no export feature, so there is nothing to export; a role-specific export rule is not defined."
  },
  {
   "source": "GHE-06",

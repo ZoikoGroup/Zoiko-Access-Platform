@@ -4,8 +4,8 @@
   "req_id": "TC01",
   "group": "Acceptance",
   "title": "Send patient content from a non-activated market",
-  "status": "not_built",
-  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+  "status": "partly",
+  "evidence": "A real text (Twilio) is sent, and a phone code is offered, only while a signed, current country pack for the customer's country switches messaging on; with no country, no pack, a pack without messaging, or a suspended pack, nothing goes out (test_text_market.py, DEV-228). Email still goes to the development inbox and is not checked yet."
  },
  {
   "source": "GHE-16",
@@ -36,8 +36,8 @@
   "req_id": "TC05",
   "group": "Acceptance",
   "title": "Try to send C2 body through public SMS channel",
-  "status": "not_built",
-  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+  "status": "partly",
+  "evidence": "A text can only be built from one of two approved templates (\"there is an update, sign in to see it\" and a numeric code) with only their named values, each checked against a strict pattern, so a care detail cannot be put into a text at all; anything else is refused (DEV-194, test_texts.py). Templates are a reviewed code list, not a classification of content into C1/C2."
  },
  {
   "source": "GHE-16",
@@ -52,8 +52,8 @@
   "req_id": "TC07",
   "group": "Acceptance",
   "title": "Change country pack to expired/unsigned revision",
-  "status": "not_built",
-  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+  "status": "partly",
+  "evidence": "The check reads only signed, unexpired, unsuspended packs whose signature is valid (DEV-210), so a pack that expires, is suspended or loses its signature stops new texts at once (test_text_market.py, DEV-228). Texts already queued before the change are not withdrawn."
  },
  {
   "source": "GHE-16",
@@ -164,8 +164,8 @@
   "req_id": "TC21",
   "group": "Acceptance",
   "title": "Receipt arrives out of order / delayed",
-  "status": "not_built",
-  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+  "status": "partly",
+  "evidence": "Twilio's delivery receipts for texts are accepted only with a valid Twilio signature over the exact public address and fields; a receipt only ever moves a text forward (a late \"sent\" after \"delivered\" changes nothing), repeats change nothing, and unknown messages are ignored without saying so (DEV-199, test_text_receipts.py). E-mail has no receipts: \"accepted by the mail server\" is all that is recorded."
  },
  {
   "source": "GHE-16",
@@ -236,8 +236,8 @@
   "req_id": "TC30",
   "group": "Acceptance",
   "title": "Quiet hours suppress routine reminder",
-  "status": "not_built",
-  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+  "status": "partly",
+  "evidence": "A patient can set quiet hours (a start, an end and their time zone) on the Notifications page. A routine reminder email then waits until the window ends, even across a clock change; changes to an appointment, clinic messages and in-app notices are never held (DEV-181, test_email_notices.py). Only email exists, and the window follows the patient's own zone, not a country or clinic rule."
  },
  {
   "source": "GHE-16",
@@ -292,8 +292,8 @@
   "req_id": "TC37",
   "group": "Acceptance",
   "title": "User updates preferred channel during pending send",
-  "status": "not_built",
-  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+  "status": "partly",
+  "evidence": "Turning email updates off cancels any update email still waiting to be sent to that login; one already being sent cannot be taken back, and other kinds of mail and other people's mail are untouched (DEV-182, test_email_notices.py). Email is the only channel, so there is no channel choice to switch between."
  },
  {
   "source": "GHE-16",
@@ -332,8 +332,8 @@
   "req_id": "TC42",
   "group": "Acceptance",
   "title": "Vendor circuit breaker opens",
-  "status": "not_built",
-  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+  "status": "partly",
+  "evidence": "The text provider has a circuit breaker kept in the database: after 5 failures in a row it opens for 5 minutes, nothing is sent while it is open, texts already claimed when it opens go back without using a try, and the next success closes it; the platform Service levels page shows its state and the text counts (DEV-200, test_text_breaker.py). Only texts have a breaker; there is no second provider to fail over to, and no alert is sent when it opens."
  },
  {
   "source": "GHE-16",
@@ -388,8 +388,8 @@
   "req_id": "TC49",
   "group": "Acceptance",
   "title": "Unapproved template variable introduced",
-  "status": "not_built",
-  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+  "status": "partly",
+  "evidence": "A text with a value its template does not name, a missing value, or a value of the wrong shape is refused before it is queued (DEV-194, test_texts.py). Only text messages have templates; email and in-app notices use fixed wording in code."
  },
  {
   "source": "GHE-16",
@@ -436,8 +436,8 @@
   "req_id": "TC55",
   "group": "Acceptance",
   "title": "Small employer cohort aggregate query",
-  "status": "not_built",
-  "evidence": "There is no real communications channel (SMS, push or phone), vendor, template approval or regional routing in this project yet."
+  "status": "partly",
+  "evidence": "The employer programme only ever returns counts, and any group smaller than the threshold (10 by default) is hidden, including after people are withdrawn; it never returns who is in the programme (test_sponsor.py, test_partner_portal.py). The threshold is one setting for everyone, with no per-country or per-contract rule."
  },
  {
   "source": "GHE-16",

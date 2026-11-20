@@ -134,3 +134,44 @@ class InboundEvent(CellScopedModel):
             models.Index(fields=["cell_id", "tenant_id"], name="inbound_scope_idx"),
             models.Index(fields=["client", "created_at"], name="inbound_rate_idx"),
         ]
+
+
+# ------------------------------------------------------------ FHIR quarantine (GHE-13 T-25, T-60)
+class FhirQuarantineState(models.TextChoices):
+    HELD = "held", "Held for staff review"
+    DISCARDED = "discarded", "Discarded by staff"
+    RESEND_REQUESTED = "resend_requested", "Resend requested by staff"
+
+
+class FhirQuarantine(CellScopedModel):
+    """A FHIR resource that failed validation or mapping.
+
+    Stored encrypted so no raw clinical data is kept in the clear.
+    It creates NO clinical state: no request moves, no result appears,
+    no one is notified. Clinic staff inspect it and can discard or ask
+    the partner to resend (GHE-13 T-25, T-60; docs/FHIR-DESIGN.md).
+    """
+
+    client = models.ForeignKey(PartnerClient, on_delete=models.PROTECT, related_name="+")
+    delivery_id = models.CharField(max_length=64)
+    resource_type = models.CharField(max_length=64, blank=True, default="")
+    partner_ref = models.CharField(max_length=64, blank=True, default="")
+    body_digest = models.CharField(max_length=64)             # SHA-256 of the exact bytes received
+    payload_enc = models.TextField()                          # encrypted raw JSON payload
+    issues = models.JSONField(default=list)                   # Issue dicts (path, code, text)
+    state = models.CharField(max_length=20, choices=FhirQuarantineState.choices,
+                             default=FhirQuarantineState.HELD)
+    decided_by_ref = models.CharField(max_length=64, blank=True, default="")
+    decision_note = models.CharField(max_length=300, blank=True, default="")
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["client", "delivery_id"],
+                                    name="fhir_quarantine_once_per_delivery"),
+        ]
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="fhir_quar_scope_idx"),
+            models.Index(fields=["state", "created_at"], name="fhir_quar_state_idx"),
+        ]
+

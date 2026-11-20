@@ -32,11 +32,19 @@ class CountryPack(CellScopedModel):
     content_hash = models.CharField(max_length=64)           # approvals bind this exact value
     author_ref = models.CharField(max_length=22)
     note = models.CharField(max_length=300, blank=True, default="")   # last reject/suspend reason
+    # Set when the pack is signed; checked on every read (DEV-210). Empty means "not signed".
+    signature = models.CharField(max_length=100, blank=True, default="")    # base64 Ed25519
+    signing_key_id = models.CharField(max_length=16, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         constraints = [
             models.UniqueConstraint(fields=["tenant_id", "pack_ref", "revision"],
                                     name="jurisdiction_pack_revision_unique"),
+            # AT-16: two revisions of one pack can never both be in force, even when two requests
+            # race. The database refuses the second (DEV-177).
+            models.UniqueConstraint(fields=["tenant_id", "pack_ref"],
+                                    condition=models.Q(status="signed"),
+                                    name="jurisdiction_one_signed_revision"),
         ]
         indexes = [
             models.Index(fields=["cell_id", "tenant_id"], name="jurisdiction_scope_idx"),

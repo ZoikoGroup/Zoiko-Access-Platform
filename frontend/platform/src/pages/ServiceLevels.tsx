@@ -53,6 +53,13 @@ export function ServiceLevels() {
               </div></div>
             ))}
           </Card>
+          <Card title="Text messages" sub="Counts only: no number or text appears here.">
+            <div className="appt"><div className="info">
+              <b>Provider: {data.texts.provider} <Pill kind={data.texts.breaker === "open" ? "bad" : "ok"}>{data.texts.breaker === "open" ? "paused after repeated failures" : "sending normally"}</Pill></b>
+              <small>{data.texts.breaker === "open" && data.texts.open_until ? `Paused until ${data.texts.open_until.slice(11, 16)} UTC; texts wait and keep their tries. ` : ""}Failures in a row: {data.texts.failures_in_a_row}. Paused {data.texts.times_opened} time{data.texts.times_opened === 1 ? "" : "s"} so far.</small>
+              <small>Waiting {data.texts.queue.queued ?? 0}, sent {data.texts.queue.sent ?? 0}, given up {data.texts.queue.failed ?? 0}. Receipts: delivered {data.texts.receipts.delivered ?? 0}, undelivered {data.texts.receipts.undelivered ?? 0}, failed {data.texts.receipts.failed ?? 0}.</small>
+            </div></div>
+          </Card>
           <Card title="What these numbers do not tell you">
             {data.limits.map((l) => <div key={l} className="appt"><div className="info"><small>{l}</small></div></div>)}
           </Card>

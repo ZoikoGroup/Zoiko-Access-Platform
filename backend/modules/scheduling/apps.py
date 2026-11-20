@@ -20,3 +20,8 @@ class SchedulingConfig(AppConfig):
         from .models import Booking
 
         person_refs.register("scheduling.Booking", Booking)
+        from foundation import retention
+
+        from .retention import count_older
+
+        retention.register("bookings", "Appointments", "the appointment time", count_older)

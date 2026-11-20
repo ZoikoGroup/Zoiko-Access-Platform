@@ -69,11 +69,11 @@ function Row({ r, onDone }: { r: ExchangeRequest; onDone: () => Promise<void> })
   return (
     <div className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
       <div className="info">
-        <b>{r.label} <Pill kind={state.kind}>{state.text}</Pill>{r.urgency === "urgent" && <> <Pill kind="warn">urgent</Pill></>}{r.on_hold && <> <Pill kind="warn">on hold</Pill></>}</b>
+        <b>{r.label} <Pill kind={state.kind}>{state.text}</Pill>{r.urgency === "urgent" && <> <Pill kind="warn">urgent</Pill></>}{r.on_hold && <> <Pill kind="warn">on hold</Pill></>}{r.consent === "pending" && r.state === "requested" && <> <Pill kind="info">waiting for the patient's agreement</Pill></>}{r.consent === "declined" && <> <Pill kind="bad">patient said no</Pill></>}{r.consent === "withdrawn" && <> <Pill kind="bad">patient took their agreement back</Pill></>}</b>
         <small>{KIND[r.kind]} to {r.partner} · order {r.token} · {r.patient_name || r.patient} · {r.ref_no}</small>
         {r.state === "declined" && r.decision_note && <small>Reason given: {r.decision_note}</small>}
         {r.state === "result_available" && <small>Result reference {r.result_ref}. A result being ready is not the same as a doctor having read it.</small>}
-        {r.on_hold && (r.state === "requested" || r.state === "accepted" || r.state === "in_progress") && <small>The partner cannot take this at the moment. Cancel it and ask elsewhere, or wait: it carries on if the partner comes back. {r.hold_mine ? "This one is yours to decide." : r.hold_owner_name ? `${r.hold_owner_name} sent it and decides.` : ""}</small>}
+        {r.on_hold && (r.state === "requested" || r.state === "accepted" || r.state === "in_progress") && <small>The partner cannot take this at the moment. Cancel it and ask elsewhere, or wait: it carries on if the partner comes back. {r.hold_escalated ? "It has waited over 3 days, so the administrator has been asked to decide." : r.hold_mine ? "This one is yours to decide." : r.hold_owner_name ? `${r.hold_owner_name} sent it and decides.` : ""}</small>}
         {error && <div className="error" role="alert">{error}</div>}
       </div>
       {(r.state === "requested" || r.state === "accepted" || r.state === "in_progress") && (

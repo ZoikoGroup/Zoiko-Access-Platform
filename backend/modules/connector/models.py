@@ -107,3 +107,53 @@ class OperationEvent(CellScopedModel):
         constraints = [
             models.UniqueConstraint(fields=["operation", "seq"], name="opevent_one_per_seq"),
         ]
+
+
+class CircuitState(models.TextChoices):
+    CLOSED = "closed", "Working"
+    OPEN = "open", "Paused after failures"
+    HALTED = "halted", "Stopped until a person resets it"
+
+
+class ConnectorCircuit(CellScopedModel):
+    """Whether this customer's calls to one connector are paused (DEV-221, see circuit.py)."""
+
+    connector_key = models.CharField(max_length=64)
+    state = models.CharField(max_length=8, choices=CircuitState.choices,
+                             default=CircuitState.CLOSED)
+    failures = models.PositiveIntegerField(default=0)            # failed calls in a row
+    open_until = models.DateTimeField(null=True, blank=True)
+    cooldown_seconds = models.PositiveIntegerField(default=0)
+    last_code = models.CharField(max_length=64, blank=True, default="")   # error class or code
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [models.UniqueConstraint(fields=["tenant_id", "connector_key"],
+                                               name="connector_one_circuit")]
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="circuit_scope_idx")]
+
+
+class CertStage(models.TextChoices):
+    SANDBOX = "sandbox", "Being tried with synthetic data"
+    CERTIFIED = "certified", "Certified, not live"
+    LIVE = "live", "Live"
+    SUSPENDED = "suspended", "Suspended"
+
+
+class ConnectorCertification(CellScopedModel):
+    """How far one version of a partner's interface has been approved (GHE-13 T-47, T-48;
+    DEV-230). Kept in Zoiko's platform space, like country packs. A new profile version is a new
+    row, starting again in the sandbox."""
+
+    connector_key = models.CharField(max_length=64)
+    profile_version = models.CharField(max_length=32)
+    stage = models.CharField(max_length=10, choices=CertStage.choices, default=CertStage.SANDBOX)
+    enrolled_by_ref = models.CharField(max_length=22)
+    certified_by_ref = models.CharField(max_length=22, blank=True, default="")
+    live_by_ref = models.CharField(max_length=22, blank=True, default="")
+    note = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [models.UniqueConstraint(
+            fields=["tenant_id", "connector_key", "profile_version"],
+            name="connector_one_certification_per_version")]
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="cert_scope_idx")]

@@ -116,8 +116,8 @@
   "req_id": "B-05",
   "group": "Keys, access and release supply chain",
   "title": "Secret embedded in CI output or logging -> Redacted/rejected and security incident raised.",
-  "status": "not_built",
-  "evidence": "There is no build pipeline, artefact signing or key service in this project yet."
+  "status": "partly",
+  "evidence": "Every application log line and exception text passes a filter that replaces partner and webhook secrets, bearer tokens, signatures, sealed field values and `password=`-style values with `[redacted]`, and never drops a line or raises (DEV-186, test_log_redaction.py). There is no CI pipeline to scan, a secret of a shape the filter does not know would pass, and no security incident is raised when one is caught."
  },
  {
   "source": "GHE-18",
@@ -220,8 +220,8 @@
   "req_id": "C-08",
   "group": "Durable operations and clinical integrity",
   "title": "Partner latency exceeds contract -> Circuit open, local pending state and defined alternate path.",
-  "status": "not_built",
-  "evidence": "Nothing models this resilience behaviour yet."
+  "status": "partly",
+  "evidence": "Each partner connector has a circuit: after 5 failed or timed-out calls in a row it opens, nothing is sent or asked, and operations wait in their own local state; after a cool-down one trial call decides. While a clinic's booking system is paused or stopped, staff may confirm by hand (the alternate path), and the staff app shows it (test_connector_circuit.py, DEV-221). The thresholds are the developer's, not a partner contract's, and slow-but-successful answers are not measured."
  },
  {
   "source": "GHE-18",
@@ -244,8 +244,8 @@
   "req_id": "D-01",
   "group": "Backups, DR and lawful failover",
   "title": "Scheduled backup missing -> Backup coverage alert, recovery objective marked at risk.",
-  "status": "not_built",
-  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+  "status": "partly",
+  "evidence": "The Google Cloud setup turns on daily Cloud SQL backups with point-in-time recovery and e-mails the on-call address when Cloud SQL logs an error about a backup (DEV-196, DEV-201, `deploy/gcp/`, passes `terraform validate`). A backup that is silently missing (no run at all) is not detected, the log filter still has to be checked against a real instance, and no recovery objective is tracked."
  },
  {
   "source": "GHE-18",
@@ -300,8 +300,8 @@
   "req_id": "D-08",
   "group": "Backups, DR and lawful failover",
   "title": "Cross-region replication disabled by country pack -> No hidden replica or snapshots outside approved boundary.",
-  "status": "not_built",
-  "evidence": "There are no backups, restores or disaster-recovery targets in this project yet."
+  "status": "partly",
+  "evidence": "The Google Cloud setup pins the database, its backups and point-in-time logs, and every secret's replica to London (`europe-west2`), with no second region (DEV-196, `deploy/gcp/`, passes `terraform validate`). It is a fixed choice in the infrastructure files, not driven by the country pack, and it has not been applied to a real project."
  },
  {
   "source": "GHE-18",
@@ -420,16 +420,16 @@
   "req_id": "F-03",
   "group": "F",
   "title": "Breaking event schema with live old worker -> Compatibility test fails before rollout.",
-  "status": "not_built",
-  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+  "status": "met",
+  "evidence": "The events of the last release are frozen in `foundation/released_events.json` (`manage.py freeze_event_contract`). A test, run in CI before anything ships, fails when an event is removed, loses or gains a field, changes a type or stops always carrying a field; a breaking change must be a new `.v2` event. Freezing refuses a catalogue that breaks the last release (test_contracts.py, DEV-212)."
  },
  {
   "source": "GHE-18",
   "req_id": "F-04",
   "group": "F",
   "title": "DB migration breaks prior release -> Rollout stops; documented roll-forward/recovery executed.",
-  "status": "not_built",
-  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+  "status": "partly",
+  "evidence": "A test fails in CI when any migration drops or renames a column or table, or runs SQL that drops, renames, truncates or deletes, so the release before can still read the database while a rollout runs (test_contracts.py, DEV-212). There is no rollout to stop and no roll-forward runbook has been executed."
  },
  {
   "source": "GHE-18",
@@ -444,8 +444,8 @@
   "req_id": "F-06",
   "group": "F",
   "title": "Code rollback would delete required data -> Destructive rollback prohibited; restore compatibility instead.",
-  "status": "not_built",
-  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+  "status": "partly",
+  "evidence": "Migrations may only add (test above), so rolling the code back never needs a data-losing step, and every data step can be stepped back over (test_contracts.py, DEV-212). Nothing stops a person running a destructive `migrate` backwards by hand."
  },
  {
   "source": "GHE-18",
@@ -476,16 +476,16 @@
   "req_id": "F-10",
   "group": "F",
   "title": "Partner sandbox data accidentally points production -> Connector environment guard blocks operation.",
-  "status": "not_built",
-  "evidence": "There is no release pipeline, canary or rollout control in this project yet."
+  "status": "partly",
+  "evidence": "The pretend partner and the pretend payment provider can only be registered when development or test settings switch them on, and a real server refuses to start while either is switched on or payments point at the pretend provider (test_release_check.py, test_connector.py, test_payments.py, DEV-227). There is no real partner sandbox yet, so a sandbox address or token reaching production is not checked."
  },
  {
   "source": "GHE-18",
   "req_id": "G-01",
   "group": "G",
   "title": "Regional on-call fails acknowledgment -> Deputy escalation and traceable incident timeline.",
-  "status": "not_built",
-  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+  "status": "partly",
+  "evidence": "An incident gets an owner and a deputy (two different support or safety staff); the owner or deputy acknowledges it; a serious one (SEV-0, SEV-1, unknown, or touching safety) nobody acknowledges within 15 minutes is escalated to the deputy once, by timeline entry and a detail-free email to a verified address. Every step is on an append-only timeline (test_incident_oncall.py, DEV-202). No on-call roster or rota, no paging service, and the 15 minutes is the developer's number."
  },
  {
   "source": "GHE-18",
@@ -540,8 +540,8 @@
   "req_id": "G-08",
   "group": "G",
   "title": "Incident closure with unresolved safety item -> Close denied until handoff/fallback evidence resolved.",
-  "status": "not_built",
-  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+  "status": "partly",
+  "evidence": "An incident flagged as touching patient safety cannot be closed until a safety officer records the hand-off or fallback that covers it, and while it is open it also holds a release back (DEV-191, test_incidents.py, test_readiness.py). The flag is set by a person when logging, there is no on-call tooling, and the hand-off is a written note, not checked evidence."
  },
  {
   "source": "GHE-18",
@@ -556,8 +556,8 @@
   "req_id": "G-10",
   "group": "G",
   "title": "Restoration notification omitted -> Support/public status and affected partners informed per policy.",
-  "status": "not_built",
-  "evidence": "There is no on-call, incident-response tooling or status communication in this project yet."
+  "status": "partly",
+  "evidence": "A SEV-0 or SEV-1 incident cannot be closed without a restoration notice recording what customers and partners were told (test_incident_oncall.py, DEV-202). Nothing sends the notice or publishes a status page: a person does."
  },
  {
   "source": "GHE-18",
@@ -596,8 +596,8 @@
   "req_id": "H-05",
   "group": "H",
   "title": "Tenant cancels contract with active patient referral -> Continuity and ownership plan required before shutdown.",
-  "status": "not_built",
-  "evidence": "There are no capacity, cost or go-live controls in this project yet."
+  "status": "partly",
+  "evidence": "Asking to suspend a customer that still has open referrals or open partner requests needs a written continuity plan (who looks after those patients), recorded with the count of open items and shown to the second person who approves it (DEV-193, test_suspensions.py). Reinstating never needs one. Nothing checks that the plan is carried out, and there is no separate contract-end step: suspension is the only way to stop a customer."
  },
  {
   "source": "GHE-18",

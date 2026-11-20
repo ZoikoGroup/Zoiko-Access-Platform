@@ -4,11 +4,13 @@ import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
 import type {
-  BillingData, BookingSystem, DeveloperClient, IdentityData, MatchesData, MergeInfo, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
+  BillingData, DeveloperClient, IdentityData, MatchesData, MergeInfo, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
 } from "./consoleTypes";
 import type {
+  Claim,
   ClinicSettings, CoverageRow, ExchangeRequest, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, RightsCase, FeeRow, InvoiceRow, Escalation, WorkflowHistory, WorkflowInstance, InboundEvent, PartnerClient, WebhookDelivery, WebhookEndpoint, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
   BookingRow, Compliance, Dashboard, Directory, Health, LocationRow, Me, PatientRow, ServiceRow,
+  FhirQuarantineItem,
 } from "./types";
 
 export class ApiError extends Error {
@@ -305,7 +307,7 @@ export const listWebhookDeliveries = async () =>
   (await v1<{ deliveries: WebhookDelivery[] }>("staff/integrations/deliveries")).deliveries;
 export const redriveDelivery = (id: string) =>
   post(`staff/integrations/deliveries/${encodeURIComponent(id)}/redrive`);
-export const rightsStep = (id: string, step: "start" | "verify" | "complete" | "decline", note = "") =>
+export const rightsStep = (id: string, step: "start" | "verify" | "complete" | "decline" | "hold" | "release", note = "") =>
   post(`staff/rights/${encodeURIComponent(id)}/${step}`, note ? { note } : {});
 export const acknowledgeReferral = (id: string) => post(`referrals/${encodeURIComponent(id)}/acknowledge`);
 export const getReferralInbox = () => v1<ReferralInbox>("staff/referral-inbox");
@@ -395,9 +397,6 @@ const enc = encodeURIComponent;
 export const getExceptions = () => v1<ExceptionsData>("staff/exceptions");
 export const getConnectorHistory = async (id: string) =>
   (await v1<{ history: OperationHistory }>(`staff/connector/${enc(id)}/history`)).history;
-export const redriveOperation = (id: string) => post(`staff/connector/${enc(id)}/redrive`);
-export const resolveOperation = (id: string, outcome: "confirmed" | "rejected") =>
-  post(`staff/connector/${enc(id)}/resolve`, { outcome });
 export const resolveJourneyException = (id: string) =>
   post(`staff/workflow-exceptions/${enc(id)}/resolve`);
 
@@ -419,9 +418,6 @@ export const recordIdentityCheck = (person: string, body: { evidence_type: strin
 export const withdrawIdentityCheck = (person: string, reason: string) =>
   post(`people/${enc(person)}/identity/withdraw`, { reason });
 
-export const getBookingSystem = () => v1<BookingSystem>("staff/booking-system");
-export const setBookingSystem = (system: string) => post<BookingSystem>("staff/booking-system", { system });
-
 export const getDeveloper = () => v1<DeveloperData>("staff/developer");
 export const createApiClient = (body: { name: string; environment: string; scopes: string[]; rate_limit?: number }) =>
   post<{ client: DeveloperClient; key: string }>("staff/developer/clients", body);
@@ -437,5 +433,96 @@ export const listExchangeRequests = async () =>
   (await v1<{ requests: ExchangeRequest[] }>("exchange/requests")).requests;
 export const sendExchangeRequest = async (body: { partner: string; kind: string; label: string; token: string; urgency: string; patient: string }) =>
   (await post<{ request: ExchangeRequest }>("exchange/requests", body)).request;
+export const listClaimPayers = async () =>
+  (await v1<{ payers: { id: string; name: string }[] }>("claims/payers")).payers;
+export const listClaims = async () => (await v1<{ claims: Claim[] }>("claims/sent")).claims;
+export const sendClaim = async (body: { payer: string; patient: string; member_id: string; category: string; label: string; amount: number; currency: string; service_date: string }) =>
+  (await post<{ claim: Claim }>("claims/sent", body)).claim;
+export const withdrawClaim = async (id: string) =>
+  (await post<{ claim: Claim }>(`claims/sent/${encodeURIComponent(id)}/withdraw`)).claim;
 export const cancelExchangeRequest = async (id: string) =>
   (await post<{ request: ExchangeRequest }>(`exchange/requests/${encodeURIComponent(id)}/cancel`)).request;
+// ------------------------------------------------------------------ retention (DEV-213)
+export interface RetentionRule {
+  public_id: string; data_class: string; period_days: number | null; basis: string;
+  status: "proposed" | "approved" | "superseded" | "withdrawn";
+  proposed_by_ref: string; decided_by_ref: string; decided_at: string | null; created_at: string;
+}
+export interface RetentionClass {
+  data_class: string; label: string; age_from: string;
+  rule: RetentionRule | null; proposal: RetentionRule | null; past_period: number | null;
+}
+export interface RetentionReport {
+  classes: RetentionClass[]; patients_on_hold: number; deletes_anything: false; can_set: boolean;
+}
+export const getRetention = () => v1<RetentionReport>("staff/retention");
+export const proposeRetention = (data_class: string, period_days: number | null, basis: string) =>
+  post<RetentionReport>("staff/retention", { data_class, period_days, basis });
+export const decideRetention = (rule: string, step: "approve" | "withdraw") =>
+  post<{ rule: RetentionRule }>(`staff/retention/${rule}/${step}`);
+
+// ------------------------------------------------------------------ partner systems (DEV-217)
+export interface BookingSystem {
+  system: string; options: { key: string; label: string }[]; can_set: boolean;
+  partner_decides: boolean;   // DEV-229: false when the system is down or its market lapsed
+}
+export interface PartnerOperation {
+  public_id: string; connector_key: string; operation_type: string; subject_ref: string;
+  state: "pending" | "sent" | "accepted" | "confirmed" | "rejected" | "unknown" | "dead";
+  attempts: number; polls: number; partner_ref: string; last_code: string; last_error: string;
+  created_at: string; sent_at: string | null; finished_at: string | null; source_confirmed: boolean;
+}
+export interface PartnerOperations {
+  can_act: boolean; attention: PartnerOperation[]; waiting: PartnerOperation[]; recent: PartnerOperation[];
+}
+export const getBookingSystem = () => v1<BookingSystem>("staff/booking-system");
+export const setBookingSystem = (system: string) => post<BookingSystem>("staff/booking-system", { system });
+export const getPartnerOperations = () => v1<PartnerOperations>("staff/connector");
+export const redriveOperation = (id: string) =>
+  post<{ operation: PartnerOperation }>(`staff/connector/${encodeURIComponent(id)}/redrive`);
+export const resolveOperation = (id: string, outcome: "confirmed" | "rejected") =>
+  post<{ operation: PartnerOperation }>(`staff/connector/${encodeURIComponent(id)}/resolve`, { outcome });
+export const askProvider = (bookingId: string) =>
+  post<{ booking: unknown }>(`bookings/${encodeURIComponent(bookingId)}/ask-provider`);
+export interface ConnectorCircuit {
+  connector_key: string; state: "closed" | "open" | "trial" | "halted";
+  failures: number; last_code: string; open_until: string | null;
+}
+export const getCircuits = () => v1<{ circuits: ConnectorCircuit[]; can_act: boolean }>("staff/connector/circuits");
+export const resetCircuit = (key: string) =>
+  post<{ circuit: ConnectorCircuit }>(`staff/connector/circuits/${encodeURIComponent(key)}/reset`);
+
+export const listFhirQuarantine = async (state?: string) => {
+  const query = state ? `state=${encodeURIComponent(state)}` : "";
+  return (await v1<{ items: FhirQuarantineItem[] }>(`staff/fhir/quarantine?${query}`)).items;
+};
+
+export const fhirQuarantineStep = (id: string, step: "discard" | "re-request", note?: string) =>
+  v1<{ item: FhirQuarantineItem }>(`staff/fhir/quarantine/${encodeURIComponent(id)}/${encodeURIComponent(step)}`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  }).then((r) => r.item);
+
+
+// Recording that a patient has died (DEV-333).
+export interface DeathInfo {
+  person: string; died_on: string | null; source: string | null; recorded_by: string | null; recorded_by_name: string;
+  recorded_at: string | null; recorded_by_me: boolean; can_record: boolean;
+}
+export const getDeath = (person: string) => v1<{ death: DeathInfo }>(`people/${enc(person)}/death`);
+export const recordDeath = (person: string, died_on: string, source: string) =>
+  post<{ death: DeathInfo; bookings_cancelled: number }>(`people/${enc(person)}/death`, { died_on, source });
+export const withdrawDeath = (person: string, reason: string) =>
+  post<{ death: DeathInfo }>(`people/${enc(person)}/death/withdraw`, { reason });
+
+// A staff member's own mobile number for urgent texts (DEV-334, DEV-336).
+export interface AlertPhone { number: string; verified: boolean; critical_texts: boolean; hold_texts: boolean; texts_available: boolean }
+export const getAlertPhone = async () => (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone")).alert_phone;
+export const setAlertPhone = async (number: string) =>
+  (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ number }) })).alert_phone;
+export const confirmAlertPhone = async (code: string) =>
+  (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone/confirm", { method: "POST", body: JSON.stringify({ code }) })).alert_phone;
+export const setCriticalTexts = async (critical_texts: boolean) =>
+  (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ critical_texts }) })).alert_phone;
+export const setHoldTexts = async (hold_texts: boolean) =>
+  (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ hold_texts }) })).alert_phone;

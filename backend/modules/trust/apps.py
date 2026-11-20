@@ -24,3 +24,15 @@ class TrustConfig(AppConfig):
         from .rotation import rotate
 
         rotation.register("trust", rotate)
+
+        # Hourly: a patient whose identity check has expired stops showing as verified.
+        from foundation import periodic
+
+        from .identity_jobs import REFRESH_EVERY_SECONDS, refresh_all_tenants
+
+        periodic.register("trust.identity_expiry", REFRESH_EVERY_SECONDS, refresh_all_tenants)
+
+        # Every minute: a serious incident nobody acknowledged in time goes to its deputy (DEV-202).
+        from .oncall import ESCALATE_EVERY_SECONDS, escalate_all
+
+        periodic.register("trust.incident_escalation", ESCALATE_EVERY_SECONDS, escalate_all)

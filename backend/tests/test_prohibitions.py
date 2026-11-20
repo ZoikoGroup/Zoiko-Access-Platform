@@ -84,14 +84,18 @@ def test_2_never_confirm_a_slot_unless_the_provider_has_confirmed_it(p):
 
 # ------------------------------------------------------------------ 3. critical results
 def test_3_never_mark_a_critical_result_reviewed_from_a_message_or_an_opened_screen():
-    """Results are not built yet (backlog B1), so there is nothing to mark reviewed.
+    """Results now exist (DEV-307), so the tripwire became the real rule.
 
-    This is a tripwire: the day any route about results or critical findings appears, this test
-    fails and must be replaced by the real rule (a named clinician reviews it; a delivered message
-    or an opened screen never counts).
+    The only route that mentions a result is the one that OPENS the lab's summary; it is a read.
+    Marking a result reviewed is a different route (the clinic's `review` step, which needs a
+    treating doctor), and test_exchange.py proves that a delivered message, a critical rating and
+    an opened summary never count as review. Any NEW route about results or critical findings fails
+    here until it is added on purpose.
     """
     routes = [str(u.pattern) for u in api_urls.urlpatterns]
-    assert [r for r in routes if "result" in r or "critical" in r] == []
+    assert [r for r in routes if "result" in r or "critical" in r] == [
+        "exchange/requests/<str:request_id>/result"
+    ]
 
 
 # ------------------------------------------------------------------ 4. regions

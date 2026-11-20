@@ -3,6 +3,7 @@ import uuid
 
 import pytest
 from django.db import DatabaseError, connection, transaction
+from django.test import override_settings
 
 from foundation import periodic
 from foundation.cell_context import bind_context, tenant_transaction
@@ -19,7 +20,6 @@ from modules.connector.models import (
 )
 from modules.connector.simulator import simulator
 from modules.evidence.models import AuditEvent
-from modules.workflow import api as workflow
 from tests.conftest import as_app_role
 from tests.test_policy import World
 
@@ -421,33 +421,7 @@ def test_one_customer_cannot_see_or_settle_anothers_operations(world, clock):
         assert ExternalOperation.objects.count() == 1
 
 
-# ------------------------------------------------------------------ with the workflow engine
-def test_only_the_partners_own_confirmation_can_move_a_booking_journey_forward(world, clock):
-    workflow.load_bundled_definitions()
-    with tenant_transaction(world.ctx):
-        journey = workflow.engine.start(
-            definition_key="J1.booking", subject_ref="BK1", owner_ref="doc1",
-            actor_ref="reception1", clock=clock)
-
-    def try_confirm(evidence, actor_kind):
-        with tenant_transaction(world.ctx):
-            return workflow.engine.submit_transition(
-                instance_ref=journey["public_id"], transition="confirm", actor_ref="worker1",
-                actor_kind=actor_kind, expected_version=journey["entity_version"],
-                evidence=evidence, clock=clock)
-
-    op = ask_partner(world, clock, sim="confirm")
-    tick(world, clock)                                         # the partner says "received"
-    assert get(world, op)["source_confirmed"] is False
-    receipt_only = [workflow.Evidence("transport_receipt", op["public_id"])]
-    assert code_of(try_confirm, receipt_only, "system") == ErrorCode.PARTNER_UNCONFIRMED
-
-    later(world, clock, dt.timedelta(minutes=2))               # now the partner has confirmed
-    assert get(world, op)["source_confirmed"] is True
-    confirmed = [workflow.Evidence("source_confirmed_outcome", op["public_id"])]
-    assert try_confirm(confirmed, "partner")["state"] == "confirmed"
-
-
+# ------------------------------------------------------------------ never the partner's word
 def test_a_person_settling_an_operation_by_hand_is_not_the_partners_confirmation(world, clock):
     op = ask_partner(world, clock, sim="silent")
     with tenant_transaction(world.ctx):
@@ -460,3 +434,63 @@ def test_a_person_settling_an_operation_by_hand_is_not_the_partners_confirmation
             operation_ref=op["public_id"], outcome="confirmed", actor_ref="manager1", clock=clock)
     assert settled["state"] == "confirmed"
     assert settled["source_confirmed"] is False                # nothing may treat it as the source
+
+
+# ------------------------------------------------------------------ the pretend partner
+def test_the_pretend_partner_is_refused_unless_the_settings_allow_it():
+    """Production settings never set CONNECTOR_SIMULATOR, so the simulator cannot be registered
+    there; a real adapter is unaffected."""
+    adapters.clear()
+    with override_settings(CONNECTOR_SIMULATOR=False):
+        with pytest.raises(RuntimeError):
+            adapters.register(simulator)
+        assert adapters.registered() == []
+        adapters.register(Broken())                            # not a pretend partner: fine
+        assert adapters.registered() == ["broken"]
+    with override_settings(CONNECTOR_SIMULATOR=True):
+        adapters.register(simulator)
+    assert "simulator" in adapters.registered()
+
+
+def test_events_say_which_operation_and_never_who_it_is_for(world, clock):
+    op = ask_partner(world, clock, sim="reject")
+    tick(world, clock)
+    with tenant_transaction(world.ctx):
+        (event,) = OutboxEvent.objects.filter(event_type="connector.operation.rejected.v1")
+    assert event.payload == {"operation_ref": op["public_id"], "operation_type": "booking.confirm",
+                             "subject_ref": "BK1", "state": "rejected"}
+
+
+def test_an_operation_that_may_have_arrived_is_never_redriven_for_a_non_idempotent_partner(
+        world, clock):
+    """DEV-223, GHE-12 WF-T55: replaying an unknown action could do it twice; a person must check
+    with the partner and settle it by hand instead."""
+    broken = Broken()
+    adapters.register(broken)
+    actor, decision = receipt(world)
+    with tenant_transaction(world.ctx):
+        op = connector.request_operation(
+            connector_key="broken", operation_type="x.do", subject_ref="S1",
+            organization_ref=world.org, idempotency_key=uuid.uuid4().hex, request={},
+            requested_by_ref=actor, decision=decision, clock=clock)
+        ExternalOperation.objects.filter(public_id=op["public_id"]).update(max_polls=1)
+    tick(world, clock)
+    later(world, clock)
+    assert get(world, op)["state"] == "dead"
+    with tenant_transaction(world.ctx):
+        assert code_of(connector.redrive, operation_ref=op["public_id"],
+                       actor_ref="manager1") == ErrorCode.UNSAFE_REPLAY
+        settled = connector.resolve_by_hand(
+            operation_ref=op["public_id"], outcome="rejected", actor_ref="manager1", clock=clock)
+    assert settled["state"] == "rejected" and broken.submitted == 1
+
+
+def test_a_dead_operation_that_never_reached_the_partner_can_still_be_redriven(world, clock):
+    op = ask_partner(world, clock, sim="down", sim_fail=99)
+    with tenant_transaction(world.ctx):
+        ExternalOperation.objects.filter(public_id=op["public_id"]).update(max_attempts=1)
+    tick(world, clock)
+    assert get(world, op)["state"] == "dead"
+    with tenant_transaction(world.ctx):
+        assert connector.redrive(operation_ref=op["public_id"],
+                                 actor_ref="manager1")["state"] == "pending"

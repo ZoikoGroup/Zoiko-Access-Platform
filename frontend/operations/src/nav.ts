@@ -3,7 +3,7 @@
 export type PageId =
   | "dashboard" | "patients" | "providers" | "organizations" | "team" | "services" | "appointments"
   | "waitlist" | "family" | "referrals" | "workflows" | "messages" | "billing" | "compliance" | "reports"
-  | "integrations" | "exceptions" | "journeys" | "matches" | "ai" | "settings" | "rights" | "engine" | "exchange"
+  | "integrations" | "exceptions" | "journeys" | "ai" | "settings" | "rights" | "engine" | "exchange" | "matches" | "retention" | "partner-systems" | "claims"
   | "apiclients" | "insurance";
 
 export interface NavItem {
@@ -27,6 +27,7 @@ export const NAV: NavItem[] = [
   { id: "family", label: "Family requests", icon: "patients", live: true },
   { id: "referrals", label: "Referrals", icon: "referrals", live: true },
   { id: "exchange", label: "Partner requests", icon: "referrals", live: true },
+  { id: "claims", label: "Claims", icon: "billing", live: true },
   { id: "workflows", label: "Work queue", icon: "workflows", live: true },
   { id: "messages", label: "Messages", icon: "messages", live: true },
   { id: "billing", label: "Billing", icon: "billing", live: true },
@@ -39,6 +40,8 @@ export const NAV: NavItem[] = [
   { id: "journeys", label: "Journeys", icon: "workflows", live: true },
   { id: "apiclients", label: "API clients", icon: "integrations", live: true },
   { id: "integrations", label: "Integrations", icon: "integrations", live: true },
+  { id: "partner-systems", label: "Partner systems", icon: "integrations", live: true },
   { id: "ai", label: "AI permits", icon: "settings", live: true },
+  { id: "retention", label: "Keeping records", icon: "compliance", live: true },
   { id: "settings", label: "Settings", icon: "settings", live: true },
 ];

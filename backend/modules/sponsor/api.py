@@ -10,6 +10,7 @@ from .services import (
     end_plan_member,
     list_plan_members,
     list_plans,
+    member_active,
     min_group,
     payer_summary,
     program_summary,
@@ -18,5 +19,6 @@ from .services import (
 )
 
 __all__ = ["add_members", "add_plan_member", "check_entitlement", "create_plan",
-           "end_plan_member", "list_plan_members", "list_plans", "min_group", "payer_summary",
+           "end_plan_member", "list_plan_members", "list_plans", "member_active", "min_group",
+           "payer_summary",
            "program_summary", "update_plan", "withdraw_members"]

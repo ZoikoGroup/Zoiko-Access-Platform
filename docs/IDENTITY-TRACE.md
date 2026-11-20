@@ -2,7 +2,7 @@
 
 Written 2026-11-12 by the developer, from the specification's own acceptance cases. Each row is a judgement made by reading the case and the code, not an automatic result; "Met" means one of our own automated tests proves the behaviour. The cases have **not** been run as written. This is the developer's reading and nobody else has reviewed it.
 
-**Totals: 7 met, 13 partly, 20 not built (of 40).**
+**Totals: 7 met, 17 partly, 16 not built (of 40).**
 
 What exists is per-customer sign-in, roles with default-deny rules, guardians with scoped and revocable access, doctors tied to a clinic site, two-person suspension of a customer, and an audit trail. The "not built" rows are patient matching and merging, break-glass emergency access, single sign-in and licence checks, OAuth purposes, cross-cell consent and the identity-proofing steps, which need a matching decision, an identity provider and clinical sign-off.
 
@@ -14,14 +14,14 @@ What exists is per-customer sign-in, roles with default-deny rules, guardians wi
 | AT-04 | Clinician SSO success with inactive regional license | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
 | AT-05 | Workload token used as human proxy | Partly | A partner's credential can only post signed partner messages and cannot act as a person (test_partner_events.py). |
 | AT-06 | Foreign global account presents valid login | Partly | A login belongs to one customer and a token fixes it (test_auth.py, test_rls.py). There are no global accounts. |
-| AT-07 | Same name and DOB for twins | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
+| AT-07 | Same name and DOB for twins | Partly | Records with the same birth date and family name but different first names are flagged as possible twins and marked critical, so two different reviewers must agree before any link (DEV-180, test_identity.py). Matching works on a clinic's own records only: there are no outside identifiers or lab-supplied data. |
 | AT-08 | Swapped identifiers from lab partner | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
 | AT-09 | No-match patient registers successfully | Partly | A patient registers and gets their own new record (test_auth.py). There is no matching to test the no-match case against. |
 | AT-10 | High probabilistic score but source rejects assignment | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
 | AT-11 | Patient ID from incorrect assigning authority | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
-| AT-12 | Erroneous historical merge discovered | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
+| AT-12 | Erroneous historical merge discovered | Partly | A confirmed link can be sent back and split, and the decision history keeps every step and cannot be rewritten (DEV-180, test_identity.py). Only the decision is recorded: records are not actually merged or unmerged, so there is nothing downstream to repair. |
 | AT-13 | Duplicate result arrives while adjudication pending | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
-| AT-14 | Reviewer tries approve own critical match decision | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
+| AT-14 | Reviewer tries approve own critical match decision | Partly | A critical case needs two different reviewers, a second can overrule the first, and nobody can decide a case about themselves (DEV-180, test_identity.py). There is no separate approver role for critical matches, only "two different staff". |
 | AT-15 | Guardian lacks verified legal basis for minor | Partly | A guardian is approved by a staff member who must say what kind of proof they saw and where it is kept; both are recorded and audited (test_family.py). The legal basis is still the staff member's word: nothing here verifies the document or ties a kind of proof to a relationship. |
 | AT-16 | Minor age threshold changes under market rule | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
 | AT-17 | Patient revokes caregiver with active session | Partly | A guardian's access is checked live on every request, so revoking takes effect at once (test_grant_states.py, test_guardian_scope.py). |
@@ -46,5 +46,5 @@ What exists is per-customer sign-in, roles with default-deny rules, guardians wi
 | AT-36 | Audit write or evidence integrity check fails | Partly | Audit rows are written in the same transaction as the change they describe (test_audit.py), so a failure undoes the change. |
 | AT-37 | License revocation occurs during message delivery | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
 | AT-38 | Identity provider outage during urgent care | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
-| AT-39 | Unauthorized reviewer exports identity-match evidence | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |
+| AT-39 | Unauthorized reviewer exports identity-match evidence | Partly | Only clinic staff can see or decide cases, another clinic cannot, the review screen shows masked details only, and the fingerprints hold nothing readable (DEV-180, test_identity.py). There is no export feature, so there is nothing to export; a role-specific export rule is not defined. |
 | AT-40 | Patient challenges identity association | Not built | Patient matching, break-glass emergency access, single sign-on and the other identity-assurance machinery of this specification are not built. |

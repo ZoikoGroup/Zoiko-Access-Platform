@@ -101,3 +101,31 @@ class InvoiceEvent(CellScopedModel):
             models.UniqueConstraint(fields=["invoice", "seq"], name="billing_event_one_per_seq"),
         ]
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="billing_ev_scope_idx")]
+
+
+class PaymentAttempt(CellScopedModel):
+    """One request to a payment provider to pay an invoice (DEV-139 skeleton; no provider chosen).
+
+    References only: which invoice, which provider, the provider's own reference and our
+    idempotency key. No card number, name or bank detail is ever stored; the provider collects
+    those on its own pages. `attempts` counts how often we have asked the provider."""
+
+    invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="+")
+    provider = models.CharField(max_length=24)                # a provider's short code
+    provider_ref = models.CharField(max_length=64, blank=True, default="")
+    amount_minor = models.PositiveBigIntegerField()
+    currency = models.CharField(max_length=3)
+    status = models.CharField(max_length=10, default="pending")  # payments.PaymentStatus
+    idempotency_key = models.CharField(max_length=64)
+    attempts = models.PositiveIntegerField(default=0)
+    started_by_ref = models.CharField(max_length=22)
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "idempotency_key"],
+                                    name="billing_payment_key_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="billing_pay_scope_idx"),
+            models.Index(fields=["invoice", "status"], name="billing_pay_invoice_idx"),
+        ]

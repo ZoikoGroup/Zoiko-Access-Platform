@@ -1040,6 +1040,175 @@
     "summary": "A patient's own issued, paid and cancelled invoices (never drafts, never a guardian's)."
    }
   },
+  "/billing/invoices/{invoice_id}/payments": {
+   "get": {
+    "operationId": "get_my_invoice_payments",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "invoice_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the attempts to pay one of my invoices. POST {idempotency_key} (or an Idempotency-Key     header): pay its balance through the deployment's payment provider. Refused with 422     (field payment_p"
+   },
+   "post": {
+    "operationId": "post_my_invoice_payments",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "invoice_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the attempts to pay one of my invoices. POST {idempotency_key} (or an Idempotency-Key     header): pay its balance through the deployment's payment provider. Refused with 422     (field payment_p"
+   }
+  },
+  "/billing/payments/{payment_id}/refresh": {
+   "post": {
+    "operationId": "post_my_payment_refresh",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "payment_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Ask the payment provider again about one of my payments that is pending or unknown."
+   }
+  },
   "/bookings": {
    "get": {
     "operationId": "get_bookings",
@@ -1126,6 +1295,70 @@
      }
     ],
     "summary": "bookings"
+   }
+  },
+  "/bookings/{booking_id}/ask-provider": {
+   "post": {
+    "operationId": "post_booking_ask_provider",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "booking_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Clinic staff ask the clinic's booking system to confirm a requested booking."
    }
   },
   "/bookings/{booking_id}/attendance": {
@@ -1406,6 +1639,49 @@
     "summary": "Every step of an appointment, oldest first, and whether the record still checks out.     Bookings made before the history was kept have none."
    }
   },
+  "/bookings/{booking_id}/provider-stage": {
+   "get": {
+    "operationId": "get_booking_provider_stage",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "booking_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Where a booking stands with its clinic's booking system (null if it was never asked)."
+   }
+  },
   "/bookings/{booking_id}/reschedule": {
    "post": {
     "operationId": "post_booking_reschedule",
@@ -1504,6 +1780,490 @@
     "summary": "Who is treating each patient this login may read."
    }
   },
+  "/claims/incoming": {
+   "get": {
+    "operationId": "get_claims_incoming",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The claims sent to this payer: member id, service, amount, date. Never the patient."
+   }
+  },
+  "/claims/incoming/{claim_id}/check": {
+   "get": {
+    "operationId": "get_claim_cover_check",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "claim_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Is the claim's member covered for that kind of service on that day? Uses the payer's own     plans and members, and always answers with a reason."
+   }
+  },
+  "/claims/incoming/{claim_id}/{step}": {
+   "post": {
+    "operationId": "post_claim_payer_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "claim_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "approve | decline {reason} | pay {payment_ref}. Reasons: not_covered, member_not_found,     duplicate, missing_information, other."
+   }
+  },
+  "/claims/mine": {
+   "get": {
+    "operationId": "get_claims_mine",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The claims made for the patient (or for a person a guardian acts for): what is claimed,     from whom, how much and when, and whether they have agreed to it being sent."
+   }
+  },
+  "/claims/mine/{claim_id}/{step}": {
+   "post": {
+    "operationId": "post_claim_mine_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "claim_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "agree | decline | withdraw. Only the patient, or a guardian acting for them."
+   }
+  },
+  "/claims/payers": {
+   "get": {
+    "operationId": "get_claim_payers",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The payers a clinic may send a claim to (name and id only)."
+   }
+  },
+  "/claims/sent": {
+   "get": {
+    "operationId": "get_claims_sent",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the claims this clinic sent. POST {payer, patient, member_id, category, label, amount,     currency, service_date}: send one. The payer sees the member id, the service, the amount and     the dat"
+   },
+   "post": {
+    "operationId": "post_claims_sent",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the claims this clinic sent. POST {payer, patient, member_id, category, label, amount,     currency, service_date}: send one. The payer sees the member id, the service, the amount and     the dat"
+   }
+  },
+  "/claims/sent/{claim_id}/withdraw": {
+   "post": {
+    "operationId": "post_claim_withdraw",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "claim_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The clinic takes back a claim the payer has not decided."
+   }
+  },
+  "/claims/{claim_id}/history": {
+   "get": {
+    "operationId": "get_claim_history",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "claim_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The steps of a claim, for the clinic that sent it or the payer it went to."
+   }
+  },
   "/clinician/messages": {
    "get": {
     "operationId": "get_clinician_messages",
@@ -1538,6 +2298,209 @@
     "summary": "The doctor's conversations: only those of patients they have a care relationship with,     and only in their own organisation. Each patient is checked by the policy engine."
    }
   },
+  "/clinician/notes": {
+   "get": {
+    "operationId": "get_clinician_notes",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET ?patient=: this patient's notes (no text). POST {patient, note_date, body}: start a     draft. A doctor treating the patient only, for direct care."
+   },
+   "post": {
+    "operationId": "post_clinician_notes",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET ?patient=: this patient's notes (no text). POST {patient, note_date, body}: start a     draft. A doctor treating the patient only, for direct care."
+   }
+  },
+  "/clinician/notes/{note_id}": {
+   "get": {
+    "operationId": "get_clinician_note",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "note_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "One note with its text. Every read is recorded."
+   }
+  },
+  "/clinician/notes/{note_id}/{step}": {
+   "post": {
+    "operationId": "post_clinician_note_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "note_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "edit {body} (a draft you wrote) | sign | amend {reason} | addendum {body} |     guardian {hidden}. A signed note is never edited: amend starts a new version that replaces it     once signed."
+   }
+  },
   "/clinician/patients": {
    "get": {
     "operationId": "get_clinician_patients",
@@ -1570,6 +2533,175 @@
      }
     ],
     "summary": "The doctor's patients: people they hold an active care relationship with."
+   }
+  },
+  "/clinician/patients/{person_id}/references": {
+   "get": {
+    "operationId": "get_clinician_patient_references",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Pointers to a patient's records kept in a clinic's OWN clinical system: never the record."
+   },
+   "post": {
+    "operationId": "post_clinician_patient_references",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Pointers to a patient's records kept in a clinic's OWN clinical system: never the record."
+   }
+  },
+  "/clinician/references/{reference_id}/withdraw": {
+   "post": {
+    "operationId": "post_clinician_reference_withdraw",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "reference_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Withdraw a reference `{\"reason\": \"entered_in_error\" | \"wrong_patient\" |     \"removed_at_source\" | \"other\"}`. A doctor of the clinic that added it, treating the patient,     for direct care. The refere"
    }
   },
   "/clinician/referral-inbox": {
@@ -2071,7 +3203,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "accept | decline {note} | start | deliver {result_ref}. Only the role that handles this     kind of request (lab, pharmacy or home care) may answer it."
+    "summary": "accept | decline {note} | start | deliver {result_ref} | correct {result_ref, summary,     flag, correction}. Only the role that handles this kind of request (lab, pharmacy or home     care) may answe"
    }
   },
   "/exchange/mine": {
@@ -2106,6 +3238,121 @@
      }
     ],
     "summary": "The patient's (or guardian's) own requests: what was asked of whom and how far it has got.     Shown only for people they may read; never an order number, a reference or a reason."
+   }
+  },
+  "/exchange/mine/{request_id}/values": {
+   "get": {
+    "operationId": "get_exchange_mine_values",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The measured values of one of the patient's own results, a day after a doctor reviewed it     (DEV-332). Only the patient themselves (a guardian holds no \"records\" part, DEV-110)."
+   }
+  },
+  "/exchange/mine/{request_id}/{step}": {
+   "post": {
+    "operationId": "post_exchange_mine_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The patient (or a guardian) answers a request made for them: agree (to tell the partner     their name and birth date, for this order only), decline, or withdraw an agreement."
    }
   },
   "/exchange/partners": {
@@ -2271,6 +3518,49 @@
      }
     ],
     "summary": "The steps of one request, for the clinic that sent it or the partner it went to."
+   }
+  },
+  "/exchange/requests/{request_id}/result": {
+   "get": {
+    "operationId": "get_exchange_request_result",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The lab's summary of a delivered result and its rating (normal, abnormal, critical). A     treating doctor of that patient only: not clinic staff, not the patient. Every read is     recorded."
    }
   },
   "/exchange/requests/{request_id}/{step}": {
@@ -2495,6 +3785,58 @@
      }
     ],
     "summary": "Withdraw a waiting request, or stop acting for someone. Only your own."
+   }
+  },
+  "/fhir": {
+   "post": {
+    "operationId": "post_fhir_inbound",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "A partner's signed FHIR message (GHE-13 T-25, T-60; DEV-315, docs/FHIR-DESIGN.md)."
    }
   },
   "/locations": {
@@ -3030,6 +4372,40 @@
     "summary": "A patient's own switch for short emails about their care (off until they turn it on).     GET: `{\"enabled\", \"can_email\"}`: can_email says whether they have a CONFIRMED address, since     nothing is ev"
    }
   },
+  "/my/emergency": {
+   "get": {
+    "operationId": "get_my_emergency",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The local emergency number for this patient's country, only when a signed, current country     pack states one (DEV-185). Otherwise `number` is null and the app says nothing more than its     general "
+   }
+  },
   "/my/export": {
    "get": {
     "operationId": "get_my_export",
@@ -3062,6 +4438,229 @@
      }
     ],
     "summary": "A patient's (or guardian's) data as one JSON file: the same information the app shows them,     gathered from the same screens so the same rights apply, with the message texts included.     Only for p"
+   }
+  },
+  "/my/notes": {
+   "get": {
+    "operationId": "get_my_notes",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The patient's own signed consultation notes, once the delay has passed (no text here).     Drafts are never shown. A guardian sees a child's notes only with the \"notes\" part of their     grant and onl"
+   }
+  },
+  "/my/notes/{note_id}": {
+   "get": {
+    "operationId": "get_my_note",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "note_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "One of the patient's own notes, with its text. Recorded."
+   }
+  },
+  "/my/phone-check": {
+   "post": {
+    "operationId": "post_my_phone_check",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Text a six-digit code to the number on the patient's own profile (DEV-198). It must start     with + and the country code. At most three codes an hour."
+   }
+  },
+  "/my/phone-check/confirm": {
+   "post": {
+    "operationId": "post_my_phone_confirm",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The patient types the code back: their number is then verified for texts."
+   }
+  },
+  "/my/references": {
+   "get": {
+    "operationId": "get_my_references",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The patient's own references: what kind of record, its date, which clinic and system holds     it, and whether it was withdrawn, so they know whom to ask. Never the record's id in that     system. A g"
    }
   },
   "/notifications": {
@@ -3285,6 +4884,175 @@
      }
     ],
     "summary": "One patient's insurance. The patient (or someone acting for them) always sees their own.     Clinic staff see it only if the patient has chosen to share it (`shared` says which)."
+   }
+  },
+  "/people/{person_id}/death": {
+   "get": {
+    "operationId": "get_person_death",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: whether this patient is recorded as having died. POST {died_on, source}: a clinic     ADMINISTRATOR records it; the patient's future bookings are cancelled with the reason \"the     patient has di"
+   },
+   "post": {
+    "operationId": "post_person_death",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: whether this patient is recorded as having died. POST {died_on, source}: a clinic     ADMINISTRATOR records it; the patient's future bookings are cancelled with the reason \"the     patient has di"
+   }
+  },
+  "/people/{person_id}/death/withdraw": {
+   "post": {
+    "operationId": "post_person_death_withdraw",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "person_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A second administrator withdraws a death recorded in error {reason}. Cancelled bookings     are not restored: the clinic books again with the patient."
    }
   },
   "/people/{person_id}/identity": {
@@ -3563,6 +5331,218 @@
     "summary": "GET: one patient's details, if this login may read that patient. POST: save them (the     patient themselves, or clinic staff for their patient)."
    }
   },
+  "/platform/codemaps": {
+   "get": {
+    "operationId": "get_platform_codemaps",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Local codes partners sent, and where each stands: needs review, proposed, approved,     rejected."
+   }
+  },
+  "/platform/codemaps/{mapping_id}/{step}": {
+   "post": {
+    "operationId": "post_platform_codemap_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "mapping_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "propose {target_code} (regional support, R11) | approve | reject {reason} (the clinical     safety officer, R12). Nobody approves or rejects their own proposal."
+   }
+  },
+  "/platform/connectors": {
+   "get": {
+    "operationId": "get_platform_connectors",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Every partner system this deployment has, and how far its current version is approved."
+   }
+  },
+  "/platform/connectors/{connector_key}/{step}": {
+   "post": {
+    "operationId": "post_platform_connector_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "connector_key",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "enrol | certify | live | suspend, each by the person the rules allow."
+   }
+  },
   "/platform/customers": {
    "post": {
     "operationId": "post_platform_customers",
@@ -3809,6 +5789,40 @@
      }
     ],
     "summary": "Support asks to suspend (or reinstate) a customer. Nothing changes until a DIFFERENT     support person approves."
+   }
+  },
+  "/platform/delivery-attempts": {
+   "get": {
+    "operationId": "get_platform_delivery_attempts",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Regional support's view of delivery attempts across every customer in this region (GHE-13     T-54, DEV-328): per customer, counts by state and the attempts not yet delivered, STATUS ONLY:     never a"
    }
   },
   "/platform/hazards": {
@@ -4232,6 +6246,296 @@
     "summary": "The platform's incident log. Support and safety staff may read it; only those who may     write the platform (support) may add an entry. It must never hold patient details."
    }
   },
+  "/platform/incidents/on-call-staff": {
+   "get": {
+    "operationId": "get_platform_incident_on_call_staff",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Who may be named owner or deputy: active support and safety staff (DEV-202)."
+   }
+  },
+  "/platform/incidents/{incident_id}/acknowledge": {
+   "post": {
+    "operationId": "post_platform_incident_acknowledge",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incident_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The named owner or deputy says \"I have it\" (DEV-202)."
+   }
+  },
+  "/platform/incidents/{incident_id}/assess": {
+   "post": {
+    "operationId": "post_platform_incident_assess",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incident_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "TEMPORARY RULE (DEV-176): an incident logged with an unknown severity stays open until a     safety officer (R12) evaluates it and gives it a level with a note (AT38)."
+   }
+  },
+  "/platform/incidents/{incident_id}/assign": {
+   "post": {
+    "operationId": "post_platform_incident_assign",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incident_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Name an owner and a different deputy from the on-call staff (DEV-202)."
+   }
+  },
+  "/platform/incidents/{incident_id}/handoff": {
+   "post": {
+    "operationId": "post_platform_incident_handoff",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incident_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "TEMPORARY RULE (DEV-191): an incident that touches patient safety cannot be closed until a     safety officer (R12) records the hand-off or fallback that covers it (G-08)."
+   }
+  },
   "/platform/incidents/{incident_id}/resolve": {
    "post": {
     "operationId": "post_platform_incident_resolve",
@@ -4294,6 +6598,49 @@
      }
     ],
     "summary": "Close an open incident with a note on how it ended (support only; once)."
+   }
+  },
+  "/platform/incidents/{incident_id}/timeline": {
+   "get": {
+    "operationId": "get_platform_incident_timeline",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "incident_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The unchangeable timeline of one incident (DEV-202)."
    }
   },
   "/platform/keys": {
@@ -4450,6 +6797,49 @@
      }
     ],
     "summary": "GET: the country packs. POST {pack_ref, country, service, manifest}: a draft (support)."
+   }
+  },
+  "/platform/packs/{pack_id}/preflight": {
+   "get": {
+    "operationId": "get_platform_pack_preflight",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "pack_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A dry run: what signing this pack would switch on. It changes nothing (AT-14)."
    }
   },
   "/platform/packs/{pack_id}/{step}": {
@@ -4636,6 +7026,166 @@
      }
     ],
     "summary": "A support person records one check (identity | legal | security) with a note."
+   }
+  },
+  "/platform/purposes": {
+   "get": {
+    "operationId": "get_platform_purposes",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the intended-purpose statements. POST {capability, statement, classification,     intended_users, legal_manufacturer}: propose a new version (support or safety staff).     TEMPORARY RULE (DEV-184"
+   },
+   "post": {
+    "operationId": "post_platform_purposes",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the intended-purpose statements. POST {capability, statement, classification,     intended_users, legal_manufacturer}: propose a new version (support or safety staff).     TEMPORARY RULE (DEV-184"
+   }
+  },
+  "/platform/purposes/{purpose_id}/{step}": {
+   "post": {
+    "operationId": "post_platform_purpose_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "purpose_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "approve | retire {reason}: safety officers only."
    }
   },
   "/platform/readiness": {
@@ -5619,6 +8169,94 @@
     "summary": "portal member end"
    }
   },
+  "/portal/order-system": {
+   "get": {
+    "operationId": "get_portal_order_system",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the system this lab, pharmacy or home-care partner receives orders in, and the ones it     may choose. POST {system}: choose one (\"\" = work in the partner app only). Only a system Zoiko     has c"
+   },
+   "post": {
+    "operationId": "post_portal_order_system",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the system this lab, pharmacy or home-care partner receives orders in, and the ones it     may choose. POST {system}: choose one (\"\" = work in the partner app only). Only a system Zoiko     has c"
+   }
+  },
   "/portal/overview": {
    "get": {
     "operationId": "get_portal_overview",
@@ -5903,6 +8541,96 @@
     "summary": "enrol | withdraw {refs: [...]}: opaque references, never names."
    }
   },
+  "/portal/sandbox": {
+   "get": {
+    "operationId": "get_portal_sandbox",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A developer's sandbox (DEV-329): fixed synthetic patients, each with the FHIR order Zoiko     would send and an example report back, and whether the intake would accept or hold it.     Nothing here is"
+   }
+  },
+  "/portal/sandbox/check": {
+   "post": {
+    "operationId": "post_portal_sandbox_check",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Check a developer's own FHIR resource against the intake's rules (UK Core). Says whether it     would be accepted or held, and why. Nothing is kept or logged except that a check was made."
+   }
+  },
   "/portal/team": {
    "get": {
     "operationId": "get_portal_team",
@@ -6095,6 +8823,346 @@
      }
     ],
     "summary": "The details (name, birth date, phone) of every patient this login may read, decrypted     only for people the policy engine allows."
+   }
+  },
+  "/programme/activity": {
+   "get": {
+    "operationId": "get_programme_activity",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Appointments and visits by month for the people linked to this programme: totals only. A     month is shown only when at least the minimum group of DIFFERENT people contributed (10 by     default); ot"
+   }
+  },
+  "/programme/codes": {
+   "get": {
+    "operationId": "get_programme_codes",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: where each member's code stands (no codes, no people). POST {member_ref}: make a     one-time code for an enrolled member; it is shown once."
+   },
+   "post": {
+    "operationId": "post_programme_codes",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: where each member's code stands (no codes, no people). POST {member_ref}: make a     one-time code for an enrolled member; it is shown once."
+   }
+  },
+  "/programme/codes/{member_ref}/revoke": {
+   "post": {
+    "operationId": "post_programme_code_revoke",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "member_ref",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Cancel an unused code, or end a link. That person stops being counted at once."
+   }
+  },
+  "/programme/mine": {
+   "get": {
+    "operationId": "get_programme_mine",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The employer programmes this patient is linked to."
+   }
+  },
+  "/programme/mine/{link_id}/leave": {
+   "post": {
+    "operationId": "post_programme_leave",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "link_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The patient stops being counted for that employer."
+   }
+  },
+  "/programme/redeem": {
+   "post": {
+    "operationId": "post_programme_redeem",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The patient types the one-time code their employer gave them and agrees to be counted. Only     for their own record."
    }
   },
   "/referrals": {
@@ -7110,6 +10178,150 @@
     "summary": "staff ai permit sign"
    }
   },
+  "/staff/alert-phone": {
+   "get": {
+    "operationId": "get_staff_alert_phone",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A clinician's (or clinic staff member's) own mobile number for urgent alerts (DEV-334).     GET: masked number, whether it is proved, whether critical-result texts are on.     POST {number}: save it a"
+   },
+   "post": {
+    "operationId": "post_staff_alert_phone",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A clinician's (or clinic staff member's) own mobile number for urgent alerts (DEV-334).     GET: masked number, whether it is proved, whether critical-result texts are on.     POST {number}: save it a"
+   }
+  },
+  "/staff/alert-phone/confirm": {
+   "post": {
+    "operationId": "post_staff_alert_phone_confirm",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The clinician types back the code texted to their alert number."
+   }
+  },
   "/staff/billing": {
    "get": {
     "operationId": "get_staff_billing",
@@ -7435,6 +10647,40 @@
     "summary": "issue | pay {payment_ref} | void {reason} | credit {amount_minor, reason}."
    }
   },
+  "/staff/billing/payments": {
+   "get": {
+    "operationId": "get_staff_billing_payments",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Attempts to pay this clinic's invoices through a provider (?invoice= for one invoice)."
+   }
+  },
   "/staff/booking-system": {
    "get": {
     "operationId": "get_staff_booking_system",
@@ -7466,7 +10712,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "Which partner connector confirms this clinic's bookings (\"\" = the clinic confirms by hand).     Anyone on the clinic's staff may read it; only the administrator changes it."
+    "summary": "Which partner connector confirms this clinic's bookings (\"\" = the clinic confirms by hand)."
    },
    "post": {
     "operationId": "post_staff_booking_system",
@@ -7520,7 +10766,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "Which partner connector confirms this clinic's bookings (\"\" = the clinic confirms by hand).     Anyone on the clinic's staff may read it; only the administrator changes it."
+    "summary": "Which partner connector confirms this clinic's bookings (\"\" = the clinic confirms by hand)."
    }
   },
   "/staff/compliance": {
@@ -7555,6 +10801,138 @@
      }
     ],
     "summary": "staff compliance"
+   }
+  },
+  "/staff/connector": {
+   "get": {
+    "operationId": "get_staff_connector",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "This clinic's partner operations: those that need a person, those in flight, recent ones."
+   }
+  },
+  "/staff/connector/circuits": {
+   "get": {
+    "operationId": "get_staff_connector_circuits",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Which of this customer's partner connectors are paused or halted, and since when."
+   }
+  },
+  "/staff/connector/circuits/{connector_key}/reset": {
+   "post": {
+    "operationId": "post_staff_connector_circuit_reset",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "connector_key",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A person starts a paused or halted connector again (after the partner fixed it)."
    }
   },
   "/staff/connector/{operation_id}/history": {
@@ -7597,7 +10975,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "staff connector history"
+    "summary": "The steps of one partner operation of this clinic, oldest first, and the chain check."
    }
   },
   "/staff/connector/{operation_id}/redrive": {
@@ -7661,7 +11039,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "staff connector redrive"
+    "summary": "Put a partner operation that gave up back in the queue (its attempts start again)."
    }
   },
   "/staff/connector/{operation_id}/resolve": {
@@ -7725,7 +11103,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "staff connector resolve"
+    "summary": "Record, after checking with the partner, how an unknown or given-up operation ended."
    }
   },
   "/staff/dashboard": {
@@ -8544,6 +11922,112 @@
      }
     ],
     "summary": "staff family suspend"
+   }
+  },
+  "/staff/fhir/quarantine": {
+   "get": {
+    "operationId": "get_staff_fhir_quarantine",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "List quarantined FHIR messages for clinic staff review (GHE-13 T-25, T-60)."
+   }
+  },
+  "/staff/fhir/quarantine/{quarantine_id}/{step}": {
+   "post": {
+    "operationId": "post_staff_fhir_quarantine_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "quarantine_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Clinic staff discards or requests resend for a quarantined FHIR message."
    }
   },
   "/staff/integrations/deliveries": {
@@ -9803,6 +13287,166 @@
     "summary": "Operational numbers for this organization over the last 7 to 90 days. Counts only: no     patient, name or message is identified. Needs the analytics right."
    }
   },
+  "/staff/retention": {
+   "get": {
+    "operationId": "get_staff_retention",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "How long this clinic keeps each kind of data, and how many records are past it. Counts only:     the product deletes nothing. POST proposes a rule (period_days null means no limit)."
+   },
+   "post": {
+    "operationId": "post_staff_retention",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "How long this clinic keeps each kind of data, and how many records are past it. Counts only:     the product deletes nothing. POST proposes a rule (period_days null means no limit)."
+   }
+  },
+  "/staff/retention/{rule_id}/{step}": {
+   "post": {
+    "operationId": "post_staff_retention_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "rule_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A second administrator approves a proposed rule, or anyone of them withdraws it."
+   }
+  },
   "/staff/rights": {
    "get": {
     "operationId": "get_staff_rights",
@@ -10761,6 +14405,86 @@
     "summary": "advance | resume | overlay | reassign. Every one names the version it expects."
    }
   },
+  "/version": {
+   "get": {
+    "operationId": "get_version_document",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "GET /api/v1/version: which release this server runs."
+   },
+   "post": {
+    "operationId": "post_version_document",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "GET /api/v1/version: which release this server runs."
+   }
+  },
   "/waitlist": {
    "get": {
     "operationId": "get_waitlist_entries",
@@ -10911,6 +14635,58 @@
      }
     ],
     "summary": "waitlist leave"
+   }
+  },
+  "/webhooks/twilio/status": {
+   "post": {
+    "operationId": "post_twilio_status",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "Twilio's delivery receipt for a text (DEV-199). No sign-in: Twilio's signature over the     exact public address and the form fields is the credential, checked before anything is used.     The address"
    }
   }
  },

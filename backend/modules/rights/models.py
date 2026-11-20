@@ -49,9 +49,17 @@ class RightsCase(CellScopedModel):
     due_at = models.DateTimeField(null=True, blank=True)
     due_basis = models.CharField(max_length=80, blank=True, default="")   # which pack and revision
 
+    # WF-T35: a lawful hold (a legal duty to keep the data) stops an erasure being completed.
+    lawful_hold = models.BooleanField(default=False)
+    hold_reason = models.CharField(max_length=300, blank=True, default="")
+    hold_by_ref = models.CharField(max_length=22, blank=True, default="")
+
     class Meta(CellScopedModel.Meta):
         indexes = [
             models.Index(fields=["cell_id", "tenant_id"], name="rights_scope_idx"),
             models.Index(fields=["person_ref"], name="rights_person_idx"),
             models.Index(fields=["organization_ref", "state"], name="rights_org_state_idx"),
         ]
+        # DEV-218: a request number names exactly one request within a customer.
+        constraints = [models.UniqueConstraint(fields=["tenant_id", "ref_no"],
+                                               name="rights_ref_no_unique")]

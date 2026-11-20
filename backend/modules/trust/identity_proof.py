@@ -10,7 +10,7 @@ check no longer counts (the patient is unverified again), so "verified" always m
 this person with these details". A check expires, can be withdrawn, and cannot be made while the
 patient's record is under a possible-duplicate review (an ambiguous identity is held: GHE-06 I-05).
 
-The three-year validity and the list of documents are our own proposed defaults (DEV-183).
+The three-year validity and the list of documents are our own proposed defaults (DEV-129).
 """
 from __future__ import annotations
 

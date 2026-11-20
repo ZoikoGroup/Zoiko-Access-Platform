@@ -160,6 +160,26 @@ def verify_email(token: str, *, clock: Clock | None = None) -> None:
         _audit(row.actor.public_id, "auth.email_verified")
 
 
+def verified_login_email_of_actor(actor_public_id: str) -> str | None:
+    """The address on this login's credential, only if the person confirmed it by clicking our
+    link, else None. For alerts to staff (DEV-310). Needs a bound tenant."""
+    ctx = require_context()
+    cred = Credential.objects.filter(
+        actor__public_id=actor_public_id, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id,
+        email_verified_at__isnull=False).first()
+    return cred.email if cred is not None and cred.email else None
+
+
+def login_email_of_actor(actor_public_id: str) -> str | None:
+    """The address on this login's credential, whether confirmed or not, or None. For internal
+    use (for example cancelling mail the person no longer wants); never returned to a screen.
+    Needs a bound tenant."""
+    ctx = require_context()
+    cred = Credential.objects.filter(
+        actor__public_id=actor_public_id, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id).first()
+    return cred.email if cred is not None and cred.email else None
+
+
 def email_status(actor_public_id: str) -> dict[str, Any]:
     """For the app: a masked address and whether it is verified. Needs a bound tenant."""
     ctx = require_context()

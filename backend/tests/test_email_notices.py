@@ -136,13 +136,17 @@ def test_another_patients_choice_never_sends_them_this_patients_news(p):
 
 def test_the_settings_say_whether_an_email_could_be_sent(p):
     r = json.loads(p.get("my/email-notices", subject="pat").content)
-    assert r == {"enabled": False, "can_email": False}
+    # DEV-194/DEV-198 added the text-message fields alongside these.
+    assert {k: r[k] for k in ("enabled", "can_email", "quiet")} == {
+        "enabled": False, "can_email": False, "quiet": None}
     give_email(p, verified=False)
     assert json.loads(p.get("my/email-notices", subject="pat").content)["can_email"] is False
     with tenant_transaction(p.clinic.ctx):
         Credential.objects.update(email_verified_at=utc_now())
     assert json.loads(p.get("my/email-notices", subject="pat").content)["can_email"] is True
-    assert json.loads(switch(p, True).content) == {"enabled": True, "can_email": True}
+    done = json.loads(switch(p, True).content)
+    assert {k: done[k] for k in ("enabled", "can_email", "quiet")} == {
+        "enabled": True, "can_email": True, "quiet": None}
 
 
 @pytest.mark.parametrize("bad", ["yes", 1, None, [True]])
@@ -171,3 +175,121 @@ def test_turning_it_on_or_off_is_audited(p):
         actions = sorted(AuditEvent.objects.filter(
             action__startswith="comms.email_notices").values_list("action", flat=True))
     assert actions == ["comms.email_notices_off", "comms.email_notices_on"]
+
+
+# ------------------------------------------------------------------ TC30: quiet hours
+def quiet(p, start="22:00", end="07:00", zone="Europe/London", subject="pat"):
+    return p.post("my/email-notices", {"quiet": {"start": start, "end": end, "zone": zone}},
+                  subject=subject)
+
+
+def at(hour, minute=0, day=1, month=7):
+    import datetime as dt
+    return dt.datetime(2027, month, day, hour, minute, tzinfo=dt.timezone.utc)
+
+
+def test_a_patient_sets_reads_and_clears_quiet_hours(p):
+    give_email(p)
+    assert json.loads(p.get("my/email-notices", subject="pat").content)["quiet"] is None
+    r = quiet(p)
+    assert r.status_code == 200
+    assert json.loads(r.content)["quiet"] == {"start": "22:00", "end": "07:00",
+                                              "zone": "Europe/London"}
+    assert p.post("my/email-notices", {"quiet": None}, subject="pat").status_code == 200
+    assert json.loads(p.get("my/email-notices", subject="pat").content)["quiet"] is None
+    with tenant_transaction(p.clinic.ctx):
+        actions = set(AuditEvent.objects.values_list("action", flat=True))
+    assert {"comms.quiet_hours_set", "comms.quiet_hours_cleared"} <= actions
+
+
+@pytest.mark.parametrize("window", [
+    {"start": "25:00", "end": "07:00", "zone": "UTC"},
+    {"start": "22:00", "end": "7am", "zone": "UTC"},
+    {"start": "22:00", "end": "22:00", "zone": "UTC"},
+    {"start": "22:00", "end": "07:00", "zone": "Mars/Base"},
+    {"start": "22:00", "end": "07:00"}, "overnight", 5])
+def test_a_bad_quiet_window_is_refused(p, window):
+    give_email(p)
+    r = p.post("my/email-notices", {"quiet": window}, subject="pat")
+    assert r.status_code == 422
+
+
+def test_an_empty_post_is_still_refused_and_only_patients_have_quiet_hours(p):
+    assert p.post("my/email-notices", {}, subject="pat").status_code == 422
+    assert quiet(p, subject="ops").status_code == 403
+
+
+def test_a_routine_email_waits_for_the_end_of_the_window_and_a_clock_change_cannot_move_it(p):
+    give_email(p)
+    quiet(p, "22:00", "07:00", "Europe/London")
+    actor = p.patient_actor
+    from modules.comms.services import next_allowed_send as send
+    with tenant_transaction(p.clinic.ctx):
+        assert send(actor, at(12)) == at(12)                       # daytime: now
+        assert send(actor, at(23)) == at(6, day=2)                 # 23:00 BST -> 07:00 BST next day
+        assert send(actor, at(3)) == at(6)                         # small hours -> 07:00 BST
+        # the night the clocks go back (31 Oct 2027): 07:00 is GMT, so 07:00 UTC
+        assert send(actor, at(23, day=30, month=10)) == at(7, day=31, month=10)
+        # the night they go forward (28 Mar 2027): 07:00 is BST, so 06:00 UTC
+        assert send(actor, at(23, day=27, month=3)) == at(6, day=28, month=3)
+
+
+def test_only_routine_reminders_wait_while_urgent_notices_go_at_once(p):
+    from modules.comms.subscribers import _email_the_patient
+    give_email(p)
+    switch(p, True)
+    import datetime as dt
+    now = utc_now()
+
+    def hour(delta):
+        return (now + dt.timedelta(hours=delta)).strftime("%H:%M")
+
+    assert quiet(p, hour(-1), hour(1), "UTC").status_code == 200   # right now is inside the window
+    with tenant_transaction(p.clinic.ctx):
+        _email_the_patient(p.person, "booking_reminder")
+        _email_the_patient(p.person, "booking_cancelled")
+    mails = {m.body: m for m in updates()}
+    reminder = next(m for b, m in mails.items() if "coming up" in b)
+    cancelled = next(m for b, m in mails.items() if "was cancelled" in b)
+    assert reminder.next_attempt_at > now + dt.timedelta(minutes=30)
+    assert cancelled.next_attempt_at <= utc_now()                   # not held back
+
+
+# ------------------------------------------------- TC37: turning emails off cancels queued ones
+def test_turning_emails_off_cancels_what_is_already_waiting_to_be_sent(p):
+    give_email(p)
+    switch(p, True)
+    confirmed_booking(p)
+    (waiting,) = updates()
+    assert waiting.state == "queued" and ADDRESS in waiting.to_address
+    assert switch(p, False).status_code == 200
+    waiting.refresh_from_db()
+    assert waiting.state == "cancelled" and waiting.body == ""
+    assert ADDRESS not in waiting.to_address                       # masked, like a sent one
+    with tenant_transaction(p.clinic.ctx):
+        assert "comms.queued_emails_cancelled" in set(
+            AuditEvent.objects.values_list("action", flat=True))
+
+
+def test_cancelling_leaves_other_mail_and_other_people_alone(p):
+    from foundation.mail import queue_email
+    give_email(p)
+    switch(p, True)
+    confirmed_booking(p)
+    with tenant_transaction(p.clinic.ctx):
+        queue_email(kind="verify_email", to_address=ADDRESS, subject="Confirm", body="a link")
+        queue_email(kind="patient_update", to_address="someone.else@example.org",
+                    subject="An update on Zoiko Access", body="other person")
+    switch(p, False)
+    states = {(m.kind, m.state) for m in QueuedEmail.objects.all()}
+    assert ("verify_email", "queued") in states                      # a different kind: kept
+    others = QueuedEmail.objects.filter(subject="An update on Zoiko Access",
+                                        to_address="someone.else@example.org")
+    assert others.count() == 1 and others.first().state == "queued"  # someone else: kept
+
+
+def test_turning_emails_off_with_nothing_waiting_is_harmless(p):
+    give_email(p)
+    switch(p, True)
+    assert switch(p, False).status_code == 200
+    assert updates() == []

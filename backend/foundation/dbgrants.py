@@ -27,6 +27,7 @@ APPEND_ONLY = frozenset({
     "evidence_auditevent",
     "policy_accessdecision",
     "scheduling_bookingevent",
+    "trust_incidentevent",
     "workflow_workitemevent",
     "trust_releasenote",
     "ai_aipermitevent",

@@ -174,3 +174,80 @@ def person_identity_withdraw(
             person_public_id=person_id, reason=reason, actor_public_id=auth.actor_public_id)
         orgs = trust.organization_names()
     return JsonResponse({"identity": _identity_json(info, orgs, True)})
+
+
+
+# --------------------------------------------------------------------------- a death (DEV-333)
+def _death_json(info: dict[str, Any], labels: dict[str, str]) -> dict[str, Any]:
+    by = info.pop("recorded_by")
+    return {**info, "recorded_by_name": labels.get(by, "") if by else "",
+            "recorded_by_me": False, "recorded_by": by}
+
+
+@endpoint("GET", "POST")
+def person_death(request: HttpRequest, auth: trust.Authenticated, person_id: str) -> HttpResponse:
+    """GET: whether this patient is recorded as having died. POST {died_on, source}: a clinic
+    ADMINISTRATOR records it; the patient's future bookings are cancelled with the reason "the
+    patient has died", which also stops their reminders. Withdrawing needs a second person."""
+    from modules.scheduling import api as scheduling
+
+    org = _org(auth)
+    if request.method == "POST":
+        if "R13" not in auth.roles:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        decision = _authorize(auth, "write:person", organization_public_id=org,
+                              subject_ref=person_id)
+        body = json_body(request)
+        with tenant_transaction():
+            if not trust.person_at_site(person_id, org):
+                raise ZoikoError(ErrorCode.NOT_FOUND)
+            info = trust.record_death(
+                person_ref=person_id, died_on=body.get("died_on"), source=body.get("source"),
+                by=auth.actor_public_id, decision=decision, organization_ref=org)
+            open_ones = scheduling.future_bookings_of(person_id)
+        cancelled = 0
+        if open_ones:
+            booking = _authorize(auth, "write:booking", organization_public_id=org,
+                                 subject_ref=person_id)
+            for ref in open_ones:
+                try:
+                    with tenant_transaction():
+                        scheduling.cancel(booking_ref=ref, actor_public_id=auth.actor_public_id,
+                                          decision=booking, reason="patient_died")
+                    cancelled += 1
+                except ZoikoError:
+                    continue  # e.g. attendance already recorded: that history stays
+    else:
+        _authorize(auth, "read:person", organization_public_id=org, subject_ref=person_id)
+        cancelled = 0
+        with tenant_transaction():
+            if not trust.person_at_site(person_id, org):
+                raise ZoikoError(ErrorCode.NOT_FOUND)
+            info = trust.death_of(person_id)
+    with tenant_transaction():
+        labels = trust.actor_labels()
+    out = _death_json(info, labels)
+    out["recorded_by_me"] = out["recorded_by"] == auth.actor_public_id
+    out["can_record"] = "R13" in auth.roles
+    return JsonResponse({"death": out, "bookings_cancelled": cancelled},
+                        status=201 if request.method == "POST" else 200)
+
+
+@endpoint("POST")
+def person_death_withdraw(
+    request: HttpRequest, auth: trust.Authenticated, person_id: str
+) -> HttpResponse:
+    """A second administrator withdraws a death recorded in error {reason}. Cancelled bookings
+    are not restored: the clinic books again with the patient."""
+    org = _org(auth)
+    if "R13" not in auth.roles:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    decision = _authorize(auth, "write:person", organization_public_id=org, subject_ref=person_id)
+    with tenant_transaction():
+        if not trust.person_at_site(person_id, org):
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        info = trust.withdraw_death(person_ref=person_id, reason=json_body(request).get("reason"),
+                                    by=auth.actor_public_id, decision=decision,
+                                    organization_ref=org)
+        labels = trust.actor_labels()
+    return JsonResponse({"death": _death_json(info, labels)})

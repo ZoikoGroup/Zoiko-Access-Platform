@@ -35,6 +35,8 @@ from modules.evidence.api import AuditOutcome, record
 from modules.jurisdiction import api as jurisdiction
 from modules.policy import api as policy
 from modules.safety import api as safety
+from modules.traceability import api as traceability
+from modules.trust import api as trust
 
 from .models import Decision, Evidence, GateDecision, Release
 
@@ -45,6 +47,9 @@ G3 = ("signed_build", "security_signoff", "privacy_signoff", "requirements_cover
 G4 = ("legal_authority", "clinical_partner", "clinical_safety_signoff", "operating_entity")
 COUNTRY_PACK = "country_pack"            # checked by the system, signed by nobody
 HAZARD_REGISTER = "hazard_register"      # likewise: every hazard accepted or retired (GHE-08 AT42)
+CLINICAL_MATRIX = "clinical_safety_matrix"  # likewise: no clinical-safety requirement not built
+INTENDED_PURPOSE = "intended_purpose"    # likewise: every capability has an approved purpose
+OPEN_INCIDENTS = "open_incidents"        # likewise: no open SEV-0, SEV-1 or unassessed incident
 CLINICAL = frozenset({"clinical_partner", "clinical_safety_signoff"})
 ALL_REQUIREMENTS = (*G3, *G4)
 MAX_VALID_DAYS = 366
@@ -125,10 +130,55 @@ def _hazard_state() -> dict[str, Any]:
             "signer": "", "role": "", "reference": why, "expires_on": None, "note": ""}
 
 
+CLINICAL_SOURCE = "GHE-08"                  # the clinical safety specification in the matrix
+
+
+def _matrix_state() -> dict[str, Any]:
+    """The requirements matrix must hold the clinical-safety requirements and none of them may be
+    "not built": a missing clinical-safety requirement is a blocker (GHE-12 WF-T60, DEV-190). An
+    empty matrix is not a clean one. "Partly built" does not block here: a person still signs the
+    clinical safety case (DEV-137)."""
+    found = traceability.list_requirements(CLINICAL_SOURCE)["summary"].get(CLINICAL_SOURCE)
+    if not found or found["total"] == 0:
+        ok, why = False, "no clinical-safety requirements recorded"
+    else:
+        ok = found["not_built"] == 0
+        why = (f"all {found['total']} are at least partly built" if ok else
+               f"{found['not_built']} of {found['total']} are not built")
+    return {"gate": "G4", "requirement": CLINICAL_MATRIX, "status": "signed" if ok else "missing",
+            "signer": "", "role": "", "reference": why, "expires_on": None, "note": ""}
+
+
+def _purpose_state(rel: Release) -> dict[str, Any]:
+    """Every capability of the release needs an approved intended-purpose statement. A capability
+    with none stays off: there is no default classification (GHE-08 AT01, DEV-184)."""
+    missing = safety.missing_for(list(rel.capabilities))
+    why = ("every capability has an approved purpose" if not missing
+           else "no approved purpose for " + ", ".join(missing))
+    return {"gate": "G4", "requirement": INTENDED_PURPOSE,
+            "status": "signed" if not missing else "missing",
+            "signer": "", "role": "", "reference": why, "expires_on": None, "note": ""}
+
+
+def _incident_state() -> dict[str, Any]:
+    """No open SEV-0 or SEV-1 incident, and none of unknown severity, may stand while a release
+    goes forward (DEV-183, GHE-20 E-03/B-04 in spirit: a serious unresolved problem is a veto, not
+    a waiver). Zero incidents is clean."""
+    sums = trust.serious_incident_summary()
+    ok = sums["serious"] == 0
+    why = ("no serious incident open" if ok else
+           f"{sums['serious']} serious incident(s) open ({sums['unassessed']} not yet assessed)")
+    return {"gate": "G3", "requirement": OPEN_INCIDENTS, "status": "signed" if ok else "missing",
+            "signer": "", "role": "", "reference": why, "expires_on": None, "note": ""}
+
+
 def evaluate_now(rel: Release, clock: Clock | None = None) -> dict[str, Any]:
     """The decision and what blocks it, worked out now without recording anything."""
     states = requirement_states(rel, clock)
     states.append(_hazard_state())
+    states.append(_incident_state())
+    states.append(_purpose_state(rel))
+    states.append(_matrix_state())
     states.append(_pack_state(rel, clock))
     blockers = [f"{s['gate'].lower()}.{s['requirement']}:{s['status']}"
                 for s in states if s["status"] != "signed"]

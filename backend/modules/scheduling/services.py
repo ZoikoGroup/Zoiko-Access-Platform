@@ -340,7 +340,10 @@ def book(
 def confirm(
     *, booking_ref: str, actor_public_id: str, decision: policy.Decision
 ) -> dict[str, Any]:
-    """The organization accepts a requested booking."""
+    """The organization accepts a requested booking. A clinic that has chosen a booking system
+    (a partner connector) does not confirm by hand: its system must answer (modules/bookingflow,
+    confirm_from_provider below), so this refuses with PARTNER_UNCONFIRMED, unless that system is
+    down, when confirming by hand is the alternate path (DEV-221)."""
     with transaction.atomic():
         booking = _own_booking(booking_ref)
         policy.check_receipt(
@@ -351,6 +354,14 @@ def confirm(
             raise ZoikoError(ErrorCode.POLICY_DENIED)
         if booking.status == BookingStatus.CONFIRMED:
             return booking_dict(booking)                    # repeating is harmless
+        if trust.booking_system_of(booking.slot.organization_ref):
+            from modules.bookingflow import api as bookingflow
+
+            # The clinic's system decides, unless it is down (circuit open or halted, DEV-221) or
+            # its market no longer allows it (DEV-229): then staff may confirm by hand, the
+            # alternate path (GHE-20 C-08).
+            if bookingflow.partner_decides(booking.slot.organization_ref):
+                raise ZoikoError(ErrorCode.PARTNER_UNCONFIRMED)
         if booking.status != BookingStatus.REQUESTED:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         booking.status = BookingStatus.CONFIRMED
@@ -365,34 +376,6 @@ def confirm(
                   state_to=booking.status, source=side_of(decision.role_code),
                   actor_ref=actor_public_id)
         _finish_move(booking, actor_public_id, side_of(decision.role_code))
-        return booking_dict(booking)
-
-
-def confirm_from_provider(
-    *, booking_ref: str, operation_ref: str, clock: Clock | None = None
-) -> dict[str, Any]:
-    """The clinic's booking system (a partner) has itself confirmed a requested booking.
-
-    This is the provider's word, not a person's: it carries no login, the history says "system",
-    and it only ever runs from a confirmation the connector has marked as the partner's own (the
-    caller checks that; see modules/bookingflow). Repeating it changes nothing."""
-    with transaction.atomic():
-        booking = _own_booking(booking_ref)
-        if booking.status == BookingStatus.CONFIRMED:
-            return booking_dict(booking)
-        if booking.status != BookingStatus.REQUESTED:
-            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
-        booking.status = BookingStatus.CONFIRMED
-        booking.confirmed_at = utc_now(clock)
-        booking.entity_version += 1
-        booking.save(update_fields=["status", "confirmed_at", "entity_version", "updated_at"])
-        _audit("system", "booking.confirm_from_provider", "booking", booking.public_id)
-        _link_doctor(booking, "system")
-        _event("booking.confirmed.v1", booking, actor_ref="system", side="system")
-        log_event(booking, "confirmed", state_from=BookingStatus.REQUESTED,
-                  state_to=booking.status, source="system", actor_ref="system",
-                  related_ref=operation_ref[:22], clock=clock)
-        _finish_move(booking, "system", "system")
         return booking_dict(booking)
 
 
@@ -425,6 +408,35 @@ def decline_from_provider(
 
 
 CARE_LINK_AFTER_VISIT = dt.timedelta(days=30)
+
+
+def confirm_from_provider(
+    *, booking_ref: str, operation_ref: str, clock: Clock | None = None
+) -> dict[str, Any]:
+    """The clinic's booking system (a partner) has itself confirmed a requested booking.
+
+    This is the provider's word, not a person's: it carries no login, the history says "system"
+    with the connector operation as the related reference, and it only ever runs from a
+    confirmation the connector has marked as the partner's own (the caller checks that; see
+    modules/bookingflow). Repeating it changes nothing."""
+    with transaction.atomic():
+        booking = _own_booking(booking_ref)
+        if booking.status == BookingStatus.CONFIRMED:
+            return booking_dict(booking)
+        if booking.status != BookingStatus.REQUESTED:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        booking.status = BookingStatus.CONFIRMED
+        booking.confirmed_at = utc_now(clock)
+        booking.entity_version += 1
+        booking.save(update_fields=["status", "confirmed_at", "entity_version", "updated_at"])
+        _audit("system", "booking.confirm_from_provider", "booking", booking.public_id)
+        _link_doctor(booking, "system")
+        _event("booking.confirmed.v1", booking, actor_ref="system", side="system")
+        log_event(booking, "confirmed", state_from=BookingStatus.REQUESTED,
+                  state_to=booking.status, source="system", actor_ref="system",
+                  related_ref=operation_ref[:22], clock=clock)
+        _finish_move(booking, "system", "system")
+        return booking_dict(booking)
 
 
 def _link_doctor(booking: Booking, confirmed_by: str) -> None:
@@ -514,6 +526,10 @@ def cancel(
         )
         if booking.status == BookingStatus.CANCELLED:
             return booking_dict(booking)
+        if booking.attendance:
+            # DEV-215: once the clinic has recorded whether the patient came, the visit happened
+            # (or was missed) on record; cancelling it now would rewrite that history.
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         clean_reason = _check_reason(reason, decision.role_code)
         if (decision.role_code in PATIENT_SIDE_ROLES and booking.status == BookingStatus.CONFIRMED
                 and booking.slot.starts_at > utc_now()):
@@ -1002,3 +1018,36 @@ def forecast_week(organization_ref: str, clock: Clock | None = None) -> dict[str
             "usual": usual.get(day.weekday()) if enough else None,
         })
     return {"enough_history": enough, "history_days": history, "days": days}
+
+
+def monthly_activity(
+    person_refs: list[str], clock: Clock | None = None, months: int = 12
+) -> dict[str, dict[str, tuple[int, int]]]:
+    """For these patients, by month ("YYYY-MM"): {month: {person: (bookings, visits)}}. Bookings
+    are requested or confirmed appointments; a visit is one marked attended. Only for the
+    platform's own counting of an employer programme (DEV-312): the result is combined into totals
+    and never shown for one person."""
+    if not person_refs:
+        return {}
+    since = utc_now(clock) - dt.timedelta(days=31 * (months + 1))
+    rows = Booking.objects.select_related("slot").filter(
+        person_ref__in=person_refs, status__in=ACTIVE_BOOKING, slot__starts_at__gte=since,
+        **_scope())
+    out: dict[str, dict[str, tuple[int, int]]] = {}
+    for b in rows:
+        month = b.slot.starts_at.strftime("%Y-%m")
+        bookings, visits = out.setdefault(month, {}).get(b.person_ref, (0, 0))
+        out[month][b.person_ref] = (
+            bookings + 1, visits + (1 if b.attendance == Attendance.ATTENDED else 0))
+    return out
+
+
+
+def future_bookings_of(person_ref: str) -> list[str]:
+    """This patient's bookings that are still open and not yet started (DEV-333)."""
+    return list(
+        Booking.objects.filter(
+            person_ref=person_ref, status__in=ACTIVE_BOOKING, slot__starts_at__gt=utc_now(),
+            **_scope(),
+        ).values_list("public_id", flat=True)
+    )

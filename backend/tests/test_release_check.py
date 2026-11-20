@@ -32,6 +32,7 @@ def good(**over):
         "ALLOW_ENV_KEYS": True,         # knowingly keeps its keys in the environment
         "ALLOWED_HOSTS": ["care.example.org"], "ZOIKO_CELL_ID": "EU-WEST-01",
         "EMAIL_HOST": "smtp.example.org", "EMAIL_PORT": 587, "ZOIKO_BUILD": "2026.11.07-a1b2c3d",
+        "PACK_SIGNING_KEY": "pK3vR8mQ2xN7wT4yL9sB6hD1fJ5cA0eU3oG8iV2nZ7k=",
     }
     values.update(over)
     return SimpleNamespace(**values)
@@ -130,6 +131,12 @@ def test_every_problem_is_listed_together_not_just_the_first():
                DATABASES={"default": {"PASSWORD": "change-me"}}, FIELD_KEYS="REPLACE-with-x",
                ALLOWED_HOSTS=["*"], ZOIKO_CELL_ID="DEV-01", EMAIL_HOST="mail")
     assert len(release_problems(bad)) == 9
+
+
+def test_a_missing_country_pack_signing_key_is_caught():
+    # DEV-210: without a real key, signatures would come from a key derived from the secret key.
+    assert any("ZOIKO_PACK_SIGNING_KEY" in p for p in one(PACK_SIGNING_KEY=""))
+    assert not any("ZOIKO_PACK_SIGNING_KEY" in p for p in one())
 
 
 # ------------------------------------------------------------------ the file people copy
@@ -293,3 +300,13 @@ def test_both_web_entry_points_run_the_settings_check_first():
         first = text.index("assert_release_ready()")
         second = text.index("assert_safe_database_role()")
         assert first < second, name
+
+
+@pytest.mark.parametrize("over,needle", [
+    ({"CONNECTOR_SIMULATOR": True}, "CONNECTOR_SIMULATOR"),
+    ({"BILLING_PRETEND_PROVIDER": True}, "BILLING_PRETEND_PROVIDER"),
+    ({"BILLING_PAYMENT_PROVIDER": "pretend"}, "BILLING_PAYMENT_PROVIDER"),
+])
+def test_a_pretend_partner_or_payment_provider_never_reaches_a_real_server(over, needle):
+    """DEV-227: they only ever see synthetic data."""
+    assert any(needle in p for p in one(**over))

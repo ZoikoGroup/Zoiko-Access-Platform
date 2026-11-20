@@ -24,7 +24,7 @@ Written 2026-11-04. Built work is recorded in `docs/decisions/REGISTER.md` (DEV-
 
 | # | Item | Size | Waiting for |
 |---|---|---|---|
-| B1 | Clinical notes and results (doctor "Notes & results") | L | DEV-041: may Zoiko store clinical notes at all, and how they are encrypted. |
+| B1 | Clinical notes and results (doctor "Notes & results") | L | **Decided 17 Nov 2026 by the lead (DEV-304): Zoiko may store consultation note text, encrypted.** Built behind a switch (`ZOIKO_CLINICAL_NOTES`, off by default): consultation notes, addenda, patient reading after 24 hours, orders (DEV-305), a lab summary with a critical rating (DEV-307). Still to build: structured orders and result values, attachments, a retention rule. |
 | B2 | Doctor messaging (doctor "Messages") | M | Same clinical-safety questions as B1. |
 | B3 | Billing, claims and entitlements (staff "Billing & Claims"; patient "Bills & Payments") | L | Legal role of Zoiko per service (DEV-012) and the first market (DEV-011). |
 | B4 | Insurance checks with the insurer; submitting claims | L | Same as B3, plus a partner connection. |
@@ -52,8 +52,8 @@ The source documents say the first deliverable is a working slice of ONE journey
 | 01 | A signed release scope: market, buyer, operator, pathway, partner, cell | **Not built.** Needs the first market and buyer (G0, DEV-011). |
 | 02 | Verified person and organization authenticate; matching, relationship and purpose are checked | Built. |
 | 03 | An accurate service listing; a request is accepted; the provider (not us) confirms | Built. |
-| 04 | A versioned, durable workflow with accountable parties, transitions and exceptions | Built as an engine on the database (DEV-176): versioned definitions, version-pinned journeys, evidence rules, timers, exceptions, and a Journeys screen. Not yet wired into bookings (the clinic still confirms by hand). Whether to adopt a Temporal-class engine later is still ADR-08. |
-| 05 | At least one real contracted partner connector with provenance, timeout and reconciliation | Framework, pretend partner and an Exceptions screen are built (DEV-175, DEV-179): provenance, timeouts, reconciliation, retries, redrive. **A real contracted partner adapter is still not built:** it needs a partner. |
+| 04 | A versioned, durable workflow with accountable parties, transitions and exceptions | Partly built (work items and their history). Versioned definitions and timers wait on ADR-08. |
+| 05 | At least one real contracted partner connector with provenance, timeout and reconciliation | **Not built.** Needs a partner. |
 | 06 | Protected UIs with correct statuses and accessibility testing | Built; automated accessibility scan added (DEV-098). A hand test with a screen reader and keyboard is still needed. |
 | 07 | Denial of unauthorized employer access and unauthorized cross-cell disclosure, shown by tests | Built: `backend/tests/test_prohibitions.py` has one named test for each of the five product prohibitions (DEV-099). Prohibition 3 (critical results) is only a tripwire because results are not built. |
 | 08 | Release evidence: test runs, clinical sign-off, a regional recovery test, country approval | Test runs: yes. Backup-and-restore rehearsal: **done at development size** (`python scripts/recovery_drill.py`, evidence in `docs/evidence/`, DEV-100); a regional failover, scheduled backups and production-size timing still need the hosting decisions. Sign-offs and approval: need people. |
@@ -64,7 +64,7 @@ Nothing further in this list can be built without decisions or people: parts 01 
 
 | # | Item | Size | Notes |
 |---|---|---|---|
-| C1 | Staff **Integrations** (connectors, webhooks, partner simulator) | L | Built against the pretend partner (DEV-175, DEV-178, DEV-179): connector framework, signed webhooks, partner API, and the Exceptions, Journeys and Integrations screens. **Still needs a real partner** to test against, and the message broker choice (DEV-016) only if volume ever needs one. |
+| C1 | Staff **Integrations** (connectors, webhooks, partner simulator) | L | Needs the message broker choice (DEV-016) and a partner to test against. |
 | C2 | Patients by region and other multi-site views | L | Needs more than one cell; not planned yet. |
 | C3 | Forecasts and health overview on the patient dashboard | L | Needs the clinical record service (B1). |
 
@@ -76,7 +76,7 @@ Nothing further in this list can be built without decisions or people: parts 01 
 | `workflow.workflow_transition` (history of each work item) | built as DEV-082 |
 | Move the booking history onto the shared chain helper (`foundation/chain.py`) | built as DEV-086, with a digest version on each row so old rows still check out |
 | Database login that cannot skip row-level security: start-up guard (DEV-083), rights list, setup script and guide (DEV-084) | built |
-| Reports: count "bookings made each day" by the clinic's own day instead of UTC | built as DEV-187, using the time zone of the clinic's places (UTC when they differ or there are none) |
+| Reports: count "bookings made each day" by the clinic's own day instead of UTC | built as DEV-133, using the time zone of the clinic's places (UTC when they differ or there are none) |
 | Production setup beyond the database (servers, TLS, secrets, backups, mail provider) | not built; waits on decisions DEV-013 and DEV-016 |
 | Suspension with two-person approval (design: tenant-level actions need two people) | built as DEV-080 |
 | Next candidates from the first-phase list that need no decision: `workflow` instance, transition and timer rows (only if a workflow engine is adopted: ADR-08 is still open); a separate booking intent and partner booking; `trust.facility` (our organization and location already cover it) | not built |
@@ -91,3 +91,23 @@ The design documents describe 244 tables; about 25 exist (roughly 10%). Most of 
 1. Do **A7 to A9** soon: they are checks, not features, and they find problems the tests cannot.
 2. Then build **A1 to A6**, one per step.
 3. Ask your lead for answers to **B1, B3 and B9 to B10** first: those unblock the most work.
+
+## Update 2026-11-16 (handover)
+
+Built since the list above was written (see `docs/decisions/REGISTER.md`, DEV-102 to DEV-176): partner portal and exchange, payer and employer programmes, doctor messages, paging, workflow engine, country packs, readiness, billing records, service levels, and today DEV-174 (partner checks before a secret), DEV-175 (clinical switch checked while a workflow runs; deadlines proven daylight-saving safe), DEV-176 (unknown-severity incidents stay open until a safety officer assesses them), DEV-177 (two revisions of one country pack can never both be signed) DEV-178 (a read-only pack preflight), DEV-179 (report days on the clinic's own clock, from maruthi), DEV-180 (identity matching, adjudication and proofing, from maruthi) DEV-181 (quiet hours for reminder emails) DEV-182 (turning emails off cancels queued ones) DEV-183 (an open serious incident holds a release back) DEV-184 (intended-purpose statements before a capability can go live) DEV-185 (the local emergency number from an approved country pack) DEV-186 (secrets redacted from every log line) DEV-187 (a change of class in an intended purpose is reviewed by two people) DEV-188 (a proof that a revoked role cannot move a step), DEV-189 (the matrix seeds brought back in line with the trace documents) DEV-190 (the release gate reads the requirements matrix) DEV-191 (an incident touching patient safety cannot close until a safety officer records the hand-off) DEV-192 (a lawful hold stops an erasure request being completed) DEV-193 (suspending a customer with patients mid-journey needs a continuity plan), DEV-194 (text messages through Twilio from approved templates only) DEV-195 (Google Cloud, Twilio and the United Kingdom chosen, for the lead to confirm) DEV-196 (production settings, a production image and validated Google Cloud Terraform, not applied) DEV-197 (the five apps on Cloud Storage and CDN behind one HTTPS load balancer) DEV-198 (a phone number is proved by a texted code before any text goes to it) DEV-199 (Twilio delivery receipts, signed and forward-only) DEV-200 (a circuit breaker for the text provider) and DEV-201 (a backup-error alert; AT33 and AT43 recorded).
+
+Requirement traces now stand at 71 met, 167 partly and 160 not built (of 398). The not-built rows that remain all need something that does not exist yet: a real partner, a mail, SMS or cloud provider, patient matching and break-glass access, a clinical safety lead, or a first market. They are not safe to build on a guess. The checks still open are A7 (a clean Docker rebuild, which fails on pip download timeouts) and a hand click-through by a person.
+
+## Update 2026-11-17
+
+Built on 2026-11-16 and 2026-11-17 (register DEV-210 to DEV-229), following the "Next, in order" list:
+
+- **One engine, one pack system** (DEV-211): this branch's workflow engine and country packs are kept; the `maruthi` branch's are retired. Country packs are now signed with Ed25519 and checked on every use (DEV-210).
+- **Engineering items** (DEV-212, DEV-214): a frozen event contract checked in CI, one release identity (`GET /api/v1/version`), migrations that may only add, an identifier catalogue checked against every table and event, and 100 cross-state deny tests over six state machines (which found DEV-215).
+- **Partner booking** (DEV-217, ported from `maruthi` without its engine): connector framework, bookings confirmed by the clinic's booking system, a circuit breaker with a manual fallback (DEV-221), unsafe replays refused (DEV-223), failed partner work in the clinic's queue (DEV-226), switched on only where a signed country pack allows it, and switched back to hand confirmation when the pack lapses (DEV-224, DEV-229).
+- **Safe skeletons, switched off:** retention rules with no periods and a report that only counts (DEV-213), a payment-provider interface with a pretend provider (DEV-219), clinical references that are pointers only (DEV-220). Consent grants were not built: what a consent permits is the privacy decision itself.
+- **Fixes found on the way:** a payer's member number stored in the clear (DEV-216), data-request numbers that could collide (DEV-218), an NHS number that could be sent to a partner (DEV-222), a visit with attendance on record that could be cancelled (DEV-215), migration data steps that could see no rows under row-level security (DEV-216).
+- **Partner certification** (DEV-230): sandbox, certified, live by three different people, per interface version.
+- **Production guards:** real texts only to a market a pack has switched on (DEV-228); production refuses to start with pretend partners or payments on (DEV-227); evidence keeps its source time (DEV-225).
+
+Requirement traces now stand at **74 met, 178 partly and 146 not built (of 398)**. What remains not built still needs something that does not exist: a real partner, mail or cloud provider, a clinical safety lead, signed approvers, or the lead's decisions in `docs/LEAD-NOTE.md`.

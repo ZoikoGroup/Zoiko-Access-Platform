@@ -13,7 +13,7 @@
   "group": "Verification",
   "title": "Browser locale, VPN geoIP and client-submitted country never override verified contract/site/cell.",
   "status": "met",
-  "evidence": "A customer's country is set only by Zoiko support, never by the browser or the client (test_country_deadline.py). A locale, address or country sent by the patient never changes the deadline (test_country_deadline.py)."
+  "evidence": "A customer's country is set only by Zoiko support; a locale, address or country sent by the patient never changes the deadline (test_country_deadline.py)."
  },
  {
   "source": "GHE-04",
@@ -76,8 +76,8 @@
   "req_id": "AT-10",
   "group": "Verification",
   "title": "Forged or replayed approval signature cannot activate a revision.",
-  "status": "not_built",
-  "evidence": "Approvals are rows in our own database, not signatures, so there is nothing to forge or replay."
+  "status": "met",
+  "evidence": "A pack is signed (Ed25519) when its second approval lands, and the signature is checked on every use. A row edited in the database, marked signed by hand, carrying another pack's signature, or signed with another key counts for nothing (test_pack_signing.py, DEV-210). The approvals themselves still follow the two-person rule (test_packs.py). The key is a server setting until decision 4 names a key service."
  },
  {
   "source": "GHE-04",
@@ -108,8 +108,8 @@
   "req_id": "AT-14",
   "group": "Verification",
   "title": "Preflight executes without mutating live production state.",
-  "status": "not_built",
-  "evidence": "There is no preflight."
+  "status": "partly",
+  "evidence": "`GET /platform/packs/<id>/preflight` reports what a pack still lacks and which capabilities signing would newly switch on, and writes nothing (DEV-178, test_packs.py). It is a report, not a rehearsal of a real activation."
  },
  {
   "source": "GHE-04",
@@ -124,8 +124,8 @@
   "req_id": "AT-16",
   "group": "Verification",
   "title": "Concurrent activations and conflicting revisions cannot both become effective.",
-  "status": "not_built",
-  "evidence": "There is no activation, so no concurrent activation."
+  "status": "partly",
+  "evidence": "Two revisions of one pack can never both be signed: the database refuses the second, even when two requests race (DEV-177, test_packs.py). There is still no separate activation step, and different packs for one country are not checked against each other."
  },
  {
   "source": "GHE-04",
@@ -236,8 +236,8 @@
   "req_id": "AT-30",
   "group": "Verification",
   "title": "Provider/tenant offboarding prevents new care, preserves required lawful records/rights.",
-  "status": "not_built",
-  "evidence": "No offboarding workflow."
+  "status": "partly",
+  "evidence": "Suspension is the offboarding step: it takes two different support people, locks the customer out at once (no new care can be booked or given), keeps every record (nothing is deleted, and reinstating brings everything back), puts open partner requests on hold for the other side to decide, and needs a continuity plan when patients are mid-journey (test_suspensions.py, DEV-080, DEV-169, DEV-193). Patients of a suspended customer cannot sign in, so they cannot file data-rights requests until it is reinstated: that right is not preserved yet."
  },
  {
   "source": "GHE-04",

@@ -44,6 +44,9 @@ ZOIKO_BUILD = env("ZOIKO_BUILD", "dev")
 METRICS_TOKEN = env("ZOIKO_METRICS_TOKEN", "")
 # Clinical workflow paths (review, handoff) stay unpublishable until this is "true" (DEV-132).
 WORKFLOW_CLINICAL_ENABLED = env("ZOIKO_WORKFLOW_CLINICAL", "").lower() == "true"
+# DEV-304: off unless set (DEV-324: development turns it on; production needs a safety sign-off)
+CLINICAL_NOTES_ENABLED = env("ZOIKO_CLINICAL_NOTES", "").lower() == "true"
+CLINICAL_REFERENCES_ENABLED = False  # pointers to records in a clinic's own system; off (DEV-041)
 if METRICS_TOKEN and len(METRICS_TOKEN) < 24:
     raise ValueError("ZOIKO_METRICS_TOKEN must be at least 24 characters (or empty to turn it off)")
 # Google sign-in is offered only when a Google OAuth client id is configured (empty = off).
@@ -82,6 +85,9 @@ INSTALLED_APPS = [
     "modules.consent",
     "modules.integration",
     "modules.jurisdiction",
+    "modules.retention",
+    "modules.clinicalref",
+    "modules.clinicalnote",
     "modules.orchestration",
     "modules.readiness",
     "modules.traceability",
@@ -94,6 +100,9 @@ INSTALLED_APPS = [
     "modules.developer",
     "modules.bookingflow",
     "modules.exchange",
+    "modules.claim",
+    "modules.programme",
+    "modules.codemap",
 ]
 
 MIDDLEWARE = [
@@ -133,14 +142,18 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"  # real IDs (UUIDv7 + publi
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "filters": {"request_id": {"()": "foundation.request_context.RequestIdFilter"}},
+    "filters": {
+        "request_id": {"()": "foundation.request_context.RequestIdFilter"},
+        # A secret that reaches a log line is a leak (GHE-20 B-05, DEV-186).
+        "secrets": {"()": "foundation.log_redaction.SecretRedactionFilter"},
+    },
     "formatters": {
         "plain": {"format": "%(asctime)s %(levelname)s %(name)s rid=%(request_id)s %(message)s"}
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "filters": ["request_id"],
+            "filters": ["secrets", "request_id"],
             "formatter": "plain",
         }
     },
@@ -184,6 +197,18 @@ ALLOW_ENV_KEYS = env("ZOIKO_ALLOW_ENV_KEYS", "") == "1"
 # "GB=18,SG=21" for countries that differ, and the default for any country not listed.
 AGE_OF_MAJORITY = env("ZOIKO_AGE_OF_MAJORITY", "")
 AGE_OF_MAJORITY_DEFAULT = int(env("ZOIKO_AGE_OF_MAJORITY_DEFAULT", "18"))
+# Country-pack signing key (DEV-210): base64 of 32 bytes (Ed25519). Empty in development, where a
+# key is derived from the secret key; the release check refuses that on a real server.
+PACK_SIGNING_KEY = env("ZOIKO_PACK_SIGNING_KEY", "")
+
+# Text messages (DEV-194): "twilio" sends for real, "console" is the development stand-in, ""
+# (the default) sends nothing. Twilio values come from the environment and are never logged.
+TEXT_PROVIDER = env("TEXT_PROVIDER", "")
+TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM = env("TWILIO_FROM", "")
+# Where Twilio sends delivery receipts: the public https address of /api/v1/webhooks/twilio/status.
+TWILIO_STATUS_URL = env("TWILIO_STATUS_URL", "")
 
 # Patients are reminded about a confirmed appointment this many hours ahead.
 REMINDER_LEAD_HOURS = int(env("REMINDER_LEAD_HOURS", "24"))
@@ -209,6 +234,9 @@ CONNECTOR_SIMULATOR = False
 WEBHOOK_ALLOW_INSECURE = False
 WEBHOOK_ALLOW_PRIVATE = False
 
+# Online payment of invoices: which provider ("" = switched off; none has been chosen yet).
+BILLING_PAYMENT_PROVIDER = env("BILLING_PAYMENT_PROVIDER", "")
+BILLING_PRETEND_PROVIDER = False  # pretend payment provider; only dev and test settings turn it on
 PATIENT_APP_URL = env("PATIENT_APP_URL", "http://localhost:5174").rstrip("/")
 STAFF_APP_URL = env("STAFF_APP_URL", "http://localhost:5173").rstrip("/")
 CLINICIAN_APP_URL = env("CLINICIAN_APP_URL", "http://localhost:5176").rstrip("/")

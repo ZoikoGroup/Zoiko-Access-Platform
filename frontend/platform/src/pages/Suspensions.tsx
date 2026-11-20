@@ -11,7 +11,7 @@ function friendly(e: unknown): string {
   return code === "POLICY_DENIED" ? "You cannot do that: the person who asked cannot approve their own request, and only support staff can decide."
     : code === "CONFLICT_VERSION" ? "That no longer fits: a request is already waiting for this customer, it was already decided, or the customer is no longer in the right state. Refresh the page."
     : code === "NOT_FOUND" ? "That customer or request no longer exists. Refresh the page."
-    : code === "VALIDATION_FAILED" ? "Check the text: a reason of up to 500 characters is needed (a note up to 300), with no line breaks in the reason."
+    : code === "VALIDATION_FAILED" ? "Check the text: a reason of up to 500 characters is needed (a note up to 300), with no line breaks in the reason. If the customer still has open referrals or partner requests, a continuity plan of at least 20 characters is needed too."
     : e instanceof Error ? e.message : "That did not work";
 }
 
@@ -32,6 +32,7 @@ export function Suspensions({ tenants, canWrite, onChanged }: {
   const [done, setDone] = useState("");
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState<{ id: string; value: string } | null>(null);   // reason or note being typed
+  const [plan, setPlan] = useState("");    // H-05: who looks after patients still in the middle of something
 
   const load = useCallback(async () => {
     try { setRows(await getSuspensions()); } catch (e) { setError(friendly(e)); setRows([]); }
@@ -64,6 +65,7 @@ export function Suspensions({ tenants, canWrite, onChanged }: {
               {waiting ? (
                 <>
                   <span>{waiting.kind === "suspend" ? "Suspension" : "Reinstatement"} requested by {waiting.requested_by}: {waiting.reason}</span>
+                  {waiting.open_items > 0 && <span className="sub">{waiting.open_items} referral(s) or partner request(s) still open. Continuity plan: {waiting.continuity_plan}</span>}
                   {canWrite && waiting.mine && (
                     <span><button className="btn ghost" disabled={busy} onClick={() => void run(() => cancelSuspension(waiting.id), "Request taken back.")}>Take my request back</button>
                       {" "}<span className="sub">Another support person has to decide it.</span></span>
@@ -86,8 +88,12 @@ export function Suspensions({ tenants, canWrite, onChanged }: {
                 <span className="form-row">
                   <input aria-label="Reason" placeholder="Reason (no patient details)" maxLength={500}
                     value={text.value} onChange={(e) => setText({ id: t.id, value: e.target.value })} />
+                  {!suspended && (
+                    <textarea aria-label="Continuity plan" rows={2} maxLength={1000} value={plan} onChange={(e) => setPlan(e.target.value)}
+                      placeholder="Continuity plan: who looks after patients with open referrals or partner requests (needed when there are any)" />
+                  )}
                   <button className="btn" disabled={busy || !text.value.trim()}
-                    onClick={() => void run(() => requestSuspension(t.id, suspended ? "reinstate" : "suspend", text.value), "Request sent. A second person must approve it.")}>
+                    onClick={() => void run(() => requestSuspension(t.id, suspended ? "reinstate" : "suspend", text.value, suspended ? "" : plan), "Request sent. A second person must approve it.", )}>
                     Send request
                   </button>
                   <button className="btn ghost" onClick={() => setText(null)}>Cancel</button>

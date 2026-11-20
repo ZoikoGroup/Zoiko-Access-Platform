@@ -19,6 +19,9 @@ const WORDS: Record<string, string> = {
   clinical_safety_signoff: "Clinical safety sign-off", operating_entity: "Operating entity",
   country_pack: "Signed country pack (checked by the system)",
   hazard_register: "Every hazard accepted or retired (checked by the system)",
+  open_incidents: "No serious or unassessed incident open (checked by the system)",
+  intended_purpose: "Every capability has an approved intended purpose (checked by the system)",
+  clinical_safety_matrix: "No clinical-safety requirement is marked not built (checked by the system)",
 };
 const CAPABILITIES = ["provider_directory", "booking", "messaging", "referrals", "waiting_list"];
 
@@ -38,7 +41,7 @@ function Requirement({ rel, q, canSign, canVeto, onDone }: {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const system = q.requirement === "country_pack" || q.requirement === "hazard_register";
+  const system = q.requirement === "country_pack" || q.requirement === "hazard_register" || q.requirement === "open_incidents" || q.requirement === "intended_purpose" || q.requirement === "clinical_safety_matrix";
   async function run(step: "sign" | "veto") {
     setBusy(true); setError("");
     try {

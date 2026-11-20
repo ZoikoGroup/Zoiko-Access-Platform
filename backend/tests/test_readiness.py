@@ -47,11 +47,38 @@ def settle_hazards(w, leave=None):
             Hazard.objects.filter(pk=first.pk).update(status=leave)
 
 
+def approve_purposes(w):
+    """Every capability has an approved intended-purpose statement (DEV-184)."""
+    from modules.jurisdiction.manifest import CAPABILITIES
+    from modules.safety.models import IntendedPurpose
+    with tenant_transaction(w.ctx):
+        for name in CAPABILITIES:
+            IntendedPurpose.objects.create(
+                capability=name, version=1, statement="A test statement of what it is for.",
+                classification="administrative", intended_users="Test users", status="approved",
+                author_ref="system", approved_by_ref="system2", cell_id=w.ctx.cell_id,
+                tenant_id=w.ctx.tenant_id)
+
+
+def seed_matrix(w, status="partly"):
+    """The clinical-safety requirements are in the matrix and none is "not built" (DEV-190)."""
+    from modules.traceability.models import Requirement
+    with tenant_transaction(w.ctx):
+        for n in range(1, 4):
+            Requirement.objects.create(
+                source="GHE-08", req_id=f"AT{n:02d}", title="A clinical-safety requirement",
+                status=status, evidence="test_example.py: shown", cell_id=w.ctx.cell_id,
+                tenant_id=w.ctx.tenant_id)
+
+
 @pytest.fixture
 def world():
-    """A platform with its hazard register seeded and every hazard accepted."""
+    """A platform with its hazard register seeded and every hazard accepted, every capability
+    given an approved purpose, and the clinical-safety matrix with nothing missing."""
     w = make_world()
     settle_hazards(w)
+    approve_purposes(w)
+    seed_matrix(w)
     return w
 
 
@@ -113,7 +140,8 @@ def test_a_new_release_is_not_ready_and_lists_everything_missing(world):
     assert rel["decision"] == "no_go" and len(rel["tuple_digest"]) == 64
     assert len(rel["blockers"]) == 11                       # six G3, four G4, and the country pack
     assert "g4.country_pack:missing" in rel["blockers"]
-    assert sorted(q["status"] for q in rel["requirements"]) == ["missing"] * 11 + ["signed"]
+    # the four system checks (hazards, incidents, purposes, matrix) are already clear here
+    assert sorted(q["status"] for q in rel["requirements"]) == ["missing"] * 11 + ["signed"] * 4
 
 
 def test_only_support_creates_a_release_and_nobody_else_can_see_them(world):
@@ -385,3 +413,121 @@ def test_the_hazard_requirement_is_checked_by_the_system_and_cannot_be_signed(wo
     rel = release(world)
     assert attest(world, rel, "hazard_register", "s1").status_code == 422
     assert stop(world, rel, "hazard_register").status_code == 422
+
+
+# ------------------------------------------------------- open incidents (DEV-183)
+def log_incident(w, severity, status="open"):
+    import datetime as dt
+
+    from modules.trust.models import Incident
+    with tenant_transaction(w.ctx):
+        Incident.objects.create(
+            title="Mail delayed", severity=severity, status=status,
+            happened_on=dt.date.today(), recorded_by_ref="system")
+
+
+def blockers_of(w, rel):
+    return show(w, rel)["blockers"]
+
+
+@pytest.mark.parametrize("severity", ["sev0", "sev1", "unknown"])
+def test_an_open_serious_or_unassessed_incident_holds_a_release_back(world, severity):
+    rel = release(world)
+    sign_g3(world, rel)
+    assert show(world, rel)["decision"] == "g3_ready"                    # clean before
+    log_incident(world, severity)
+    now = show(world, rel)
+    assert now["decision"] == "no_go" and "g3.open_incidents:missing" in now["blockers"]
+    row = next(q for q in now["requirements"] if q["requirement"] == "open_incidents")
+    assert "serious incident" in row["reference"] and row["signer"] == ""
+
+
+@pytest.mark.parametrize("severity,status", [("sev2", "open"), ("sev3", "open"),
+                                              ("sev0", "resolved"), ("unknown", "resolved")])
+def test_a_minor_or_resolved_incident_does_not_hold_a_release_back(world, severity, status):
+    rel = release(world)
+    sign_g3(world, rel)
+    log_incident(world, severity, status)
+    now = show(world, rel)
+    assert now["decision"] == "g3_ready" and "g3.open_incidents:missing" not in now["blockers"]
+
+
+def test_nobody_can_sign_or_stop_the_incident_requirement_by_hand(world):
+    rel = release(world)
+    assert attest(world, rel, "open_incidents", "s1").status_code == 422
+    assert stop(world, rel, "open_incidents").status_code == 422
+
+
+# ------------------------------------------------------- intended purposes (DEV-184)
+def retire_purpose_of(w, capability):
+    from modules.safety.models import IntendedPurpose
+    with tenant_transaction(w.ctx):
+        IntendedPurpose.objects.filter(capability=capability).update(status="retired")
+
+
+def test_a_capability_without_an_approved_purpose_cannot_be_authorised(world):
+    rel = release(world, caps=("booking", "messaging"))
+    sign_g3(world, rel)
+    sign_g4(world, rel)
+    retire_purpose_of(world, "messaging")
+    now = show(world, rel)
+    assert "g4.intended_purpose:missing" in now["blockers"]
+    row = next(q for q in now["requirements"] if q["requirement"] == "intended_purpose")
+    assert row["reference"] == "no approved purpose for messaging" and row["signer"] == ""
+    assert now["decision"] != "g4_authorized"
+
+
+def test_nobody_can_sign_or_stop_the_purpose_requirement_by_hand(world):
+    rel = release(world)
+    assert attest(world, rel, "intended_purpose", "s1").status_code == 422
+    assert stop(world, rel, "intended_purpose").status_code == 422
+
+
+# ------------------------------------------------------- the requirements matrix (DEV-190)
+def test_a_clinical_safety_requirement_that_is_not_built_blocks_authorisation(world):
+    from modules.traceability.models import Requirement
+    rel = release(world)
+    assert "g4.clinical_safety_matrix:missing" not in show(world, rel)["blockers"]
+    with tenant_transaction(world.ctx):
+        Requirement.objects.filter(req_id="AT02").update(status="not_built")
+    now = show(world, rel)
+    assert "g4.clinical_safety_matrix:missing" in now["blockers"]
+    row = next(q for q in now["requirements"] if q["requirement"] == "clinical_safety_matrix")
+    assert row["reference"] == "1 of 3 are not built" and row["signer"] == ""
+
+
+def test_an_empty_matrix_is_not_a_clean_one(bare):
+    rel = release(bare)
+    now = show(bare, rel)
+    row = next(q for q in now["requirements"] if q["requirement"] == "clinical_safety_matrix")
+    assert row["status"] == "missing" and row["reference"].startswith("no clinical-safety")
+
+
+def test_requirements_from_other_specifications_do_not_count_here(world):
+    from modules.traceability.models import Requirement
+    with tenant_transaction(world.ctx):
+        Requirement.objects.create(
+            source="GHE-18", req_id="A-01", title="Something else", status="not_built",
+            evidence="x", cell_id=world.ctx.cell_id, tenant_id=world.ctx.tenant_id)
+    rel = release(world)
+    assert "g4.clinical_safety_matrix:missing" not in show(world, rel)["blockers"]
+
+
+def test_nobody_can_sign_or_stop_the_matrix_requirement_by_hand(world):
+    rel = release(world)
+    assert attest(world, rel, "clinical_safety_matrix", "s1").status_code == 422
+    assert stop(world, rel, "clinical_safety_matrix").status_code == 422
+
+
+def test_an_open_incident_touching_safety_holds_a_release_back_whatever_its_level(world):
+    rel = release(world)
+    sign_g3(world, rel)
+    import datetime as dt
+
+    from modules.trust.models import Incident
+    with tenant_transaction(world.ctx):
+        Incident.objects.create(
+            title="Minor but safety related", severity="sev3", status="open", safety_impact=True,
+            happened_on=dt.date.today(), recorded_by_ref="system")
+    now = show(world, rel)
+    assert now["decision"] == "no_go" and "g3.open_incidents:missing" in now["blockers"]

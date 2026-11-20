@@ -144,13 +144,15 @@ export interface SuspensionRow {
   decided_at: string | null;
   created_at: string;
   mine: boolean;                       // asked by the person who is signed in
+  continuity_plan: string;             // who looks after patients still in the middle of something
+  open_items: number;
 }
 
 /** Suspending or reinstating a customer takes two different support people. */
 export const getSuspensions = async () => (await v1<{ suspensions: SuspensionRow[] }>("platform/suspensions")).suspensions;
-export const requestSuspension = (customerId: string, action: "suspend" | "reinstate", reason: string) =>
+export const requestSuspension = (customerId: string, action: "suspend" | "reinstate", reason: string, continuity_plan = "") =>
   v1<{ id: string }>(`platform/customers/${encodeURIComponent(customerId)}/suspension`, {
-    method: "POST", body: JSON.stringify({ action, reason }),
+    method: "POST", body: JSON.stringify({ action, reason, continuity_plan }),
   });
 export const approveSuspension = (id: string) =>
   v1<{ id: string }>(`platform/suspensions/${encodeURIComponent(id)}/approve`, { method: "POST", body: "{}" });
@@ -162,7 +164,7 @@ export const cancelSuspension = (id: string) =>
 export interface IncidentRow {
   id: string;
   title: string;
-  severity: "sev0" | "sev1" | "sev2" | "sev3";
+  severity: "sev0" | "sev1" | "sev2" | "sev3" | "unknown";
   happened_on: string;
   details: string;
   status: "open" | "resolved";
@@ -170,16 +172,45 @@ export interface IncidentRow {
   resolved_on: string | null;
   recorded_by: string;
   resolved_by: string;
+  assessed_by: string;
+  assessment_note: string;
+  safety_impact: boolean;
+  handoff_note: string;
+  handoff_by: string;
+  // DEV-202: on call for it, and whether anyone has said "I have it"
+  owner: string; deputy: string; owner_ref: string; deputy_ref: string;
+  acknowledged_at: string | null; escalated_at: string | null;
+  restoration_notice: string;
 }
 
 /** The hand-written incident log. Reading: support and safety staff; adding and closing: support only. */
 export const getIncidents = async () => (await v1<{ incidents: IncidentRow[] }>("platform/incidents")).incidents;
-export const addIncident = (body: { title: string; severity: string; happened_on: string; details: string }) =>
+export const addIncident = (body: { title: string; severity: string; happened_on: string; details: string; safety_impact: boolean }) =>
   v1<{ incident: IncidentRow }>("platform/incidents", { method: "POST", body: JSON.stringify(body) });
-export const resolveIncident = (id: string, resolution: string) =>
-  v1<{ incident: IncidentRow }>(`platform/incidents/${encodeURIComponent(id)}/resolve`, {
-    method: "POST", body: JSON.stringify({ resolution }),
+export const assessIncident = (id: string, severity: string, note: string) =>
+  v1<{ incident: IncidentRow }>(`platform/incidents/${encodeURIComponent(id)}/assess`, {
+    method: "POST", body: JSON.stringify({ severity, note }),
   });
+export const recordHandoff = (id: string, note: string) =>
+  v1<{ incident: IncidentRow }>(`platform/incidents/${encodeURIComponent(id)}/handoff`, {
+    method: "POST", body: JSON.stringify({ note }),
+  });
+export const resolveIncident = (id: string, resolution: string, restoration_notice = "") =>
+  v1<{ incident: IncidentRow }>(`platform/incidents/${encodeURIComponent(id)}/resolve`, {
+    method: "POST", body: JSON.stringify({ resolution, restoration_notice }),
+  });
+export interface OnCallPerson { id: string; name: string }
+export const getOnCallStaff = async () =>
+  (await v1<{ staff: OnCallPerson[] }>("platform/incidents/on-call-staff")).staff;
+export const assignIncident = (id: string, owner: string, deputy: string) =>
+  v1<{ incident: IncidentRow }>(`platform/incidents/${encodeURIComponent(id)}/assign`, {
+    method: "POST", body: JSON.stringify({ owner, deputy }),
+  });
+export const acknowledgeIncident = (id: string) =>
+  v1<{ incident: IncidentRow }>(`platform/incidents/${encodeURIComponent(id)}/acknowledge`, { method: "POST", body: "{}" });
+export interface TimelineEntry { kind: string; by: string; note: string; at: string }
+export const getIncidentTimeline = async (id: string) =>
+  (await v1<{ timeline: TimelineEntry[] }>(`platform/incidents/${encodeURIComponent(id)}/timeline`)).timeline;
 
 export interface Indicator { value: number | null; target: number; burn_rate: number | null; meeting: boolean | null }
 export interface SloReport {
@@ -187,6 +218,10 @@ export interface SloReport {
   routes: { route: string; requests: number; server_errors: number; mean_seconds: number }[];
   targets: { availability: number; latency_seconds: number; latency_share: number };
   limits: string[];
+  texts: {
+    provider: string; breaker: "open" | "closed"; failures_in_a_row: number; open_until: string | null;
+    times_opened: number; queue: Record<string, number>; receipts: Record<string, number>;
+  };
 }
 export const getSlo = () => v1<SloReport>("platform/slo");
 
@@ -246,6 +281,7 @@ export interface PackRow {
   approvals: Record<string, { by: string; at: string }>;
   missing: string[];
   expired: boolean;
+  signature: { key_id: string; valid: boolean } | null;   // DEV-210: null unless signed
 }
 export const getPacks = async () => (await v1<{ packs: PackRow[] }>("platform/packs")).packs;
 export const createPack = (body: { pack_ref: string; country: string; service: string; manifest: PackManifest }) =>
@@ -406,3 +442,55 @@ export interface KeysData {
   sso: { key: string; name: string }[];
 }
 export const getKeys = () => v1<KeysData>("platform/keys");
+/** What each capability is for (GHE-08 AT01): proposed by staff, approved by a different safety officer. */
+export interface PurposeRow {
+  public_id: string; capability: string; version: number; statement: string;
+  classification: "administrative" | "clinical_support" | "regulated";
+  intended_users: string; legal_manufacturer: string;
+  status: "draft" | "approved" | "superseded" | "retired"; note: string; created_at: string;
+  reclassifies: boolean; reviews: number; reviews_needed: number;
+}
+export const getPurposes = async () => v1<{ purposes: PurposeRow[]; capabilities: string[] }>("platform/purposes");
+export const proposePurpose = (body: {
+  capability: string; statement: string; classification: string; intended_users: string; legal_manufacturer: string;
+}) => v1<{ purpose: PurposeRow }>("platform/purposes", { method: "POST", body: JSON.stringify(body) });
+export const purposeStep = (id: string, step: "approve" | "retire", reason = "") =>
+  v1<{ purpose: PurposeRow }>(`platform/purposes/${encodeURIComponent(id)}/${step}`, {
+    method: "POST", body: JSON.stringify({ reason }),
+  });
+
+// ------------------------------------------------------------------ partner certification (DEV-230)
+export interface ConnectorCert {
+  public_id: string; connector_key: string; profile_version: string;
+  stage: "sandbox" | "certified" | "live" | "suspended";
+  enrolled_by: string; certified_by: string; live_by: string; note: string; created_at: string;
+}
+export interface ConnectorRow {
+  connector_key: string; profile_version: string; simulated: boolean; certification: ConnectorCert | null;
+}
+export const getConnectors = () =>
+  v1<{ connectors: ConnectorRow[]; can_write: boolean; can_attest: boolean }>("platform/connectors");
+export const connectorStep = (key: string, step: "enrol" | "certify" | "live" | "suspend", body: Record<string, unknown> = {}) =>
+  v1<{ certification: ConnectorCert }>(`platform/connectors/${encodeURIComponent(key)}/${step}`, { method: "POST", body: JSON.stringify(body) });
+
+// Partners' local codes and their SNOMED CT match (DEV-322).
+export interface CodeMapping {
+  id: string; source_system: string; source_code: string; source_display: string; target_code: string | null;
+  state: "unmapped" | "proposed" | "approved" | "rejected"; seen_count: number; last_seen_at: string | null;
+  proposed_by: string | null; proposed_by_name: string; decided_by: string | null; decided_by_name: string;
+  decided_at: string | null; reject_reason: string | null;
+}
+export const getCodeMaps = () =>
+  v1<{ mappings: CodeMapping[]; me: string; can_propose: boolean; can_decide: boolean }>("platform/codemaps");
+export const codeMapStep = async (id: string, step: "propose" | "approve" | "reject", body: { target_code?: string; reason?: string } = {}) =>
+  (await v1<{ mapping: CodeMapping }>(`platform/codemaps/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify(body) })).mapping;
+
+// Regional support's view of delivery attempts (GHE-13 T-54, DEV-328): status only.
+export interface SupportAttempt {
+  public_id: string; event_type: string; state: string; attempts: number; next_attempt_at: string;
+  last_status: number | null; last_error: string | null; created_at: string; delivered_at: string | null;
+}
+export interface AttemptCustomer {
+  id: string; name: string; status: string; counts: Record<string, number>; attempts: SupportAttempt[]; fhir_held: number;
+}
+export const getDeliveryAttempts = async () => (await v1<{ customers: AttemptCustomer[] }>("platform/delivery-attempts")).customers;

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { getDirectory, getPatients } from "../api";
 import { Gate, useLoad } from "../useLoad";
 import { Card, Patient, Pill, Table } from "../ui";
+import { PatientDeath } from "./PatientDeath";
 import { PatientCoverage } from "./PatientCoverage";
 import { PatientDetails } from "./PatientDetails";
 import { PatientIdentity } from "./PatientIdentity";
@@ -56,6 +57,7 @@ export function Patients({ initialSearch = "" }: { initialSearch?: string }) {
                 onSaved={() => { setEditing(""); setVersion((v) => v + 1); }} />
               <PatientIdentity person={editing} onChanged={() => setVersion((v) => v + 1)} />
               <PatientCoverage person={editing} />
+              <PatientDeath person={editing} onChanged={() => setVersion((v) => v + 1)} />
             </div>
           )}
         </>

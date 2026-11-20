@@ -81,6 +81,7 @@ export function RightsRequests() {
                 <small>{WORDS[r.type] ?? r.type}. Sent {r.created_at.slice(0, 10)}.</small>
                 {r.due_at && (r.state === "received" || r.state === "in_progress") && <small>The clinic should answer by {r.due_at.slice(0, 10)}.</small>}
                 {r.identity_checked_at && r.state !== "withdrawn" && <small>The clinic has checked who you are.</small>}
+                {r.lawful_hold && (r.state === "received" || r.state === "in_progress") && <small>Some of this data is being kept for now because the law requires it.</small>}
                 {r.decision_note && <small>The clinic says: {r.decision_note}</small>}
               </div>
               {(r.state === "received" || r.state === "in_progress") && (

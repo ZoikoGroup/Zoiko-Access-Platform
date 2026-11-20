@@ -395,3 +395,50 @@ def test_a_request_is_never_deleted_and_keeps_who_did_what(platform, customer):
         row = Suspension.objects.get(public_id=request_id)
     assert (row.requested_by_ref, row.decided_by_ref) == (platform.sam, platform.tess)
     assert row.status == "applied" and row.decided_at is not None
+
+
+# ---------------------------------------- H-05: patients still in the middle of something
+@pytest.fixture
+def busy_clinic():
+    """A clinic with one referral still waiting for an answer."""
+    from modules.referral.models import Referral
+    from tests.test_clinician import Practice
+    practice = Practice()
+    with tenant_transaction(practice.clinic.ctx):
+        Referral.objects.create(
+            person_ref=practice.person, referrer_ref=practice.doc,
+            from_organization_ref=practice.clinic.org, service_ref=practice.clinic.service,
+            destination_organization_ref=practice.clinic.org, reason="Chest pain",
+            state="issued", cell_id=practice.clinic.ctx.cell_id,
+            tenant_id=practice.clinic.ctx.tenant_id)
+    return practice
+
+
+def ask_with(world, clinic, plan=None):
+    body = {"action": "suspend", "reason": "Contract ended"}
+    if plan is not None:
+        body["continuity_plan"] = plan
+    return post(world, f"platform/customers/{clinic.clinic.tenant_public_id}/suspension", body)
+
+
+def test_suspending_a_customer_with_open_referrals_needs_a_continuity_plan(platform, busy_clinic):
+    assert ask_with(platform, busy_clinic).status_code == 422
+    assert ask_with(platform, busy_clinic, "Too short").status_code == 422
+    plan = "Dr Rao at the City Clinic takes over the open referral; the patient is told by phone."
+    r = ask_with(platform, busy_clinic, plan)
+    assert r.status_code == 201, r.content
+    [row] = json.loads(get(platform).content)["suspensions"]
+    assert row["open_items"] == 1 and row["continuity_plan"] == plan
+
+
+def test_a_customer_with_nothing_open_needs_no_plan(platform, customer):
+    assert ask(platform, customer).status_code == 201
+
+
+def test_reinstating_never_needs_a_plan(platform, busy_clinic):
+    plan = "The open referral moves to the City Clinic, which has agreed to take it."
+    first = json.loads(ask_with(platform, busy_clinic, plan).content)["id"]
+    assert approve(platform, first).status_code == 200
+    back = post(platform, f"platform/customers/{busy_clinic.clinic.tenant_public_id}/suspension",
+                {"action": "reinstate", "reason": "Contract renewed"})
+    assert back.status_code == 201

@@ -12,6 +12,7 @@ from foundation.dispatch import subscribe, subscriptions
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.outbox import PublishedEvent
 from foundation.timeutil import utc_now
+from modules.connector import api as connector
 from modules.messaging import api as messaging
 from modules.referral import api as referral
 from modules.rights import api as rights
@@ -28,6 +29,7 @@ MESSAGE_CONSUMER = "workflow.message_queue"
 REFERRAL_JOURNEY_CONSUMER = "workflow.referral_journey"
 WAITLIST_JOURNEY_CONSUMER = "workflow.waitlist_journey"
 RIGHTS_CONSUMER = "workflow.rights_queue"
+PARTNER_CONSUMER = "workflow.partner_queue"
 
 
 def _due(organization_ref: str) -> dt.datetime:
@@ -151,6 +153,25 @@ def on_rights_event(event: PublishedEvent) -> None:
         _gone(exc)
 
 
+def on_partner_event(event: PublishedEvent) -> None:
+    """A partner operation that gave up becomes work for the clinic that asked (GHE-13 T-55,
+    DEV-226), so it is tracked and someone can claim it; a final answer, from the partner or
+    settled by a person, closes it."""
+    ref = str(event.payload.get("operation_ref", ""))
+    try:
+        if event.event_type == "connector.operation.dead.v1":
+            op = connector.get_operation(ref)
+            if op["state"] == "dead":
+                open_item(organization_ref=op["organization_ref"],
+                          kind=Kind.SETTLE_PARTNER_OPERATION, subject_ref=op["public_id"],
+                          due_at=_due(op["organization_ref"]))
+        elif event.event_type in ("connector.operation.confirmed.v1",
+                                  "connector.operation.rejected.v1"):
+            close_item(kind=Kind.SETTLE_PARTNER_OPERATION, subject_ref=ref)
+    except ZoikoError as exc:
+        _gone(exc)
+
+
 def register_subscribers() -> None:
     """Idempotent: safe to call at start-up and again from tests."""
     for consumer, prefix, handler in (
@@ -160,6 +181,7 @@ def register_subscribers() -> None:
         (WAITLIST_JOURNEY_CONSUMER, "waitlist.", on_waitlist_journey_event),
         (MESSAGE_CONSUMER, "message.", on_message_event),
         (RIGHTS_CONSUMER, "rights.", on_rights_event),
+        (PARTNER_CONSUMER, "connector.operation.", on_partner_event),
     ):
         if not any(s.consumer == consumer for s in subscriptions()):
             subscribe(consumer, prefix, handler)

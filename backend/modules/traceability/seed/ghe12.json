@@ -52,8 +52,8 @@
   "req_id": "WF-T07",
   "group": "Activation",
   "title": "Unapproved regulated feature toggle is set true manually.",
-  "status": "not_built",
-  "evidence": "The clinical switch only decides whether a definition can be published. Nothing checks it, or any approval, when a workflow runs."
+  "status": "met",
+  "evidence": "The clinical switch is checked when a definition is published, when a workflow starts, and on every forward step; turning it off later stops new clinical work and stops existing work moving forward, while cancel and block stay possible (DEV-175, test_orchestration.py). It checks the switch, not any named approval."
  },
  {
   "source": "GHE-12",
@@ -69,15 +69,15 @@
   "group": "Identity",
   "title": "A workflow callback supplies a different cell_id or tenant_id.",
   "status": "met",
-  "evidence": "Tenant and cell come from the login or the partner key, never from the body, and a body that names another cell, organisation or tenant changes nothing (test_orchestration.py)."
+  "evidence": "Tenant and cell come from the login or the partner key, never the body; a body naming another cell, organisation or tenant changes nothing (test_orchestration.py)."
  },
  {
   "source": "GHE-12",
   "req_id": "WF-T10",
   "group": "Identity",
   "title": "Revoked delegation sends an otherwise valid step request.",
-  "status": "not_built",
-  "evidence": "Engine actors are staff; there is no delegation in a workflow step."
+  "status": "partly",
+  "evidence": "A person whose role was ended is refused a step they could take a moment earlier, and nothing moves; an administrator can still move it (DEV-188, test_orchestration.py). Every request is checked against the roles held now, not when the workflow started. There is no delegation concept (nobody acts on someone else's behalf), so a revoked delegation as such is not modelled."
  },
  {
   "source": "GHE-12",
@@ -244,8 +244,8 @@
   "req_id": "WF-T31",
   "group": "Evidence",
   "title": "Audit event source-time precedes processing-time due to delayed delivery.",
-  "status": "not_built",
-  "evidence": "A step records one time, not source time and processing time."
+  "status": "met",
+  "evidence": "Each piece of evidence may carry when it happened at its source; it is kept apart from when the step was processed, so a late delivery keeps its true time while the order of steps stays ours, and the history marks it as late. A source time in the future or without an offset is refused (test_orchestration.py, DEV-225)."
  },
  {
   "source": "GHE-12",
@@ -276,8 +276,8 @@
   "req_id": "WF-T35",
   "group": "Evidence",
   "title": "Record retention/deletion request conflicts with a lawful hold.",
-  "status": "not_built",
-  "evidence": "No retention or lawful-hold handling."
+  "status": "partly",
+  "evidence": "A clinic administrator can record a lawful hold on an open data request. An erasure request then cannot be completed (it must be declined with a reason, or the hold lifted with a reason); other kinds of request are unaffected; the patient is told only that some data is kept for a legal reason, never why; every change is audited (DEV-192, test_rights.py). The hold is on one request, not on a patient or customer, and nothing is deleted by the product in any case, so there are no retention periods or automatic expiry."
  },
  {
   "source": "GHE-12",
@@ -316,8 +316,8 @@
   "req_id": "WF-T40",
   "group": "Timeouts",
   "title": "Deadline crosses local DST clock change.",
-  "status": "not_built",
-  "evidence": "Timers are plain minutes in UTC; calendar and time-zone rules are not supported, and DST is not tested."
+  "status": "met",
+  "evidence": "Timers are an exact number of minutes added to a UTC instant, so a daylight-saving change cannot move a deadline; proven for the four 2027 US and European changes (DEV-175, test_orchestration.py). Calendar and per-country deadline rules are still not supported."
  },
  {
   "source": "GHE-12",
@@ -436,8 +436,8 @@
   "req_id": "WF-T55",
   "group": "Operations",
   "title": "Operator presses replay for non-idempotent unknown action.",
-  "status": "not_built",
-  "evidence": "There is no replay command for external actions."
+  "status": "met",
+  "evidence": "Redriving a partner operation is allowed only when it certainly never reached the partner or the partner honours our idempotency key; an operation that may already have been done (it was acknowledged, or no final answer came) is refused (UNSAFE_REPLAY) and a person settles it by hand after checking with the partner (test_connector.py, DEV-223)."
  },
  {
   "source": "GHE-12",
@@ -476,7 +476,7 @@
   "req_id": "WF-T60",
   "group": "Operations",
   "title": "Workflow QA matrix contains a missing clinical-safety blocker.",
-  "status": "not_built",
-  "evidence": "The release gate and the requirements matrix (GHE-19) are not built."
+  "status": "partly",
+  "evidence": "The go-live gate reads the requirements matrix: a release cannot be authorised while any clinical-safety requirement (GHE-08) is marked not built, and an empty matrix is not a clean one (DEV-190, test_readiness.py). Today this blocks every country, which is the honest answer. It looks at the matrix's own readings, not at test results, and \"partly built\" does not block."
  }
 ]

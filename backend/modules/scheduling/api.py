@@ -13,12 +13,14 @@ from .services import (
     create_slots,
     decline_from_provider,
     forecast_week,
+    future_bookings_of,
     get_booking,
     get_slot,
     list_bookings,
     list_bookings_for_provider,
     list_open_slots,
     mark_attendance,
+    monthly_activity,
     overdue_requests,
     provider_load,
     report,
@@ -31,10 +33,12 @@ from .services import (
 )
 
 __all__ = [
+    "future_bookings_of",
     "book", "booking_counts", "booking_history", "cancel", "confirm", "confirm_from_provider",
     "create_slots", "decline_from_provider",
     "forecast_week", "get_booking", "get_slot",
     "list_bookings", "list_bookings_for_provider", "list_open_slots", "mark_attendance",
+    "monthly_activity",
     "overdue_requests", "provider_load", "report", "reschedule", "today_counts",
     "usual_confirmation_hours", "waiting_requests", "withdraw_slot", "withdraw_slots",
 ]

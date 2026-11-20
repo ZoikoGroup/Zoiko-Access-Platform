@@ -66,6 +66,8 @@ def release_problems(conf: Any = settings) -> list[str]:
         if not status["ok"]:
             problems.append("the encryption key ring cannot be loaded (ZOIKO_FIELD_KEY_FILE, "
                             "ZOIKO_KEY_WRAP_KEK)")
+    if _placeholder(getattr(conf, "PACK_SIGNING_KEY", "")):
+        problems.append("the country-pack signing key is not set (ZOIKO_PACK_SIGNING_KEY)")
     hosts = [h.lower() for h in conf.ALLOWED_HOSTS]
     if not hosts or "*" in hosts:
         problems.append("DJANGO_ALLOWED_HOSTS is empty or allows every host")
@@ -78,12 +80,18 @@ def release_problems(conf: Any = settings) -> list[str]:
     if getattr(conf, "ZOIKO_BUILD", "").strip().lower() in ("", "dev"):
         problems.append("ZOIKO_BUILD is still 'dev' (every audit row records which build wrote it)")
     for name, label in (
-        ("CONNECTOR_SIMULATOR", "the pretend partner connector (CONNECTOR_SIMULATOR) is on"),
         ("WEBHOOK_ALLOW_INSECURE", "webhooks may use plain http (WEBHOOK_ALLOW_INSECURE)"),
         ("WEBHOOK_ALLOW_PRIVATE", "webhooks may reach private addresses (WEBHOOK_ALLOW_PRIVATE)"),
     ):
         if getattr(conf, name, False):
             problems.append(label)
+    # DEV-227: pretend partners and payments see synthetic data only; never on a real server.
+    if getattr(conf, "CONNECTOR_SIMULATOR", False):
+        problems.append("the pretend partner (CONNECTOR_SIMULATOR) is on")
+    if getattr(conf, "BILLING_PRETEND_PROVIDER", False):
+        problems.append("the pretend payment provider (BILLING_PRETEND_PROVIDER) is on")
+    if getattr(conf, "BILLING_PAYMENT_PROVIDER", "") == "pretend":
+        problems.append("payments are set to the pretend provider (BILLING_PAYMENT_PROVIDER)")
     return problems
 
 

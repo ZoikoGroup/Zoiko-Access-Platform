@@ -6,3 +6,12 @@ class ExchangeConfig(AppConfig):
 
     name = "modules.exchange"
     label = "exchange"
+
+    def ready(self) -> None:
+        # Once an hour the worker erases names whose agreement has run out.
+        from foundation import periodic
+
+        from .jobs import erase_expired_all, escalate_holds_all
+
+        periodic.register("exchange.erase_expired", 3600.0, erase_expired_all)
+        periodic.register("exchange.escalate_holds", 3600.0, escalate_holds_all)

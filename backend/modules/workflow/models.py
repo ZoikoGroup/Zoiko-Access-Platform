@@ -19,6 +19,7 @@ class Kind(models.TextChoices):
     DECIDE_REFERRAL = "decide_referral", "Decide on a referral"
     ANSWER_MESSAGE = "answer_message", "Answer a patient message"
     ANSWER_DATA_REQUEST = "answer_data_request", "Answer a data request"
+    SETTLE_PARTNER_OPERATION = "settle_partner_op", "Settle a partner operation"   # DEV-226
 
 
 class Status(models.TextChoices):

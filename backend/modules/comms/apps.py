@@ -26,3 +26,12 @@ class CommsConfig(AppConfig):
         from .models import Notification
 
         person_refs.register("comms.Notification", Notification)
+        # Held partner requests that wait too long are emailed to the administrator (DEV-310).
+        from .exchange_alerts import ESCALATION_EVERY_SECONDS, send_escalation_alerts
+
+        periodic.register("comms.escalations", ESCALATION_EVERY_SECONDS, send_escalation_alerts)
+
+        # Every 30 seconds the worker sends text messages that are due (DEV-194).
+        from foundation.texts import send_due_texts
+
+        periodic.register("comms.texts", 30.0, lambda: send_due_texts())
