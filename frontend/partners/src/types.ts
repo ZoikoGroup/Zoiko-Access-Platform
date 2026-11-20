@@ -83,5 +83,6 @@ export interface Claim {
   amount_minor: number; currency: string; service_date: string;
   state: "submitted" | "approved" | "declined" | "paid" | "withdrawn";
   decision_reason: string | null; payment_ref: string | null; created_at: string;
+  amount_paid_minor?: number | null; paid_on?: string | null;
 }
 export interface ClaimCheck { covered: boolean; reason: string; plan: string | null; copay_percent: number | null }

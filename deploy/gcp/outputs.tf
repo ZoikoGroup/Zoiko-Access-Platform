@@ -17,6 +17,7 @@ output "secrets_to_fill_by_hand" {
   value = [
     google_secret_manager_secret.s["email-password"].secret_id,
     google_secret_manager_secret.s["twilio-auth-token"].secret_id,
+    google_secret_manager_secret.s["sendgrid-api-key"].secret_id,
   ]
 }
 

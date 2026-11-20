@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getPartnerRequests, getPartners, getPatients, getResultSummary, placeOrder, reviewPartnerResult, type PartnerChoice } from "../api";
+import { downloadAttachment, getAttachments, getPartnerRequests, getPartners, getPatients, getResultSummary, getTrend, type Attachment, placeOrder, reviewPartnerResult, type PartnerChoice, type TrendPoint } from "../api";
 import type { PartnerRequest, PatientRow, ResultSummary, ResultValue } from "../types";
 import { Card, Pill } from "../ui";
 import { Gate, useLoad } from "../useLoad";
@@ -46,7 +46,8 @@ function Row({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
           <div role="region" aria-label="Result summary">
             <b>Lab summary ({summary.flag}){(summary.version ?? 0) > 1 ? `, version ${summary.version} (${summary.correction})` : ""}:</b>
             {summary.summary && <pre style={{ whiteSpace: "pre-wrap", margin: "4px 0 0", fontFamily: "inherit" }}>{summary.summary}</pre>}
-            <Values values={summary.values} />
+            <Values values={summary.values} requestId={r.id} />
+            <ReportFiles requestId={r.id} />
             {(summary.earlier ?? []).map((v) => (
               <details key={v.version} style={{ marginTop: 6 }}>
                 <summary>Earlier version {v.version} ({v.flag}), replaced {v.replaced_at.slice(0, 10)}{v.reviewed ? ", it had been reviewed" : ""}</summary>
@@ -163,23 +164,96 @@ function PartnerResultsInner({ onChanged, onOrdered, notice }: { onChanged: () =
 
 const FLAG_KIND: Record<string, "ok" | "warn" | "bad"> = { normal: "ok", high: "warn", low: "warn", abnormal: "warn", critical: "bad" };
 
-/** The lab's measured values (DEV-330): value, unit, normal range and flag. */
-function Values({ values }: { values?: ResultValue[] }) {
+/** The lab's measured values (DEV-330): value, unit, normal range and flag. With `requestId`, a test's
+ * name opens that value across the patient's results (DEV-339). */
+function Values({ values, requestId }: { values?: ResultValue[]; requestId?: string }) {
+  const [shown, setShown] = useState<{ key: string; name: string; points: TrendPoint[] } | null>(null);
+  const [error, setError] = useState("");
+  async function open(v: ResultValue) {
+    if (!requestId) return;
+    const key = v.code || v.name;
+    setError("");
+    try { setShown({ key, name: v.name, points: await getTrend(requestId, key) }); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load the trend"); }
+  }
   if (!values || values.length === 0) return null;
   return (
-    <table aria-label="Measured values" style={{ width: "100%", fontSize: 13, marginTop: 6 }}>
-      <thead><tr><th align="left">Test</th><th align="right">Value</th><th align="left">Unit</th><th align="left">Normal range</th><th align="left">Flag</th></tr></thead>
-      <tbody>
-        {values.map((v, i) => (
-          <tr key={i}>
-            <td>{v.name}</td>
-            <td align="right"><b>{String(v.value)}</b></td>
-            <td>{v.unit ?? ""}</td>
-            <td>{v.low != null || v.high != null ? `${v.low ?? ""} to ${v.high ?? ""}` : ""}</td>
-            <td>{v.flag ? <Pill kind={FLAG_KIND[v.flag] ?? "warn"}>{v.flag}</Pill> : ""}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <>
+      <table aria-label="Measured values" style={{ width: "100%", fontSize: 13, marginTop: 6 }}>
+        <thead><tr><th align="left">Test</th><th align="right">Value</th><th align="left">Unit</th><th align="left">Normal range</th><th align="left">Flag</th></tr></thead>
+        <tbody>
+          {values.map((v, i) => (
+            <tr key={i}>
+              <td>{requestId ? <button className="btn ghost" style={{ padding: "0 4px" }} title="Show this value over time" onClick={() => void open(v)}>{v.name}</button> : v.name}</td>
+              <td align="right"><b>{String(v.value)}</b></td>
+              <td>{v.unit ?? ""}</td>
+              <td>{v.low != null || v.high != null ? `${v.low ?? ""} to ${v.high ?? ""}` : ""}</td>
+              <td>{v.flag ? <Pill kind={FLAG_KIND[v.flag] ?? "warn"}>{v.flag}</Pill> : ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {error && <div className="error" role="alert">{error}</div>}
+      {shown && (
+        <div role="region" aria-label={`${shown.name} over time`} style={{ marginTop: 6 }}>
+          <b>{shown.name} over time ({shown.points.length} result{shown.points.length === 1 ? "" : "s"})</b>
+          <Sparkline points={shown.points} />
+          <table style={{ width: "100%", fontSize: 13 }}>
+            <tbody>
+              {shown.points.map((p) => (
+                <tr key={p.request}>
+                  <td>{p.at?.slice(0, 10)}</td><td align="right"><b>{String(p.value)}</b> {p.unit}</td>
+                  <td>{p.flag && <Pill kind={FLAG_KIND[p.flag] ?? "warn"}>{p.flag}</Pill>}</td>
+                  <td><small>{p.reviewed ? "reviewed" : "not reviewed yet"}{p.version > 1 ? `, version ${p.version}` : ""}</small></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button className="btn ghost" onClick={() => setShown(null)}>Hide</button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** A small line of the numeric points, with the normal range shaded when the lab gave one. */
+function Sparkline({ points }: { points: TrendPoint[] }) {
+  const nums = points.filter((p) => typeof p.value === "number") as (TrendPoint & { value: number })[];
+  if (nums.length < 2) return null;
+  const w = 240, h = 60, pad = 4;
+  const low = nums[nums.length - 1].low, high = nums[nums.length - 1].high;
+  const all = [...nums.map((p) => p.value), ...(low != null ? [low] : []), ...(high != null ? [high] : [])];
+  const min = Math.min(...all), max = Math.max(...all), span = max - min || 1;
+  const x = (i: number) => pad + (i * (w - 2 * pad)) / (nums.length - 1);
+  const y = (v: number) => h - pad - ((v - min) * (h - 2 * pad)) / span;
+  return (
+    <svg width={w} height={h} role="img" aria-label="Trend line" style={{ display: "block", margin: "4px 0" }}>
+      {low != null && high != null && <rect x={pad} width={w - 2 * pad} y={y(high)} height={Math.max(1, y(low) - y(high))} fill="currentColor" opacity={0.08} />}
+      <polyline fill="none" stroke="currentColor" strokeWidth={2} points={nums.map((p, i) => `${x(i)},${y(p.value)}`).join(" ")} />
+      {nums.map((p, i) => <circle key={p.request} cx={x(i)} cy={y(p.value)} r={3} fill="currentColor" />)}
+    </svg>
+  );
+}
+
+
+/** The lab's PDF reports on this result (DEV-345): download once the virus check has passed. */
+function ReportFiles({ requestId }: { requestId: string }) {
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => { getAttachments(requestId).then(setFiles).catch(() => setFiles([])); }, [requestId]);
+  if (files.length === 0) return null;
+  return (
+    <div role="region" aria-label="Lab report files" style={{ marginTop: 6 }}>
+      <b>Lab report files</b>
+      {files.map((f) => (
+        <div key={f.id}>
+          {f.scan === "clean"
+            ? <button className="btn ghost" onClick={() => void downloadAttachment(requestId, f).catch((e: unknown) => setError(e instanceof Error ? e.message : "Download failed"))}>Download {f.filename}</button>
+            : <small>{f.filename}: {f.scan === "pending" ? "waiting for the virus check" : "a virus was found; it was removed"}</small>}
+          <small> ({Math.ceil(f.size / 1024)} KB{f.result_version > 1 ? `, with version ${f.result_version}` : ""}). Opening it is recorded.</small>
+        </div>
+      ))}
+      {error && <div className="error" role="alert">{error}</div>}
+    </div>
   );
 }

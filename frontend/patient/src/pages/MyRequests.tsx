@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { answerMyRequest, getMyRequests, getMyValues, type MyValue, type MyRequest } from "../api";
+import { answerMyRequest, getMyRequestsPage, getMyValues, type MyValue, type MyRequest } from "../api";
 import { Card, Pill, type PillKind } from "../ui";
 
 const KIND: Record<MyRequest["kind"], string> = {
@@ -32,7 +32,14 @@ export function MyRequests() {
     catch (e) { setError(e instanceof Error ? e.message : "Could not load the values"); }
     finally { setBusy(""); }
   }
-  const load = () => getMyRequests().then(setRows).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load"));
+  const [more, setMore] = useState<string | null>(null);
+  const load = () => getMyRequestsPage().then((p) => { setRows(p.requests); setMore(p.next_cursor ?? null); })
+    .catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load"));
+  async function older() {
+    if (!more) return;
+    try { const p = await getMyRequestsPage(more); setRows([...(rows ?? []), ...p.requests]); setMore(p.next_cursor ?? null); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load older requests"); }
+  }
   useEffect(() => { void load(); }, []);
   async function answer(id: string, step: "agree" | "decline" | "withdraw") {
     setBusy(id); setError("");
@@ -107,6 +114,7 @@ export function MyRequests() {
                 </div>
               );
             })}
+          {more && <div style={{ marginTop: 8 }}><button className="btn ghost" onClick={() => void older()}>Show older requests</button></div>}
         </Card>
       </div>
     </>

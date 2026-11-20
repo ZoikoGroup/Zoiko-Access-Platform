@@ -291,6 +291,9 @@ class ProxyGrant(CellScopedModel):
     # document itself.
     proof_kind = models.CharField(max_length=24, blank=True, default="")
     proof_ref = models.CharField(max_length=64, blank=True, default="")
+    # Who checked the document when the proof came in (DEV-352): for an adult's attorney or
+    # deputy, a DIFFERENT staff member must approve.
+    proof_checked_by_ref = models.CharField(max_length=22, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [

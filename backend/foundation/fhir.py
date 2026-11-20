@@ -26,6 +26,21 @@ FHIR_VERSION = "4.0.1"
 # on (docs/FHIR-DESIGN.md).
 UK_CORE = "uk-core"
 SNOMED = "http://snomed.info/sct"
+# The published UK Core release these rules were checked against (DEV-342): package
+# fhir.r4.ukcore.stu2 2.0.2 (UKCoreServiceRequest 2.5.0, UKCoreDiagnosticReportLab 2.0.0,
+# UKCoreObservationLab 2.0.0).
+UK_CORE_PACKAGE = "fhir.r4.ukcore.stu2#2.0.2"
+# A lab report and a lab value each say they are laboratory ones (UK Core Lab profiles, min 1).
+LAB_REPORT_CATEGORY = {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/v2-0074",
+                                   "code": "LAB"}]}
+LAB_VALUE_CATEGORY = {"coding": [{
+    "system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "laboratory"}]}
+# An imaging report (DEV-348, LEAD DECISION: imaging reports only, through the lab flow): the
+# report says RAD, a measured value says "imaging". No images are taken in.
+IMAGING_REPORT_CATEGORY = {"coding": [{
+    "system": "http://terminology.hl7.org/CodeSystem/v2-0074", "code": "RAD"}]}
+IMAGING_VALUE_CATEGORY = {"coding": [{
+    "system": "http://terminology.hl7.org/CodeSystem/observation-category", "code": "imaging"}]}
 NHS_NUMBER_SYSTEM = "https://fhir.nhs.uk/Id/nhs-number"
 UK_CORE_PROFILES = {
     "ServiceRequest": "https://fhir.hl7.org.uk/StructureDefinition/UKCore-ServiceRequest",
@@ -87,6 +102,7 @@ _ALLOWED = {
         "status",
         "intent",
         "priority",
+        "category",
         "code",
         "subject",
         "requester",
@@ -98,6 +114,7 @@ _ALLOWED = {
         "id",
         "identifier",
         "status",
+        "category",
         "code",
         "subject",
         "issued",
@@ -106,6 +123,7 @@ _ALLOWED = {
         "conclusion",
         "conclusionCode",
         "result",
+        "presentedForm",  # the lab's PDF report (DEV-349)
     },
     # One measured value of a lab result (DEV-330): a quantity or a short text, with its normal
     # range and the lab's interpretation. Nothing else.
@@ -113,6 +131,7 @@ _ALLOWED = {
         "resourceType",
         "id",
         "status",
+        "category",
         "code",
         "subject",
         "valueQuantity",
@@ -275,8 +294,22 @@ def _uk_core(out: list[Issue], kind: str, r: dict[str, Any]) -> None:
     if NHS_NUMBER_SYSTEM in text or contains_nhs_number(text):
         _issue(out, "", "forbidden", "an NHS number is never accepted in a message")
     codes = _codings(r.get("code"))
+    # UK Core only PREFERS SNOMED CT here; requiring it is Zoiko's own stricter rule (DEV-321).
     if "code" in r and not any(c.get("system") == SNOMED for c in codes):
         _issue(out, "code", "required", "UK Core needs a SNOMED CT code")
+    accepted = {
+        "DiagnosticReport": (LAB_REPORT_CATEGORY, IMAGING_REPORT_CATEGORY),
+        "Observation": (LAB_VALUE_CATEGORY, IMAGING_VALUE_CATEGORY),
+    }.get(kind)
+    if accepted is not None:
+        wants = [(c["coding"][0]["system"], c["coding"][0]["code"]) for c in accepted]
+        given = r.get("category")
+        cats: list[Any] = given if isinstance(given, list) else []
+        if not any((c.get("system"), c.get("code")) in wants
+                   for cat in cats for c in _codings(cat)):
+            names = " or ".join(code for _, code in wants)
+            _issue(out, "category", "required",
+                   f"UK Core needs category {names} ({UK_CORE_PACKAGE})")
     places = [("code", r.get("code"))]
     if kind == "DiagnosticReport":
         places += [
@@ -302,7 +335,8 @@ def validate(resource: Any, profile: str | None = None) -> list[Issue]:
         return [Issue("", "value", "unknown profile")]
     if not isinstance(resource, dict):
         return [Issue("", "format", "a resource is a JSON object")]
-    if len(json.dumps(resource, default=str)) > MAX_BYTES or _depth(resource) > MAX_DEPTH:
+    if len(json.dumps(_without_pdf_data(resource), default=str)) > MAX_BYTES or \
+            _depth(resource) > MAX_DEPTH:
         return [Issue("", "size", "too large or too deeply nested")]
     kind = resource.get("resourceType")
     if kind == "Bundle":
@@ -326,6 +360,13 @@ def validate(resource: Any, profile: str | None = None) -> list[Issue]:
         _check_reference(out, "subject", resource["subject"])
     if "code" in resource:
         _check_coding(out, "code", resource["code"])
+    if "category" in resource:
+        cats = resource["category"]
+        if not isinstance(cats, list) or not 1 <= len(cats) <= 5:
+            _issue(out, "category", "format", "a list of 1 to 5 codes")
+        else:
+            for i, c in enumerate(cats):
+                _check_coding(out, f"category[{i}]", c)
     if kind == "ServiceRequest":
         _service_request(out, resource)
     elif kind == "Observation":
@@ -361,7 +402,66 @@ def _service_request(out: list[Issue], r: dict[str, Any]) -> None:
         _issue(out, "performer", "format", "a list of references")
 
 
+MAX_PDF_BYTES = 5 * 1024 * 1024
+MAX_FORMS = 5
+
+
+def _without_pdf_data(resource: Any) -> Any:
+    """The resource with any presentedForm data left out, so the size rule measures the message
+    itself; each PDF has its own limit (DEV-349)."""
+    if not isinstance(resource, dict):
+        return resource
+    if resource.get("resourceType") == "Bundle" and isinstance(resource.get("entry"), list):
+        return {**resource, "entry": [
+            {**e, "resource": _without_pdf_data(e.get("resource"))} if isinstance(e, dict) else e
+            for e in resource["entry"]]}
+    forms = resource.get("presentedForm")
+    if isinstance(forms, list):
+        return {**resource, "presentedForm": [
+            {k: v for k, v in f.items() if k != "data"} if isinstance(f, dict) else f
+            for f in forms]}
+    return resource
+
+
+def pdf_forms(report: dict[str, Any]) -> list[tuple[str, bytes]]:
+    """The PDFs a valid report carries: (title, bytes)."""
+    import base64
+
+    out = []
+    for f in report.get("presentedForm") or []:
+        out.append((str(f.get("title") or "report.pdf"), base64.b64decode(f["data"])))
+    return out
+
+
+def _check_forms(out: list[Issue], forms: Any) -> None:
+    import base64
+    import binascii
+
+    if not isinstance(forms, list) or not 1 <= len(forms) <= MAX_FORMS:
+        _issue(out, "presentedForm", "format", f"a list of 1 to {MAX_FORMS} attachments")
+        return
+    for i, f in enumerate(forms):
+        where = f"presentedForm[{i}]"
+        if not isinstance(f, dict) or not set(f) <= {"contentType", "data", "title"}:
+            _issue(out, where, "format", "an attachment holds contentType, data and title only")
+            continue
+        if f.get("contentType") != "application/pdf":
+            _issue(out, f"{where}.contentType", "value", "application/pdf only")
+        title = f.get("title")
+        if title is not None and (not isinstance(title, str) or not 1 <= len(title) <= 100):
+            _issue(out, f"{where}.title", "format", "text of 1 to 100 characters")
+        data = f.get("data")
+        try:
+            raw = base64.b64decode(data, validate=True) if isinstance(data, str) else b""
+        except (binascii.Error, ValueError):
+            raw = b""
+        if not 1 <= len(raw) <= MAX_PDF_BYTES or not raw.startswith(b"%PDF-"):
+            _issue(out, f"{where}.data", "format", "a PDF of at most 5 MB, base64")
+
+
 def _diagnostic_report(out: list[Issue], r: dict[str, Any]) -> None:
+    if "presentedForm" in r:
+        _check_forms(out, r["presentedForm"])
     if "status" in r:
         _one_of(out, "status", r["status"], REPORT_STATUS)
     if "issued" in r and (not isinstance(r["issued"], str) or not _INSTANT.match(r["issued"])):
@@ -402,6 +502,9 @@ def codings_in(resource: Any) -> list[dict[str, str]]:
     mapping review list (DEV-322). Anything not shaped like a coding is skipped."""
     if not isinstance(resource, dict):
         return []
+    if resource.get("resourceType") == "Bundle" and isinstance(resource.get("entry"), list):
+        return [c for e in resource["entry"] if isinstance(e, dict)
+                for c in codings_in(e.get("resource"))]  # DEV-340: each report and value
     concepts = [resource.get("code")]
     if isinstance(resource.get("conclusionCode"), list):
         concepts += resource["conclusionCode"]

@@ -21,6 +21,7 @@ from typing import Any
 
 from django.db import IntegrityError, transaction
 
+from foundation import pagination
 from foundation.cell_context import require_context, tenant_transaction
 from foundation.chain import GENESIS, chain_digest, verify_chain
 from foundation.errors import ErrorCode, ZoikoError
@@ -345,14 +346,15 @@ def credit_note(
 
 # ------------------------------------------------------------------ reading
 def list_invoices(
-    organization_ref: str, status: str | None = None, limit: int = 100
+    organization_ref: str, status: str | None = None, limit: int = 100,
+    page: pagination.PageRequest | None = None,
 ) -> list[dict[str, Any]]:
     rows = Invoice.objects.filter(organization_ref=organization_ref, **_scope())
     if status:
         if status not in InvoiceStatus.values:
             raise _bad("status")
         rows = rows.filter(status=status)
-    shown = rows.order_by("-created_at")[: min(limit, 200)]
+    shown = pagination.apply(rows, page, cap=min(limit, 200))
     return [invoice_dict(i, with_credits=False) for i in shown]
 
 
@@ -551,10 +553,14 @@ def payer_payments(invoice_ref: str, person_ref: str) -> list[dict[str, Any]]:
     return [payment_dict(a, inv) for a in rows]
 
 
-def list_payments(organization_ref: str, invoice_ref: str | None = None) -> list[dict[str, Any]]:
+def list_payments(
+    organization_ref: str,
+    invoice_ref: str | None = None,
+    page: pagination.PageRequest | None = None,
+) -> list[dict[str, Any]]:
     """For clinic staff: attempts to pay this clinic's invoices (optionally one invoice)."""
     rows = PaymentAttempt.objects.select_related("invoice").filter(
         invoice__organization_ref=organization_ref, **_scope())
     if invoice_ref:
         rows = rows.filter(invoice__public_id=invoice_ref)
-    return [payment_dict(a, a.invoice) for a in rows.order_by("-created_at")[:200]]
+    return [payment_dict(a, a.invoice) for a in pagination.apply(rows, page)]

@@ -23,6 +23,7 @@ REQUEST = {
 }
 REPORT = {
     "resourceType": "DiagnosticReport",
+    "category": [fhir.LAB_REPORT_CATEGORY],
     "id": "rep-1",
     "identifier": [{"system": "urn:lab:results", "value": "RES-0042"}],
     "status": "final",
@@ -287,7 +288,8 @@ def test_an_order_without_a_real_snomed_code_is_never_built():
 def _obs(oid, value, unit="g/L", low=115, high=165, flag="N", subject="Patient/p-1",
          code="26604007"):
     return {
-        "resourceType": "Observation", "id": oid, "status": "final",
+        "resourceType": "Observation",
+        "category": [fhir.LAB_VALUE_CATEGORY], "id": oid, "status": "final",
         "code": {"coding": [{"system": "http://snomed.info/sct", "code": code}],
                  "text": "Haemoglobin"},
         "subject": {"reference": subject},
@@ -307,7 +309,8 @@ def _bundle_of(report, *observations):
 
 # ------------------------------------------------------------------ result values (DEV-330)
 _REPORT = {
-    "resourceType": "DiagnosticReport", "id": "rep-1", "status": "final",
+    "resourceType": "DiagnosticReport",
+    "category": [fhir.LAB_REPORT_CATEGORY], "id": "rep-1", "status": "final",
     "code": {"coding": [{"system": "http://snomed.info/sct", "code": "26604007"}]},
     "subject": {"reference": "Patient/p-1"},
     "basedOn": [{"reference": "ServiceRequest/req-1"}],
@@ -363,3 +366,43 @@ def test_every_zoiko_id_becomes_a_valid_fhir_id_and_back():
             snomed_code="26604007", label="Full blood count", authored_on="2026-11-19T09:00:00Z")
         assert fhir.validate(made, profile=fhir.UK_CORE) == []
         assert fhir.from_fhir_id(made["id"]) == public
+
+
+# ------------------------------------------------ UK Core lab profiles, release 2.0.2 (DEV-342)
+def test_a_uk_core_lab_report_with_its_category_is_accepted_and_one_without_is_held():
+    with_cat = {**_REPORT, "category": [fhir.LAB_REPORT_CATEGORY]}
+    assert fhir.validate(with_cat, profile=fhir.UK_CORE) == []  # used to be "unknown element"
+    without = {k: v for k, v in _REPORT.items() if k != "category"}
+    assert fhir.validate(without) == []  # plain FHIR does not need it
+    held = fhir.validate(without, profile=fhir.UK_CORE)
+    assert [i.path for i in held] == ["category"] and "2.0.2" in held[0].text
+    radiology = {**_REPORT, "category": [fhir.IMAGING_REPORT_CATEGORY]}  # DEV-348: imaging too
+    assert fhir.validate(radiology, profile=fhir.UK_CORE) == []
+    other = {**_REPORT, "category": [{"coding": [{
+        "system": "http://terminology.hl7.org/CodeSystem/v2-0074", "code": "PAT"}]}]}
+    assert [i.path for i in fhir.validate(other, profile=fhir.UK_CORE)] == ["category"]
+
+
+def test_each_lab_value_needs_the_laboratory_category_under_uk_core():
+    value = _obs("o1", 128)
+    assert fhir.validate(value, profile=fhir.UK_CORE) == []
+    bare = {k: v for k, v in value.items() if k != "category"}
+    assert [i.path for i in fhir.validate(bare, profile=fhir.UK_CORE)] == ["category"]
+    bad = {**value, "category": "laboratory"}
+    assert any(i.path == "category" for i in fhir.validate(bad))
+
+
+# ------------------------------------------------ a PDF inside the report (DEV-349)
+def test_a_report_may_carry_its_pdf_and_the_size_rule_measures_the_message_without_it():
+    import base64
+
+    pdf = b"%PDF-1.4\n" + b"%" + b"x" * (2 * 1024 * 1024) + b"\n%%EOF\n"
+    form = {"contentType": "application/pdf", "title": "FBC.pdf",
+            "data": base64.b64encode(pdf).decode()}
+    report = {**_REPORT, "category": [fhir.LAB_REPORT_CATEGORY], "presentedForm": [form]}
+    assert fhir.validate(report, profile=fhir.UK_CORE) == []  # 2 MB of PDF is fine
+    assert fhir.pdf_forms(report) == [("FBC.pdf", pdf)]
+    for bad in ({**form, "contentType": "image/png"}, {**form, "data": "not base64!"},
+                {**form, "data": base64.b64encode(b"GIF89a").decode()}, {**form, "url": "x"}):
+        assert fhir.validate({**report, "presentedForm": [bad]}), bad
+    assert fhir.validate({**report, "presentedForm": [form] * 6})

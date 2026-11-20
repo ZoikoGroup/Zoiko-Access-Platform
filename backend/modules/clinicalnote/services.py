@@ -98,7 +98,61 @@ def meta_dict(n: ClinicalNote) -> dict[str, Any]:
         "created_at": n.created_at.isoformat(),
         "guardian_hidden": n.guardian_hidden,
         "erased": n.erased_at is not None,
+        "has_diagnoses": bool(n.diagnoses_enc),
     }
+
+
+MAX_DIAGNOSES = 10
+DIAGNOSIS_STATUS = ("confirmed", "provisional", "ruled_out")
+
+
+def _clean_diagnoses(value: Any) -> list[dict[str, str]]:
+    """Up to 10 coded diagnoses: a SNOMED CT concept, its words (up to 120 characters) and a
+    status (confirmed, provisional, ruled out). Nothing else, so no free text hides in them."""
+    from foundation import fhir
+
+    if value in (None, []):
+        return []
+    if not isinstance(value, list) or len(value) > MAX_DIAGNOSES:
+        raise _bad("diagnoses")
+    out, seen = [], set()
+    for d in value:
+        if not isinstance(d, dict) or not set(d) <= {"code", "text", "status"}:
+            raise _bad("diagnoses")
+        code, text = d.get("code"), d.get("text")
+        status = d.get("status") or "confirmed"
+        if not isinstance(code, str) or not fhir.sctid_ok(code) or code in seen:
+            raise _bad("diagnoses")
+        if not isinstance(text, str) or not 1 <= len(text.strip()) <= 120 or any(
+                ord(ch) < 32 for ch in text):
+            raise _bad("diagnoses")
+        if status not in DIAGNOSIS_STATUS:
+            raise _bad("diagnoses")
+        seen.add(code)
+        out.append({"code": code, "text": text.strip(), "status": status})
+    return out
+
+
+def _seal_diagnoses(note: ClinicalNote, items: list[dict[str, str]]) -> str:
+    if not items:
+        return ""
+    import json
+
+    return encrypt(json.dumps(items), tenant_id=require_context().tenant_id,
+                   context=f"note:{note.public_id}:diagnoses")
+
+
+def _open_diagnoses(note: ClinicalNote) -> list[dict[str, str]]:
+    if not note.diagnoses_enc:
+        return []
+    import json
+
+    try:
+        found = json.loads(decrypt(note.diagnoses_enc, tenant_id=require_context().tenant_id,
+                                   context=f"note:{note.public_id}:diagnoses"))
+    except (CryptoError, ValueError):
+        return []
+    return found if isinstance(found, list) else []
 
 
 def _clean_body(value: Any) -> str:
@@ -155,6 +209,7 @@ def create_draft(
     by: str,
     decision: policy.Decision,
     clock: Clock | None = None,
+    diagnoses: Any = None,
 ) -> dict[str, Any]:
     _require_on()
     policy.check_receipt(
@@ -165,6 +220,7 @@ def create_draft(
         subject_ref=person_ref,
     )
     text, day = _clean_body(body), _clean_date(note_date, clock)
+    coded = _clean_diagnoses(diagnoses)
     with transaction.atomic():
         note = ClinicalNote(
             person_ref=person_ref,
@@ -175,13 +231,18 @@ def create_draft(
             **_scope(),
         )
         note.body_enc = _seal(note, text)
+        note.diagnoses_enc = _seal_diagnoses(note, coded)
         note.save()
         _audit(by, "draft_created", note)
     return meta_dict(note)
 
 
-def edit_draft(*, note_ref: str, body: Any, by: str, decision: policy.Decision) -> dict[str, Any]:
+def edit_draft(
+    *, note_ref: str, body: Any, by: str, decision: policy.Decision, diagnoses: Any = None
+) -> dict[str, Any]:
+    """Change a draft's text and, when given, its diagnoses (None keeps them as they are)."""
     text = _clean_body(body)
+    coded = None if diagnoses is None else _clean_diagnoses(diagnoses)
     with transaction.atomic():
         note = _mine(note_ref)
         policy.check_receipt(
@@ -196,8 +257,10 @@ def edit_draft(*, note_ref: str, body: Any, by: str, decision: policy.Decision) 
         if note.state != NoteState.DRAFT:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)  # a signed note is never edited
         note.body_enc = _seal(note, text)
+        if coded is not None:
+            note.diagnoses_enc = _seal_diagnoses(note, coded)
         note.entity_version += 1
-        note.save(update_fields=["body_enc", "entity_version", "updated_at"])
+        note.save(update_fields=["body_enc", "diagnoses_enc", "entity_version", "updated_at"])
         _audit(by, "draft_edited", note)
         return meta_dict(note)
 
@@ -278,6 +341,7 @@ def amend(*, note_ref: str, reason: Any, by: str, decision: policy.Decision) -> 
             **_scope(),
         )
         new.body_enc = _seal(new, _open(old))
+        new.diagnoses_enc = _seal_diagnoses(new, _open_diagnoses(old))
         new.save()
         _audit(by, "amendment_started", new, reason)
         return meta_dict(new)
@@ -353,7 +417,8 @@ def read(*, note_ref: str, by: str, decision: policy.Decision) -> dict[str, Any]
         subject_ref=note.person_ref,
     )
     _audit(by, "read", note)
-    return {**meta_dict(note), "body": _open(note), "addenda": _addenda(note)}
+    return {**meta_dict(note), "body": _open(note), "addenda": _addenda(note),
+            "diagnoses": _open_diagnoses(note)}
 
 
 def list_for_person(
@@ -527,9 +592,10 @@ def erase_expired(
         with transaction.atomic():
             for note in rows.select_for_update().filter(erased_at__isnull=True):
                 NoteAddendum.objects.filter(note=note, **_scope()).update(body_enc="")
-                note.body_enc, note.erased_at = "", now
+                note.body_enc, note.diagnoses_enc, note.erased_at = "", "", now
                 note.entity_version += 1
-                note.save(update_fields=["body_enc", "erased_at", "entity_version", "updated_at"])
+                note.save(update_fields=["body_enc", "diagnoses_enc", "erased_at",
+                                         "entity_version", "updated_at"])
                 _audit("system", "erased_retention", note)
                 erased += 1
     return erased
@@ -603,4 +669,5 @@ def patient_read(
         **_patient_meta(note),
         "body": _open(note),
         "addenda": _addenda(note, utc_now(clock)),
+        "diagnoses": _open_diagnoses(note),
     }

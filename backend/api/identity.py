@@ -7,6 +7,7 @@ unresolved). Every action is policy-checked in the person's own organization.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -184,9 +185,26 @@ def person_death(request: HttpRequest, auth: trust.Authenticated, person_id: str
                     cancelled += 1
                 except ZoikoError:
                     continue  # e.g. attendance already recorded: that history stays
+        # DEV-343: no time is offered to them, and requests not yet done are stopped.
+        from modules.exchange import api as exchange
+        from modules.waitlist import api as waitlist
+
+        from .views import _my_customer, _platform_context
+
+        with tenant_transaction():
+            waitlist_closed = waitlist.close_for_death(person_id)
+        requests_cancelled = 0
+        try:  # the death record stands even if this part cannot run now
+            with tenant_transaction(_platform_context()):
+                requests_cancelled = exchange.cancel_open_for_patient(
+                    person_ref=person_id, tenant_ref=_my_customer(auth),
+                    actor_ref=auth.actor_public_id)
+        except ZoikoError as exc:
+            logging.getLogger("zoiko.death").warning(
+                "open requests not cancelled: %s", exc.code)
     else:
         _authorize(auth, "read:person", organization_public_id=org, subject_ref=person_id)
-        cancelled = 0
+        cancelled = waitlist_closed = requests_cancelled = 0
         with tenant_transaction():
             if not trust.person_at_site(person_id, org):
                 raise ZoikoError(ErrorCode.NOT_FOUND)
@@ -196,7 +214,9 @@ def person_death(request: HttpRequest, auth: trust.Authenticated, person_id: str
     out = _death_json(info, labels)
     out["recorded_by_me"] = out["recorded_by"] == auth.actor_public_id
     out["can_record"] = "R13" in auth.roles
-    return JsonResponse({"death": out, "bookings_cancelled": cancelled},
+    return JsonResponse({"death": out, "bookings_cancelled": cancelled,
+                         "waitlist_closed": waitlist_closed,
+                         "requests_cancelled": requests_cancelled},
                         status=201 if request.method == "POST" else 200)
 
 

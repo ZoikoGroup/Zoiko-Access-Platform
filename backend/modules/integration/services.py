@@ -18,6 +18,7 @@ from typing import Any
 
 from django.db import transaction
 
+from foundation import pagination
 from foundation.cell_context import require_context, tenant_transaction
 from foundation.crypto import CryptoError, decrypt, encrypt
 from foundation.dispatch import subscribe
@@ -265,13 +266,15 @@ def gave_up_count() -> int:
     return WebhookDelivery.objects.filter(state=DeliveryState.DEAD_LETTER, **_scope()).count()
 
 
-def list_deliveries(state: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+def list_deliveries(
+    state: str | None = None, limit: int = 100, page: pagination.PageRequest | None = None
+) -> list[dict[str, Any]]:
     rows = WebhookDelivery.objects.select_related("endpoint").filter(**_scope())
     if state:
         if state not in DeliveryState.values:
             raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["state"])
         rows = rows.filter(state=state)
-    return [delivery_dict(d) for d in rows.order_by("-created_at")[: min(limit, 200)]]
+    return [delivery_dict(d) for d in pagination.apply(rows, page, cap=min(limit, 200))]
 
 
 def redrive(

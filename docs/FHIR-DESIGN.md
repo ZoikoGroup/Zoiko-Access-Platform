@@ -64,3 +64,5 @@ partner not certified for the profile is refused.
 ## What this does not decide
 
 HL7 v2, imaging, terminology services, and any payer standard stay out until the lead asks for them.
+
+**UK Core release (DEV-342):** the checks follow the published package `fhir.r4.ukcore.stu2` 2.0.2 (lab report and lab value must carry the lab category). Requiring SNOMED CT codes is Zoiko's own stricter rule (DEV-321), not UK Core's.

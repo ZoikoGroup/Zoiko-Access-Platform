@@ -435,3 +435,32 @@ def test_the_payer_pages_only_claims_the_patient_agreed_to(world):
     made(clinic, payer, service_date="2026-02-09", consent=False)
     got = pages(lambda p: payer.call("get", p), "claims/incoming")
     assert len(got) == 3
+
+
+# ------------------------------------------------ payment advice (DEV-347)
+def test_the_payer_records_what_was_paid_and_when_and_the_clinic_sees_it(world):
+    _, clinic, payer = world
+    claim_id = made(clinic, payer)
+    step(payer, claim_id, "approve")
+    claimed = body(clinic.get("claims/sent", subject="ops"))["claims"][0]["amount_minor"]
+    paid = step(payer, claim_id, "pay", payment_ref="PAY-0002", amount_paid_minor=claimed - 500,
+                paid_on="2026-11-18")
+    assert paid.status_code == 200, paid.content
+    mine = body(clinic.get("claims/sent", subject="ops"))["claims"][0]
+    assert mine["amount_paid_minor"] == claimed - 500 and mine["paid_on"] == "2026-11-18"
+
+
+def test_payment_advice_defaults_to_the_full_amount_today_and_bad_advice_is_refused(world):
+    import datetime as dt
+
+    _, clinic, payer = world
+    claim_id = made(clinic, payer)
+    step(payer, claim_id, "approve")
+    claimed = body(clinic.get("claims/sent", subject="ops"))["claims"][0]["amount_minor"]
+    tomorrow = (dt.date.today() + dt.timedelta(days=2)).isoformat()
+    for bad in ({"amount_paid_minor": claimed + 1}, {"amount_paid_minor": -1},
+                {"amount_paid_minor": "100"}, {"amount_paid_minor": True},
+                {"paid_on": tomorrow}, {"paid_on": "yesterday"}):
+        assert step(payer, claim_id, "pay", payment_ref="PAY-0003", **bad).status_code == 422, bad
+    done = body(step(payer, claim_id, "pay", payment_ref="PAY-0003"))["claim"]
+    assert done["amount_paid_minor"] == claimed and done["paid_on"] == dt.date.today().isoformat()

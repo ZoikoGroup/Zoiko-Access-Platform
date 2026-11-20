@@ -30,6 +30,7 @@ from typing import Any
 
 from django.db import IntegrityError, transaction
 
+from foundation import pagination
 from foundation.cell_context import require_context, tenant_transaction
 from foundation.crypto import CryptoError, decrypt, encrypt
 from foundation.errors import ErrorCode, ZoikoError
@@ -257,13 +258,15 @@ def list_clients() -> list[dict[str, Any]]:
     return [client_dict(r) for r in rows]
 
 
-def list_events(state: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+def list_events(
+    state: str | None = None, limit: int = 100, page: pagination.PageRequest | None = None
+) -> list[dict[str, Any]]:
     rows = InboundEvent.objects.select_related("client").filter(**_scope())
     if state:
         if state not in InboundState.values:
             raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["state"])
         rows = rows.filter(state=state)
-    return [event_dict(e) for e in rows.order_by("-created_at")[: min(limit, 200)]]
+    return [event_dict(e) for e in pagination.apply(rows, page, cap=min(limit, 200))]
 
 
 # ------------------------------------------------------------------ one signed message arriving

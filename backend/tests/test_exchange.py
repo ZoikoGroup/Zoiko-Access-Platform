@@ -1149,6 +1149,7 @@ def _fhir_partner(world):
 def _report(request_id, rid="rep-901", status="final", flag="N", text="Haemoglobin 128 g/L."):
     return json.dumps({
         "resourceType": "DiagnosticReport",
+        "category": [fhir.LAB_REPORT_CATEGORY],
         "id": rid,
         "status": status,
         "code": {"coding": [{"system": "http://snomed.info/sct", "code": "26604007"}]},
@@ -1256,7 +1257,8 @@ def test_a_proposed_but_unapproved_mapping_is_never_used(world):
 def _obs_x(oid, value, unit="g/L", low=115, high=165, flag="N", subject="Patient/p-1",
          code="26604007"):
     return {
-        "resourceType": "Observation", "id": oid, "status": "final",
+        "resourceType": "Observation",
+        "category": [fhir.LAB_VALUE_CATEGORY], "id": oid, "status": "final",
         "code": {"coding": [{"system": "http://snomed.info/sct", "code": code}],
                  "text": "Haemoglobin"},
         "subject": {"reference": subject},
@@ -1398,3 +1400,300 @@ def test_nobody_but_the_patient_reads_their_values(world):
     clinic.patient("other")
     assert mine_values(clinic, request_id, "other").status_code == 404
     assert mine_values(clinic, request_id, "ops").status_code == 404
+
+
+# ------------------------------------------------ held messages tried again (DEV-338)
+def test_the_hourly_retry_takes_in_a_message_once_its_code_is_approved(world):
+    from modules.integration.jobs_retry import retry_all_tenants
+    from tests.test_fhir_api import send_fhir
+
+    platform, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    held_id = send_fhir(sender, _local_report(request_id), "fhir-retry-0001").json()["id"]
+    assert retry_all_tenants() == 0  # nothing approved yet: still held
+    _approve_mapping(platform, "http://loinc.org", "57021-8", "26604007")
+    assert retry_all_tenants() == 1
+    assert body(result(clinic, request_id))["result"]["summary"] == "Haemoglobin 128 g/L."
+    [row] = [i for i in clinic.get("staff/fhir/quarantine?state=released", subject="boss")
+             .json()["items"] if i["public_id"] == held_id]
+    assert row["decision_note"] == "approved code mapping"
+    assert retry_all_tenants() == 0  # taken in once
+
+
+def test_staff_can_try_again_and_a_message_still_wrong_stays_held(world):
+    from tests.test_fhir_api import send_fhir
+
+    platform, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    held_id = send_fhir(sender, _local_report(request_id), "fhir-retry-0002").json()["id"]
+    again = clinic.post(f"staff/fhir/quarantine/{held_id}/retry", {}, subject="boss")
+    assert again.status_code == 200 and again.json()["item"]["state"] == "held"
+    _approve_mapping(platform, "http://loinc.org", "57021-8", "26604007")
+    done = clinic.post(f"staff/fhir/quarantine/{held_id}/retry", {}, subject="boss")
+    assert done.json()["item"]["state"] == "released"
+    assert clinic.post(f"staff/fhir/quarantine/{held_id}/retry", {},
+                       subject="boss").status_code == 409  # decided already
+    assert clinic.post(f"staff/fhir/quarantine/{held_id}/retry", {},
+                       subject="ops").status_code == 403
+
+
+def test_values_with_local_codes_in_a_bundle_are_mapped_too(world):
+    from tests.test_fhir_api import send_fhir
+
+    platform, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    local = _obs_x("o1", 128)
+    local["code"] = {"coding": [{"system": "http://loinc.org", "code": "718-7"}],
+                     "text": "Haemoglobin"}
+    bundle = _bundle_of(json.loads(_report(request_id)), local)
+    first = send_fhir(sender, json.dumps(bundle).encode(), "fhir-retry-0003")
+    assert first.json()["quarantined"] is True
+    _approve_mapping(platform, "http://loinc.org", "718-7", "26604007")
+    second = send_fhir(sender, json.dumps(bundle).encode(), "fhir-retry-0004")
+    assert second.json()["quarantined"] is False, second.content
+    assert body(result(clinic, request_id))["result"]["values"][0]["value"] == 128
+
+
+
+# ------------------------------------------------ a value over time (DEV-339)
+def _delivered(clinic, lab, token, hb, flag="normal"):
+    request_id = made(clinic, lab, token=token)
+    for name in ("accept", "start"):
+        step(lab, request_id, name)
+    step(lab, request_id, "deliver", result_ref=f"RES-{token}", flag=flag, values=[
+        {"name": "Haemoglobin", "code": "26604007", "value": hb, "unit": "g/L", "low": 115,
+         "high": 165},
+        {"name": "Note", "value": "haemolysed" if hb < 100 else "fine"}])
+    return request_id
+
+
+def trend(clinic, request_id, key, subject="doc"):
+    return clinic.get(f"exchange/requests/{request_id}/trend?key={key}", subject=subject)
+
+
+def test_a_doctor_sees_a_value_across_the_patients_results_oldest_first(world):
+    _, clinic, lab = world
+    _delivered(clinic, lab, "ORD-0601", 98, "abnormal")
+    _delivered(clinic, lab, "ORD-0602", 112)
+    last = _delivered(clinic, lab, "ORD-0603", 131)
+    got = body(trend(clinic, last, "26604007"))["points"]
+    assert [p["value"] for p in got] == [98, 112, 131] and got[0]["unit"] == "g/L"
+    by_name = body(trend(clinic, last, "note"))["points"]  # no code: matched by name
+    assert [p["value"] for p in by_name] == ["haemolysed", "fine", "fine"]
+    correct(lab, last, values=[{"name": "Haemoglobin", "code": "26604007", "value": 129}])
+    assert [p["value"] for p in body(trend(clinic, last, "26604007"))["points"]] == [98, 112, 129]
+
+
+def test_only_a_treating_doctor_sees_a_trend_and_the_key_is_checked(world):
+    _, clinic, lab = world
+    request_id = _delivered(clinic, lab, "ORD-0604", 120)
+    assert trend(clinic, request_id, "26604007", "ops").status_code == 403
+    assert trend(clinic, request_id, "26604007", "doc2").status_code == 403
+    assert trend(clinic, request_id, "26604007", "pat").status_code == 403
+    assert clinic.get(f"exchange/requests/{request_id}/trend", subject="doc").status_code == 422
+
+
+# ------------------------------------------------ HL7 v2 lab results, end to end (DEV-340)
+def _send_hl7(sender, text, delivery):
+    import time
+
+    from django.test import Client
+
+    from modules.integration.delivery import signature_header
+
+    raw = text.encode()
+    header = signature_header(sender["secret"], sender["key_id"], int(time.time()), delivery, raw)
+    return Client().post("/api/v1/hl7", raw, content_type="x-application/hl7-v2+er7",
+                         HTTP_ZOIKO_SIGNATURE=header, HTTP_ZOIKO_DELIVERY_ID=delivery)
+
+
+def test_a_labs_hl7_result_reaches_the_doctor_with_its_values(world):
+    from tests.test_hl7 import oru
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    give_email(clinic, clinic.desk, "desk@clinic.test")
+    request_id = accepted(clinic, lab)
+    r = _send_hl7(sender, oru(placer=request_id), "hl7-e2e-0001")
+    assert r.status_code == 202 and r.json()["quarantined"] is False, r.content
+    got = body(result(clinic, request_id))["result"]
+    assert got["flag"] == "critical" and [v["value"] for v in got["values"]][:2] == [128, 6.8]
+    assert got["summary"] == "Potassium very high; repeat advised."
+    assert len(mails("critical_result")) == 1
+
+
+def test_an_unreadable_hl7_message_is_held_and_local_codes_go_for_review(world):
+    from modules.codemap import api as codemap
+    from tests.test_hl7 import oru
+
+    platform, clinic, lab = world
+    sender = _fhir_partner(world)
+    held = _send_hl7(sender, "MSH|^~\&|A|B|C|D|2026||ADT^A01|1|P|2.5", "hl7-e2e-0002")
+    assert held.json()["quarantined"] is True and held.json()["error"] == "invalid_hl7"
+    request_id = accepted(clinic, lab)
+    local = oru(placer=request_id, obr4="FBC^Full blood count^L",
+                obx=["OBX|1|NM|HB^Haemoglobin^L||131|g/L|115-165|N|||F"])
+    assert _send_hl7(sender, local, "hl7-e2e-0003").json()["quarantined"] is True
+    with tenant_transaction(platform.ctx):
+        listed = {m["source_code"] for m in codemap.list_mappings()}
+    assert {"FBC", "HB"} <= listed and "N" not in listed  # rating codes are not listed
+
+
+# ------------------------------------------------ a lab with several sites (DEV-341)
+def test_the_order_is_sent_whichever_of_the_labs_sites_chose_the_system(world):
+    from modules.trust import api as trust_api
+
+    _, clinic, lab = world
+    _lab_uses_simulator(lab)
+    with tenant_transaction(lab.ctx):  # the choice is on the OTHER site this time
+        trust_api.set_booking_system(lab.other_org, "simulator", by="system")
+        trust_api.set_booking_system(lab.org, "", by="system")
+    give_profile(clinic)
+    request_id = made(clinic, lab, consent=False, order_code="26604007")
+    agree(clinic, request_id)
+    assert len(_orders(clinic, request_id)) == 1
+
+
+def test_two_sites_with_different_systems_send_nothing_rather_than_guess(world):
+    from modules.trust import api as trust_api
+
+    _, clinic, lab = world
+    _lab_uses_simulator(lab)
+    with tenant_transaction(lab.ctx):
+        trust_api.set_booking_system(lab.other_org, "another-system", by="system")
+    give_profile(clinic)
+    request_id = made(clinic, lab, consent=False, order_code="26604007")
+    assert agree(clinic, request_id).status_code == 200  # the agreement itself stands
+    assert _orders(clinic, request_id) == []
+
+
+# ------------------------------------------------ the lab's PDF report (DEV-345)
+def _pdf(extra=b""):
+    return b"%PDF-1.4\n1 0 obj<< /Type /Catalog /Font /AAAAAB+Arial >>endobj\n" + extra + \
+        b"\ntrailer<<>>\n%%EOF\n"
+
+
+def upload(lab, request_id, data, name="report.pdf"):
+    return lab.client.post(
+        f"{API}exchange/incoming/{request_id}/attachment?filename={name}", data,
+        content_type="application/pdf",
+        HTTP_AUTHORIZATION=f"Bearer dev:{lab.tenant_public_id}:idp:{lab.subject}")
+
+
+def files(clinic, request_id, subject="doc"):
+    return clinic.get(f"exchange/requests/{request_id}/attachments", subject=subject)
+
+
+@pytest.fixture
+def scanner_on(settings):
+    settings.ATTACHMENT_SCANNER = "pretend"
+
+
+def test_the_lab_attaches_a_pdf_and_only_the_treating_doctor_downloads_it(world, scanner_on):
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab)
+    r = upload(lab, request_id, _pdf(), "FBC report.pdf")
+    assert r.status_code == 201, r.content
+    att = r.json()["attachment"]
+    assert att["scan"] == "clean" and att["filename"] == "FBC report.pdf"
+    assert [a["id"] for a in files(clinic, request_id).json()["attachments"]] == [att["id"]]
+    got = clinic.get(f"exchange/requests/{request_id}/attachments/{att['id']}", subject="doc")
+    assert got.status_code == 200 and got.content == _pdf()
+    assert got["Content-Type"] == "application/pdf" and "attachment;" in got["Content-Disposition"]
+    for who in ("ops", "doc2", "pat"):
+        assert clinic.get(f"exchange/requests/{request_id}/attachments/{att['id']}",
+                          subject=who).status_code == 403, who
+    assert body(clinic.get("exchange/requests", subject="doc"))["requests"][0]["has_attachments"]
+
+
+def test_a_file_with_a_virus_is_never_opened_and_nothing_opens_before_the_scan(world, settings):
+    from modules.exchange.jobs import scan_attachments_all
+    from modules.exchange.models import ResultAttachment
+
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab)
+    settings.ATTACHMENT_SCANNER = "pretend"
+    from foundation.scanner import EICAR
+
+    bad = upload(lab, request_id, _pdf(EICAR)).json()["attachment"]
+    assert bad["scan"] == "infected"
+    assert clinic.get(f"exchange/requests/{request_id}/attachments/{bad['id']}",
+                      subject="doc").status_code == 409
+    settings.ATTACHMENT_SCANNER = ""  # no scanner: the file waits
+    waiting = upload(lab, request_id, _pdf(b"% second")).json()["attachment"]
+    assert waiting["scan"] == "pending"
+    assert clinic.get(f"exchange/requests/{request_id}/attachments/{waiting['id']}",
+                      subject="doc").status_code == 409
+    settings.ATTACHMENT_SCANNER = "pretend"
+    assert scan_attachments_all() == 1
+    assert clinic.get(f"exchange/requests/{request_id}/attachments/{waiting['id']}",
+                      subject="doc").status_code == 200
+    from modules.trust import api as trust_api
+
+    plat = next(t for t in trust_api.list_tenants() if t["type"] == "platform")
+    with tenant_transaction(trust_api.context_for(plat["public_id"])):
+        assert ResultAttachment.objects.get(public_id=bad["id"]).content_enc == ""  # not kept
+
+
+def test_only_a_safe_pdf_of_a_sensible_size_on_a_delivered_result(world, scanner_on):
+    _, clinic, lab = world
+    early = accepted(clinic, lab)
+    assert upload(lab, early, _pdf()).status_code == 409  # nothing delivered yet
+    request_id = delivered_with(clinic, lab, token="ORD-0801")
+    for bad in (b"not a pdf at all", _pdf(b"/JavaScript (app.alert(1))"),
+                _pdf(b"/OpenAction 5 0 R"), _pdf(b"/Launch"), b"%PDF-1.4 no end"):
+        assert upload(lab, request_id, bad).status_code == 422, bad[:30]
+    big = _pdf(b"%" + b"x" * (3 * 1024 * 1024))  # over Django's usual 2.5 MB, under ours
+    assert upload(lab, request_id, big).status_code == 201
+    assert upload(lab, request_id, _pdf(b"%" + b"x" * (5 * 1024 * 1024))).status_code == 422
+    for i in range(4):
+        assert upload(lab, request_id, _pdf(f"% {i}".encode())).status_code == 201
+    assert upload(lab, request_id, _pdf(b"% sixth")).status_code == 409  # at most 5
+    assert upload(lab, request_id, _pdf(), "x.pdf").status_code == 409
+
+
+# ------------------------------------------------ the PDF inside a lab message (DEV-349)
+def test_a_fhir_report_carrying_its_pdf_attaches_it_for_the_treating_doctor(world, scanner_on):
+    import base64
+
+    from tests.test_fhir_api import send_fhir
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    report = json.loads(_report(request_id))
+    big = _pdf(b"%" + b"x" * (3 * 1024 * 1024))  # bigger than Django's usual 2.5 MB body
+    report["presentedForm"] = [
+        {"contentType": "application/pdf", "title": "FBC.pdf",
+         "data": base64.b64encode(big).decode()},
+        {"contentType": "application/pdf", "title": "bad.pdf",
+         "data": base64.b64encode(_pdf(b"/JavaScript (x)")).decode()},
+    ]
+    r = send_fhir(sender, json.dumps(report).encode(), "fhir-pdf-0001")
+    assert r.status_code == 202 and r.json()["quarantined"] is False, r.content[:300]
+    assert r.json()["attachments"] == 1 and r.json()["attachments_refused"] == 1
+    [att] = files(clinic, request_id).json()["attachments"]
+    assert att["filename"] == "FBC.pdf" and att["scan"] == "clean"
+    got = clinic.get(f"exchange/requests/{request_id}/attachments/{att['id']}", subject="doc")
+    assert got.content == big
+
+
+def test_an_hl7_result_carrying_its_pdf_attaches_it(world, scanner_on):
+    import base64
+
+    from tests.test_hl7 import oru
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    data = base64.b64encode(_pdf()).decode()
+    text = oru(placer=request_id) + (
+        f"\rOBX|4|ED|PDF^Full report^L||^application^pdf^Base64^{data}||||||F")
+    r = _send_hl7(sender, text, "hl7-pdf-0001")
+    assert r.status_code == 202 and r.json()["quarantined"] is False, r.content[:300]
+    [att] = files(clinic, request_id).json()["attachments"]
+    assert att["filename"] == "Full report.pdf"
+    assert len(body(result(clinic, request_id))["result"]["values"]) == 3  # the PDF is not a value

@@ -2,7 +2,7 @@
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
-import type { Appointment, Health, Note, PartnerRequest, ResultSummary, PatientRow, Referral, ServiceOption, Thread, ThreadView } from "./types";
+import type { Diagnosis, Appointment, Health, Note, PartnerRequest, ResultSummary, PatientRow, Referral, ServiceOption, Thread, ThreadView } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -112,6 +112,12 @@ async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const getSchedule = async () => (await v1<{ appointments: Appointment[] }>("clinician/schedule")).appointments;
 export const getPatients = async () => (await v1<{ patients: PatientRow[] }>("clinician/patients")).patients;
 export const getReferrals = async () => (await v1<{ referrals: Referral[] }>("clinician/referrals")).referrals;
+// One page of a referral list, newest first (DEV-337); the cursor from the last page gives older ones.
+export interface ReferralPage { referrals: Referral[]; next_cursor?: string | null }
+const page = (path: string, cursor?: string | null) =>
+  v1<ReferralPage>(`${path}?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+export const getReferralsPage = (cursor?: string | null) => page("clinician/referrals", cursor);
+export const getAnswerInboxPage = (cursor?: string | null) => page("clinician/referral-inbox", cursor);
 export const getAnswerInbox = async () => (await v1<{ referrals: Referral[] }>("clinician/referral-inbox")).referrals;
 export const decideReferral = (id: string, decision: "accepted" | "needs_info" | "declined", reason: string) =>
   v1<{ referral: Referral }>(`referrals/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify({ decision, reason }) });
@@ -230,8 +236,8 @@ export const getNotes = async (patient: string) =>
 export const getNote = async (id: string) => (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}`)).note;
 export const createNote = async (patient: string, note_date: string, body: string) =>
   (await v1<{ note: Note }>("clinician/notes", { method: "POST", body: JSON.stringify({ patient, note_date, body }) })).note;
-export const editNote = async (id: string, body: string) =>
-  (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/edit`, { method: "POST", body: JSON.stringify({ body }) })).note;
+export const editNote = async (id: string, body: string, diagnoses?: Diagnosis[]) =>
+  (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/edit`, { method: "POST", body: JSON.stringify(diagnoses ? { body, diagnoses } : { body }) })).note;
 export const signNote = async (id: string) =>
   (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/sign`, { method: "POST", body: "{}" })).note;
 export const addNoteAddendum = async (id: string, body: string) =>
@@ -263,3 +269,27 @@ export const setCriticalTexts = async (critical_texts: boolean) =>
   (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ critical_texts }) })).alert_phone;
 export const setHoldTexts = async (hold_texts: boolean) =>
   (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ hold_texts }) })).alert_phone;
+
+// One value across a patient's results at this clinic, oldest first (DEV-339).
+export interface TrendPoint {
+  request: string; label: string; at: string | null; value: number | string; unit: string;
+  low: number | null; high: number | null; flag: string; reviewed: boolean; version: number;
+}
+export const getTrend = async (requestId: string, key: string) =>
+  (await v1<{ points: TrendPoint[] }>(`exchange/requests/${encodeURIComponent(requestId)}/trend?key=${encodeURIComponent(key)}`)).points;
+
+// The lab's PDF reports on a result (DEV-345). Downloaded, never shown inside the app.
+export interface Attachment { id: string; filename: string; size: number; scan: "pending" | "clean" | "infected"; result_version: number; uploaded_at: string }
+export const getAttachments = async (requestId: string) =>
+  (await v1<{ attachments: Attachment[] }>(`exchange/requests/${encodeURIComponent(requestId)}/attachments`)).attachments;
+export async function downloadAttachment(requestId: string, a: Attachment): Promise<void> {
+  if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
+  const res = await fetch(`/api/v1/exchange/requests/${encodeURIComponent(requestId)}/attachments/${encodeURIComponent(a.id)}`, {
+    headers: { Authorization: `Bearer ${current.token}`, "X-Zoiko-Purpose": purpose },
+  });
+  if (!res.ok) throw new ApiError(res.status === 409 ? "It has not passed the virus check." : `Download failed (${res.status})`);
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url; link.download = a.filename; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}

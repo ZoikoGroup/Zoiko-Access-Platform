@@ -142,6 +142,11 @@ test("a partner developer makes a key, sees its secret once, and finds the docum
   await page.locator(".nav-item", { hasText: "API documents" }).click();
   await expect(page.getByRole("link", { name: "Open openapi.json" })).toHaveAttribute("href", "/api/v1/openapi.json");
   await expect(page.getByRole("link", { name: "Open asyncapi.json" })).toHaveAttribute("href", "/api/v1/asyncapi.json");
+
+  // Tidy up: a partner may hold at most 10 live keys, so the robot revokes the one it made.
+  await page.locator(".nav-item", { hasText: "API keys" }).click();
+  await page.locator(".appt", { hasText: name }).getByRole("button", { name: "Revoke" }).click();
+  await expect(page.locator(".appt", { hasText: name }).getByText("revoked")).toBeVisible();
 });
 
 test("a partner developer sees the webhooks screen and the delivery log", async ({ page }) => {

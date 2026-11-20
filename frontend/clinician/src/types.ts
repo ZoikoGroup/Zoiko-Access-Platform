@@ -22,6 +22,7 @@ export interface Note {
   note_date: string; state: "draft" | "signed" | "superseded"; version: number;
   supersedes: string | null; superseded_by: string | null; amend_reason: string | null;
   guardian_hidden?: boolean; erased?: boolean;
+  diagnoses?: Diagnosis[]; has_diagnoses?: boolean;
   signed_at: string | null; created_at: string; body?: string;
   addenda?: { id: string; author: string; added_at: string; body: string }[];
 }
@@ -87,3 +88,6 @@ export interface ResultSummary {
   id: string; flag: string; summary: string; result_ref: string; delivered_at: string | null;
   version?: number; correction?: string | null; earlier?: ResultVersion[]; values?: ResultValue[];
 }
+
+/** A coded diagnosis on a visit note (DEV-344): a SNOMED CT concept, its words and a status. */
+export interface Diagnosis { code: string; text: string; status: "confirmed" | "provisional" | "ruled_out" }

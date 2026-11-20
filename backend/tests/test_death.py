@@ -23,6 +23,9 @@ def dev_login(settings):
 
 @pytest.fixture
 def p():
+    from tests.test_platform import Platform
+
+    Platform()
     practice = Practice()
     practice.login("boss", FAC, "R13")
     practice.login("boss2", FAC, "R13")
@@ -116,3 +119,44 @@ def test_the_patients_own_login_stops_and_comes_back_if_withdrawn(p):
     assert p.get("staff/matches", subject="ops").status_code != 401  # staff unaffected
     p.post(f"people/{p.person}/death/withdraw", {"reason": "recorded_in_error"}, subject="boss2")
     assert p.get("bookings", subject="pat").status_code == 200
+
+
+
+# ------------------------------------------------ waiting lists and open lab requests (DEV-343)
+def test_waiting_lists_close_and_open_lab_requests_stop_but_delivered_results_stay():
+    from modules.exchange.models import ExchangeRequest
+    from modules.waitlist.models import WaitEntry
+    from tests.test_exchange import Partner, accepted, delivered_with, give_profile, made
+    from tests.test_platform import Platform
+
+    Platform()
+    p = Practice()
+    p.login("boss", FAC, "R13")
+    with tenant_transaction(p.clinic.ctx):
+        trust.ensure_care_relationship(actor_public_id=p.doc, person_public_id=p.person,
+                                       basis=trust.CareBasis.CARE_TEAM,
+                                       organization_ref=p.clinic.org, by="system")
+        trust.link_person_to_site(p.person, p.clinic.org, "booking")
+    lab = Partner("R05", "lab1")
+    give_profile(p)
+    open_one = made(p, lab, token="ORD-0701")
+    working = accepted(p, lab, token="ORD-0702")
+    done = delivered_with(p, lab, token="ORD-0703")
+    with tenant_transaction(p.clinic.ctx):  # on the waiting list for a full service
+        ctx = p.clinic.ctx
+        WaitEntry.objects.create(person_ref=p.person, service_ref=p.clinic.service,
+                                 organization_ref=p.clinic.org, joined_by_ref=p.patient_actor,
+                                 cell_id=ctx.cell_id, tenant_id=ctx.tenant_id)
+    r = record(p)
+    got = body(r)
+    assert got["requests_cancelled"] == 2 and got["waitlist_closed"] == 1
+    from modules.trust import api as trust_api
+
+    plat = next(t for t in trust_api.list_tenants() if t["type"] == "platform")
+    with tenant_transaction(trust_api.context_for(plat["public_id"])):
+        states = {r.public_id: (r.state, r.shared_identity_enc)
+                  for r in ExchangeRequest.objects.all()}
+    assert states[open_one] == ("cancelled", "") and states[working] == ("cancelled", "")
+    assert states[done][0] == "result_available"  # a delivered result stays
+    with tenant_transaction(p.clinic.ctx):
+        assert WaitEntry.objects.get(person_ref=p.person).closed_reason == "died"

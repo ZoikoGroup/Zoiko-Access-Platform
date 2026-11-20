@@ -157,6 +157,14 @@ EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env("EMAIL_USE_TLS", "") == "1"
 EMAIL_TIMEOUT = 10
 DEFAULT_FROM_EMAIL = env("EMAIL_FROM", "Zoiko Access <no-reply@zoiko.example>")
+# The email provider (DEV-350, LEAD DECISION: SendGrid). "sendgrid" sends through SendGrid's web
+# API with SENDGRID_API_KEY; anything else keeps SMTP above (the development mailbox).
+MAIL_PROVIDER = env("MAIL_PROVIDER", "")
+SENDGRID_API_KEY = env("SENDGRID_API_KEY", "")
+SENDGRID_API_HOST = env("SENDGRID_API_HOST", "")
+SENDGRID_WEBHOOK_PUBLIC_KEY = env("SENDGRID_WEBHOOK_PUBLIC_KEY", "")  # DEV-354, base64 DER
+if MAIL_PROVIDER == "sendgrid":
+    EMAIL_BACKEND = "foundation.sendgrid_backend.SendGridBackend"
 # Where the links in emails point (the patient web app).
 # Field-level encryption (foundation/crypto.py). "id:base64(32 bytes),id:base64(...)". No default:
 # a deployment without a key must not start. FIELD_KEY_ID picks the key that encrypts (default:
@@ -170,6 +178,11 @@ PACK_SIGNING_KEY = env("ZOIKO_PACK_SIGNING_KEY", "")
 # Text messages (DEV-194): "twilio" sends for real, "console" is the development stand-in, ""
 # (the default) sends nothing. Twilio values come from the environment and are never logged.
 TEXT_PROVIDER = env("TEXT_PROVIDER", "")
+# Virus scanning of uploaded files (DEV-345): "clamav" (with CLAMAV_HOST/PORT) or "" (files wait,
+# never opened). Development uses "pretend" (dev.py).
+ATTACHMENT_SCANNER = env("ATTACHMENT_SCANNER", "")
+CLAMAV_HOST = env("CLAMAV_HOST", "")
+CLAMAV_PORT = env("CLAMAV_PORT", "3310")
 TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM = env("TWILIO_FROM", "")

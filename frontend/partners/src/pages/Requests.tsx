@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getIncoming, getOrderSystem, incomingStep, setOrderSystem, type OrderSystem } from "../api";
 import { ValuesEditor, toValues, type ValueRow } from "./ResultValues";
+import { ReportPdf } from "./ReportPdf";
 import type { Incoming, IncomingState } from "../types";
 import { Card, Pill } from "../ui";
 import { Gate, useLoad } from "../useLoad";
@@ -78,6 +79,7 @@ function Row({ r, onChanged }: { r: Incoming; onChanged: () => void }) {
           <button className="btn" disabled={busy || result.trim().length < 3} onClick={() => void run("deliver")}>Mark the result as available</button>
         </div>
       )}
+      {(r.state === "result_available" || r.state === "reviewed") && <ReportPdf requestId={r.id} token={r.token} />}
       {(r.state === "result_available" || r.state === "reviewed") && !correcting && (
         <div><button className="btn ghost" onClick={() => { setCorrecting(true); setResult(r.result_ref); }}>Send a correction</button></div>
       )}

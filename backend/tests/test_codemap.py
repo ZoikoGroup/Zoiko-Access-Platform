@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from foundation import fhir
 from foundation.cell_context import tenant_transaction
 from modules.codemap import api as codemap
 from tests.test_api import API
@@ -148,6 +149,7 @@ def test_a_taken_in_message_lists_its_local_codes_and_a_refused_one_lists_nothin
 
     report = {
         "resourceType": "DiagnosticReport",
+        "category": [fhir.LAB_REPORT_CATEGORY],
         "code": {
             "coding": [
                 {"system": "http://snomed.info/sct", "code": "26604007"},

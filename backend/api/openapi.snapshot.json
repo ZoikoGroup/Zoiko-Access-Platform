@@ -2868,6 +2868,70 @@
     "summary": "The requests sent to this partner. Never shows the clinic's patient reference."
    }
   },
+  "/exchange/incoming/{request_id}/attachment": {
+   "post": {
+    "operationId": "post_exchange_incoming_attachment",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The lab attaches its PDF report to a delivered result: the raw file as the request body,     `?filename=`. At most 5 MB; read here with that cap, not Django's general one."
+   }
+  },
   "/exchange/incoming/{request_id}/{step}": {
    "post": {
     "operationId": "post_exchange_incoming_step",
@@ -3211,6 +3275,100 @@
     "summary": "GET: requests this clinic sent (a doctor: only for their own patients).     POST {partner, kind, label, token, urgency, patient}: send one. References and status only."
    }
   },
+  "/exchange/requests/{request_id}/attachments": {
+   "get": {
+    "operationId": "get_exchange_request_attachments",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The files on a result (names, sizes, scan state), for the ordering clinic's treating     doctor or the lab that sent them."
+   }
+  },
+  "/exchange/requests/{request_id}/attachments/{attachment_id}": {
+   "get": {
+    "operationId": "get_exchange_request_attachment_file",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "attachment_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The PDF itself, for the ordering clinic's treating doctor only, and only once scanned     clean. Recorded. Sent as a download, never shown inside the app."
+   }
+  },
   "/exchange/requests/{request_id}/history": {
    "get": {
     "operationId": "get_exchange_history",
@@ -3295,6 +3453,49 @@
      }
     ],
     "summary": "The lab's summary of a delivered result and its rating (normal, abnormal, critical). A     treating doctor of that patient only: not clinic staff, not the patient. Every read is     recorded."
+   }
+  },
+  "/exchange/requests/{request_id}/trend": {
+   "get": {
+    "operationId": "get_exchange_request_trend",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "?key=<SNOMED code or value name>: that value across this patient's results at the clinic,     oldest first (DEV-339). The same rule as reading a result: a treating doctor only."
    }
   },
   "/exchange/requests/{request_id}/{step}": {
@@ -3571,6 +3772,58 @@
     },
     "security": [],
     "summary": "A partner's signed FHIR message (GHE-13 T-25, T-60; DEV-315, docs/FHIR-DESIGN.md)."
+   }
+  },
+  "/hl7": {
+   "post": {
+    "operationId": "post_hl7_inbound",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "A partner's signed HL7 v2 lab result (ORU^R01), DEV-340: read into the same FHIR shape and     then treated exactly like a FHIR message (same signature, checks, holding and delivery)."
    }
   },
   "/locations": {
@@ -11160,6 +11413,70 @@
     "summary": "staff family resume"
    }
   },
+  "/staff/family-requests/{grant_id}/review": {
+   "post": {
+    "operationId": "post_staff_family_review",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "grant_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "staff family review"
+   }
+  },
   "/staff/family-requests/{grant_id}/suspend": {
    "post": {
     "operationId": "post_staff_family_suspend",
@@ -11327,7 +11644,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "Clinic staff discards or requests resend for a quarantined FHIR message."
+    "summary": "Clinic staff discards, requests a resend for, or retries (DEV-338) a held FHIR message."
    }
   },
   "/staff/integrations/deliveries": {
@@ -13666,6 +13983,58 @@
      }
     ],
     "summary": "waitlist leave"
+   }
+  },
+  "/webhooks/sendgrid/events": {
+   "post": {
+    "operationId": "post_sendgrid_events",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "SendGrid's delivery receipts (DEV-354). No sign-in: SendGrid's ECDSA signature IS the     credential and is checked before the body is read. Only our own email id and the outcome     are used; address"
    }
   },
   "/webhooks/twilio/status": {

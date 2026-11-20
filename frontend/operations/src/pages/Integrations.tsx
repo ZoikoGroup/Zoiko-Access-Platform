@@ -24,6 +24,7 @@ const QUARANTINE_STATE: Record<FhirQuarantineState, { text: string; kind: PillKi
   held: { text: "Quarantined", kind: "warn" },
   discarded: { text: "Discarded", kind: "bad" },
   resend_requested: { text: "Resend Requested", kind: "info" },
+  released: { text: "Taken in after a retry", kind: "ok" },
 };
 
 function FhirQuarantineRow({ item, onDone }: { item: FhirQuarantineItem; onDone: () => Promise<void> }) {
@@ -31,6 +32,16 @@ function FhirQuarantineRow({ item, onDone }: { item: FhirQuarantineItem; onDone:
   const [error, setError] = useState("");
   const [notePrompt, setNotePrompt] = useState<"discard" | "re-request" | null>(null);
   const [note, setNote] = useState("");
+
+  async function retry() {
+    setBusy(true); setError("");
+    try {
+      const done = await fhirQuarantineStep(item.public_id, "retry");
+      if (done.state === "held") setError("Still held: " + (done.issues?.[0]?.text ?? "it does not pass the checks yet") + ".");
+      else await onDone();
+    } catch (err) { setError(err instanceof Error ? err.message : "Action failed"); }
+    finally { setBusy(false); }
+  }
 
   async function handleStep(step: "discard" | "re-request") {
     setBusy(true);
@@ -115,6 +126,9 @@ function FhirQuarantineRow({ item, onDone }: { item: FhirQuarantineItem; onDone:
               <button className="btn ghost" disabled={busy} onClick={() => setNotePrompt("re-request")}>
                 Ask to resend
               </button>
+              <button className="btn ghost" disabled={busy} onClick={() => void retry()} title="Check it again, for example after a code match was approved">
+                Try again
+              </button>
             </div>
           )}
         </div>
@@ -126,12 +140,14 @@ function FhirQuarantineRow({ item, onDone }: { item: FhirQuarantineItem; onDone:
 function FhirQuarantineCard() {
   const [items, setItems] = useState<FhirQuarantineItem[] | null>(null);
   const [filter, setFilter] = useState<string>("held");
+  const [more, setMore] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     try {
       const res = await listFhirQuarantine(filter === "all" ? undefined : filter);
-      setItems(res);
+      setItems(res.items);
+      setMore(res.next_cursor ?? null);
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load quarantine items");
@@ -172,6 +188,14 @@ function FhirQuarantineCard() {
         <div className="empty">No quarantined messages found.</div>
       ) : (
         items.map((item) => <FhirQuarantineRow key={item.public_id} item={item} onDone={load} />)
+      )}
+      {more && (
+        <button className="btn ghost" onClick={() => void (async () => {
+          try {
+            const res = await listFhirQuarantine(filter === "all" ? undefined : filter, more);
+            setItems([...(items ?? []), ...res.items]); setMore(res.next_cursor ?? null);
+          } catch (e) { setError(e instanceof Error ? e.message : "Could not load older messages"); }
+        })()}>Show older messages</button>
       )}
     </Card>
   );
@@ -260,11 +284,13 @@ function NewEndpoint({ onDone }: { onDone: () => Promise<void> }) {
 export function Integrations() {
   const [endpoints, setEndpoints] = useState<WebhookEndpoint[] | null>(null);
   const [rows, setRows] = useState<WebhookDelivery[]>([]);
+  const [more, setMore] = useState<string | null>(null);
   const [error, setError] = useState("");
   const load = useCallback(async () => {
     try {
       setEndpoints(await listWebhooks());
-      setRows(await listWebhookDeliveries());
+      const page = await listWebhookDeliveries();
+      setRows(page.deliveries); setMore(page.next_cursor ?? null);
       setError("");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load the integrations"); }
   }, []);
@@ -302,6 +328,12 @@ export function Integrations() {
               {d.state === "dead_letter" && <button className="btn ghost" onClick={() => void redrive(d.public_id)}>Send again</button>}
             </div>
           ))}
+          {more && (
+            <button className="btn ghost" onClick={() => void (async () => {
+              try { const page = await listWebhookDeliveries(more); setRows([...rows, ...page.deliveries]); setMore(page.next_cursor ?? null); }
+              catch (e) { setError(e instanceof Error ? e.message : "Could not load older deliveries"); }
+            })()}>Show older deliveries</button>
+          )}
         </Card>
         <FhirQuarantineCard />
         <Partners />

@@ -367,3 +367,63 @@ def test_a_rejected_request_records_no_proof(p):
     with tenant_transaction(p.clinic.ctx):
         grant = ProxyGrant.objects.get(public_id=made["id"])
     assert grant.proof_kind == "" and grant.proof_ref == ""
+
+
+# ------------------------------------------------ an adult's attorney or deputy (DEV-352)
+ADULT = {"relationship": "lpa_attorney", "name": "Mira Rao", "birth_date": "1941-03-09"}
+
+
+def adult_ready(p, **over):
+    """An attorney's request whose document one staff member ("ops") has checked."""
+    made = requested(p, **{**ADULT, **over})
+    assert decide(p, made["id"], "proof-received").status_code == 200
+    return made
+
+
+def test_an_adult_needs_the_right_document_checked_by_one_and_approved_by_another(p):
+    p.staff("ops2")
+    made = adult_ready(p)
+    lpa = {"verified": True, "proof_kind": "lpa_health_welfare", "proof_ref": "LPA-77001"}
+    assert decide(p, made["id"], "approve", **{**lpa, "proof_kind": "birth_record"}
+                  ).status_code == 422  # the wrong kind of document
+    assert decide(p, made["id"], "approve", **lpa).status_code == 403  # the checker cannot approve
+    done = decide(p, made["id"], "approve", subject="ops2", **lpa)
+    assert done.status_code == 200, done.content
+    import datetime as dt
+
+    answer = json.loads(done.content)["request"]
+    assert answer["status"] == "active" and answer["proof_kind"] == "lpa_health_welfare"
+    until = dt.date.fromisoformat(answer["valid_until"][:10])
+    assert until <= dt.date.today() + dt.timedelta(days=366)  # at most a year
+
+
+def test_an_adult_link_cannot_skip_the_document_check_or_run_past_a_year(p):
+    import datetime as dt
+
+    p.staff("ops2")
+    early = requested(p, **ADULT)
+    lpa = {"verified": True, "proof_kind": "lpa_health_welfare", "proof_ref": "LPA-77002"}
+    assert decide(p, early["id"], "approve", subject="ops2", **lpa).status_code == 409
+    made = adult_ready(p, name="Mira Rao Two")
+    later = (dt.date.today() + dt.timedelta(days=400)).isoformat()
+    assert decide(p, made["id"], "approve", subject="ops2", valid_until=later,
+                  **lpa).status_code == 422
+    deputy = requested(p, relationship="court_deputy", name="Dev Rao", birth_date="1950-01-01")
+    decide(p, deputy["id"], "proof-received")
+    assert decide(p, deputy["id"], "approve", subject="ops2", verified=True,
+                  proof_kind="court_order", proof_ref="COP-12345").status_code == 200
+
+
+def test_these_relationships_are_for_adults_only_and_are_reviewed_yearly(p):
+    assert ask(p, relationship="lpa_attorney", birth_date="2015-01-01").status_code == 422
+    p.staff("ops2")
+    made = adult_ready(p)
+    decide(p, made["id"], "approve", subject="ops2", verified=True,
+           proof_kind="lpa_health_welfare", proof_ref="LPA-77003")
+    path = f"staff/family-requests/{made['id']}/review"
+    assert p.post(path, {}, subject="ops").status_code == 422  # must confirm it is in force
+    r = p.post(path, {"still_in_force": True}, subject="ops")
+    assert r.status_code == 200, r.content
+    child = approved(p)  # a parent's link has no yearly review
+    assert p.post(f"staff/family-requests/{child['id']}/review", {"still_in_force": True},
+                  subject="ops").status_code == 409

@@ -14,6 +14,7 @@ from typing import Any
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 
+from foundation import pagination
 from foundation.cell_context import require_context
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.outbox import emit
@@ -310,6 +311,7 @@ def get_referral(referral_ref: str) -> dict[str, Any]:
 def list_referrals(
     *, referrer_ref: str = "", person_refs: list[str] | None = None,
     destination_organization_ref: str = "", limit: int = 200,
+    page: pagination.PageRequest | None = None,
 ) -> list[dict[str, Any]]:
     """Newest first. Exactly the filters given are applied; the caller decides which are allowed."""
     rows = Referral.objects.filter(**_scope())
@@ -319,17 +321,19 @@ def list_referrals(
         rows = rows.filter(person_ref__in=person_refs)
     if destination_organization_ref:
         rows = rows.filter(destination_organization_ref=destination_organization_ref)
-    return [referral_dict(r) for r in rows.order_by("-created_at")[:limit]]
+    return [referral_dict(r) for r in pagination.apply(rows, page, cap=limit)]
 
 
-def list_for_answerer(actor_ref: str, limit: int = 200) -> list[dict[str, Any]]:
+def list_for_answerer(
+    actor_ref: str, limit: int = 200, page: pagination.PageRequest | None = None
+) -> list[dict[str, Any]]:
     """Referrals this doctor is named to answer: as owner of the referral, or as the fallback of
     the site it was sent to. Newest first."""
     fallback_sites = list(ReferralInbox.objects.filter(
         fallback_ref=actor_ref, **_scope()).values_list("organization_ref", flat=True))
     rows = Referral.objects.filter(**_scope()).filter(
         Q(owner_ref=actor_ref) | Q(destination_organization_ref__in=fallback_sites))
-    return [referral_dict(r) for r in rows.order_by("-created_at")[:limit]]
+    return [referral_dict(r) for r in pagination.apply(rows, page, cap=limit)]
 
 
 def referral_counts() -> dict[str, int]:

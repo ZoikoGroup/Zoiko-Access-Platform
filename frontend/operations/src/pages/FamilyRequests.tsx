@@ -14,7 +14,12 @@ const STATUS: Record<string, { text: string; kind: "ok" | "warn" | "info" | "bad
   expired: { text: "Ran out", kind: "bad" },
 };
 
-const RELATIONSHIP: Record<string, string> = { parent: "parent", guardian: "legal guardian", caregiver: "caregiver" };
+const RELATIONSHIP: Record<string, string> = {
+  parent: "parent", guardian: "legal guardian", caregiver: "caregiver",
+  lpa_attorney: "attorney (health and welfare LPA)", court_deputy: "court-appointed deputy",
+};
+// An adult's attorney or deputy (DEV-352): this document only, checked by one of you, approved by another.
+const ADULT_PROOF: Record<string, string> = { lpa_attorney: "lpa_health_welfare", court_deputy: "court_order" };
 // What a guardian can be allowed to do. Medical records stay closed; consultation notes are a
 // separate part, read only while the child is under 16 (DEV-324).
 const SCOPES: [string, string][] = [
@@ -22,12 +27,13 @@ const SCOPES: [string, string][] = [
   ["messages", "Send and read messages with the clinic"],
   ["referrals", "See referrals"],
   ["insurance", "See and manage insurance"],
-  ["notes", "Read consultation notes (only while the child is under 16)"],
+  ["notes", "Read consultation notes (a child under 16, or an adult they are attorney or deputy for)"],
 ];
 
 const PROOF_KINDS: [string, string][] = [
   ["birth_record", "Birth record"], ["adoption_record", "Adoption record"], ["court_order", "Court order"],
   ["power_of_attorney", "Power of attorney"], ["carer_registration", "Carer registration"],
+  ["lpa_health_welfare", "Registered LPA for health and welfare"],
   ["patient_written_consent", "The patient's written consent"], ["other_document", "Another document"],
 ];
 
@@ -52,6 +58,7 @@ function Request({ r, onDone }: { r: FamilyRequest; onDone: () => Promise<void> 
       <div className="info">
         <b>{r.name || "Unnamed"} <Pill kind={STATUS[r.status]?.kind ?? "info"}>{STATUS[r.status]?.text ?? r.status}</Pill></b>
         <small>Born {r.birth_date || "unknown"}. Asked by {r.requested_by_name ?? r.requested_by} as their {RELATIONSHIP[r.relationship] ?? r.relationship}.</small>
+        {ADULT_PROOF[r.relationship] && <small><b>An adult:</b> only with a {PROOF_KINDS.find(([v]) => v === ADULT_PROOF[r.relationship])?.[1]}. Mark the document as received first; a different member of staff then approves. It lasts at most a year.</small>}
         <small>Asked on {r.requested_at.slice(0, 10)}</small>
         <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
           <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
@@ -121,6 +128,10 @@ function Approved({ r, onDone }: { r: FamilyRequest; onDone: () => Promise<void>
         </span>
       )}
       {r.status === "suspended" && <button className="btn" disabled={busy} onClick={() => void run(() => familyStep(r.id, "resume"))}>Resume</button>}
+      {(r.status === "active" || r.status === "expired") && ADULT_PROOF[r.relationship] && (
+        <button className="btn ghost" disabled={busy} title="You checked the document is still in force (not revoked, the order not ended)"
+          onClick={() => void run(() => familyStep(r.id, "review"))}>Yearly review: still in force{r.valid_until ? ` (due ${r.valid_until.slice(0, 10)})` : ""}</button>
+      )}
     </div>
   );
 }

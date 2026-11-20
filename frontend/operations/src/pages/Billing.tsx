@@ -150,11 +150,17 @@ export function Billing() {
   const [canSet, setCanSet] = useState(false);
   const [invoices, setInvoices] = useState<InvoiceRow[] | null>(null);
   const [canAdmin, setCanAdmin] = useState(false);
+  const [more, setMore] = useState<string | null>(null);
   const [error, setError] = useState("");
+  async function older() {
+    if (!more) return;
+    try { const i = await getInvoices(more); setInvoices([...(invoices ?? []), ...i.invoices]); setMore(i.next_cursor ?? null); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load older invoices"); }
+  }
   const load = useCallback(async () => {
     try {
       const f = await getBillingFees(); setFees(f.fees); setCanSet(f.can_set);
-      const i = await getInvoices(); setInvoices(i.invoices); setCanAdmin(i.can_admin); setError("");
+      const i = await getInvoices(); setInvoices(i.invoices); setCanAdmin(i.can_admin); setMore(i.next_cursor ?? null); setError("");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load billing"); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -168,9 +174,10 @@ export function Billing() {
       <div className="grid">
         <Fees canSet={canSet} />
         <NewInvoice fees={fees} onDone={load} />
-        <Card title={`Invoices (${invoices?.length ?? 0})`}>
+        <Card title={`Invoices (${invoices?.length ?? 0}${more ? " shown" : ""})`}>
           {invoices === null ? <div className="empty">Loading…</div> : invoices.length === 0
             ? <div className="empty">No invoice yet.</div> : invoices.map((i) => <Row key={i.public_id} inv={i} canAdmin={canAdmin} onDone={load} />)}
+          {more && <div style={{ marginTop: 8 }}><button className="btn ghost" onClick={() => void older()}>Show older invoices</button></div>}
         </Card>
       </div>
     </>

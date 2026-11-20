@@ -119,7 +119,8 @@ def send_due(*, limit: int = 20, clock: Clock | None = None) -> SendResult:
     for pk, ref, address, subject, body, attempts in claimed:
         try:
             EmailMessage(subject=subject, body=body, to=[address],
-                         from_email=settings.DEFAULT_FROM_EMAIL).send(fail_silently=False)
+                         from_email=settings.DEFAULT_FROM_EMAIL,
+                         headers={"X-Zoiko-Ref": ref}).send(fail_silently=False)
         except Exception as exc:  # noqa: BLE001 - any failure means "try again later"
             error = type(exc).__name__[:64]
             _record_attempt(ref, attempts, "failed", error)
@@ -163,4 +164,24 @@ def mail_stats(clock: Clock | None = None) -> dict[str, int]:
         "failed": rows.filter(state=MailState.FAILED).count(),
         "failed_attempts_24h": tries.filter(outcome="failed").count(),
         "accepted_attempts_24h": tries.filter(outcome="accepted").count(),
+        **{f"receipt_{s}": rows.filter(delivery_status=s).count() for s in DELIVERY_STATES},
     }
+
+
+DELIVERY_STATES = ("delivered", "bounced", "dropped", "deferred")
+# A later word never undoes a final one: delivered, bounced and dropped are final.
+_FINAL = ("delivered", "bounced", "dropped")
+
+
+def record_delivery(ref: str, status: str, at: dt.datetime) -> bool:
+    """The provider's receipt for one email (DEV-354). Unknown ids and statuses are ignored; a
+    final outcome is never replaced by a later "deferred". Returns True if something changed."""
+    if status not in DELIVERY_STATES or not isinstance(ref, str) or not 1 <= len(ref) <= 32:
+        return False
+    with transaction.atomic():
+        row = QueuedEmail.objects.select_for_update().filter(public_id=ref).first()
+        if row is None or row.delivery_status in _FINAL:
+            return False
+        row.delivery_status, row.delivery_at = status, at
+        row.save(update_fields=["delivery_status", "delivery_at", "updated_at"])
+        return True

@@ -160,6 +160,35 @@ class ExchangeResultVersion(CellScopedModel):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="exchange_resver_scope_idx")]
 
 
+class ScanState(models.TextChoices):
+    PENDING = "pending", "Waiting for the virus check"
+    CLEAN = "clean", "Checked: no virus found"
+    INFECTED = "infected", "A virus was found: it can never be opened"
+
+
+class ResultAttachment(CellScopedModel):
+    """A lab's PDF report attached to a result (DEV-345, LEAD DECISION). Stored ENCRYPTED; only the
+    ordering clinic's treating doctor may open it, and only once a virus scan found it clean. It
+    belongs to the result version it came with; a correction keeps it."""
+
+    request = models.ForeignKey(ExchangeRequest, on_delete=models.PROTECT, related_name="+")
+    result_version = models.PositiveSmallIntegerField()
+    filename = models.CharField(max_length=100)
+    size = models.PositiveIntegerField()
+    sha256 = models.CharField(max_length=64)
+    content_enc = models.TextField()  # the file, encrypted, as text
+    scan_state = models.CharField(max_length=10, choices=ScanState.choices,
+                                  default=ScanState.PENDING)
+    scanned_at = models.DateTimeField(null=True, blank=True)
+    uploaded_by_ref = models.CharField(max_length=22)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="exchange_attach_scope_idx"),
+            models.Index(fields=["scan_state"], name="exchange_attach_scan_idx"),
+        ]
+
+
 class ExchangeEvent(CellScopedModel):
     """What happened to a request, who did it and on which side: the history both sides may read."""
 

@@ -45,6 +45,14 @@ export function MyNotes() {
         {open && (
           <Card title={`Visit on ${open.note_date}`}>
             <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }} aria-label="Note text">{open.erased ? "The text of this note was erased when the time the NHS keeps notes ran out." : open.body}</pre>
+            {open.diagnoses && open.diagnoses.length > 0 && (
+              <div role="region" aria-label="Diagnoses" style={{ marginTop: 8 }}>
+                <b>What your doctor recorded</b>
+                <ul style={{ margin: "4px 0" }}>
+                  {open.diagnoses.map((d) => <li key={d.code}>{d.text}{d.status === "provisional" ? " (not yet confirmed)" : d.status === "ruled_out" ? " (ruled out)" : ""}</li>)}
+                </ul>
+              </div>
+            )}
             {open.addenda && open.addenda.length > 0 && (
               <div role="region" aria-label="Addenda" style={{ marginTop: 8 }}>
                 <b>Added later by your doctor</b>

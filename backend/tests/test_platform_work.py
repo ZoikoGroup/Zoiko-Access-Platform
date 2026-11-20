@@ -75,10 +75,13 @@ def test_open_incidents_are_counted_and_the_high_ones_apart(platform):
 def test_a_closed_incident_is_no_longer_counted(platform):
     keep = incident(platform, severity="sev1")
     done = incident(platform, severity="sev1")
-    post(platform, f"platform/incidents/{done}/resolve", {"resolution": "fixed"})
+    # A SEV-0 or SEV-1 incident closes only with a restoration notice (DEV-202); check that the
+    # close itself worked, so a refusal can never pass for "still open".
+    closing = {"resolution": "fixed", "restoration_notice": "Customers told at 10:40."}
+    assert post(platform, f"platform/incidents/{done}/resolve", closing).status_code == 200
     shown = work(platform)
     assert shown["open_incidents"] == 1 and shown["high_incidents"] == 1
-    post(platform, f"platform/incidents/{keep}/resolve", {"resolution": "fixed"})
+    assert post(platform, f"platform/incidents/{keep}/resolve", closing).status_code == 200
     assert work(platform) == QUIET
 
 

@@ -16,6 +16,10 @@ async function ask(page: Page, who: string, button: RegExp, reason: string) {
   const row = await openCustomer(page, who);
   await row.getByRole("button", { name: button }).click();
   await row.getByLabel("Reason").fill(reason);
+  // Needed when the customer still has open referrals or partner requests (other robots may
+  // leave some); accepted, and harmless, when there are none.
+  const plan = row.getByLabel("Continuity plan");
+  if (await plan.count()) await plan.fill("Robot test: the clinic's own staff keep looking after these patients.");
   await row.getByRole("button", { name: "Send request" }).click();
   await expect(page.getByText("Request sent. A second person must approve it.")).toBeVisible();
   await expect(row.getByText(/requested by/)).toBeVisible();

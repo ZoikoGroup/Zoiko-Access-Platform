@@ -141,6 +141,7 @@ class FhirQuarantineState(models.TextChoices):
     HELD = "held", "Held for staff review"
     DISCARDED = "discarded", "Discarded by staff"
     RESEND_REQUESTED = "resend_requested", "Resend requested by staff"
+    RELEASED = "released", "Taken in after a retry"  # DEV-338
 
 
 class FhirQuarantine(CellScopedModel):

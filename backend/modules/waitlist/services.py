@@ -173,6 +173,21 @@ def close_for_booking(person_ref: str, service_ref: str) -> int:
         return len(entries)
 
 
+def close_for_death(person_ref: str) -> int:
+    """The patient is recorded as having died (DEV-343): every open entry closes, so no time is
+    offered to them. Returns how many closed."""
+    with transaction.atomic():
+        entries = list(WaitEntry.objects.select_for_update().filter(
+            person_ref=person_ref, state__in=OPEN_STATES, **_scope()))
+        for entry in entries:
+            entry.state = WaitState.CLOSED
+            entry.closed_reason = CloseReason.DIED
+            entry.entity_version += 1
+            entry.save(update_fields=["state", "closed_reason", "entity_version", "updated_at"])
+            _audit("system", "waitlist.closed_patient_died", entry.public_id)
+        return len(entries)
+
+
 def expire_old_offers(*, older_than: dt.timedelta | None = None, clock: Clock | None = None) -> int:
     """An offer nobody used goes back to waiting after a while, so the next free time can be
     offered again. Runs in the worker for the bound tenant."""

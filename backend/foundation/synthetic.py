@@ -77,6 +77,7 @@ def example_report(patient: dict[str, str], code: str = "26604007") -> dict[str,
     return {
         "resourceType": "DiagnosticReport",
         "id": f"{patient['id']}-report",
+        "category": [fhir.LAB_REPORT_CATEGORY],
         "status": status,
         "code": {"coding": coding},
         "subject": {"reference": f"Patient/{_order_ref(patient)}"},

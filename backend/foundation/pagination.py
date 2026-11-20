@@ -70,3 +70,23 @@ def page(
         else None
     )
     return found, nxt
+
+
+class PageRequest:
+    """What a caller asked for when it wants one page of a list (DEV-337): the size, the cursor
+    from the previous page, who is asking and which list. After the list is read, `next_cursor`
+    holds the cursor for the following page (None at the end)."""
+
+    def __init__(self, *, limit: int, cursor: str | None, actor: str, lst: str) -> None:
+        self.limit, self.cursor, self.actor, self.lst = limit, cursor, actor, lst
+        self.next_cursor: str | None = None
+
+
+def apply(rows: QuerySet[Any], request: PageRequest | None, *, cap: int = 200) -> list[Any]:
+    """Without a page request: the newest `cap` rows, as the list always gave. With one: that page,
+    and the next cursor is stored on the request."""
+    if request is None:
+        return list(rows.order_by("-created_at")[:cap])
+    found, request.next_cursor = page(
+        rows, limit=request.limit, cursor=request.cursor, actor=request.actor, lst=request.lst)
+    return found

@@ -1914,6 +1914,142 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **What was done:** a clinic administrator (R13) who proved their own number (DEV-334) can turn on "text me once a day when partner requests have been on hold for more than 3 days". The hourly escalation job then queues one text a day per such administrator, from a new approved template, "Something at your clinic needs a decision on Zoiko Access. Please sign in.", never what or whom; only where texts are switched on for the market. The day last texted is kept (migration `comms/0007_hold_texts`), so a missing email address cannot make it repeat hourly. `trust.actors_with_role` lists who holds a role. The staff app's Settings page has the "Urgent alerts by text" card; the switch shows for administrators only.
 - **Checked:** 1 new test in `test_alert_phone.py` (administrators only; once a day; never to one who did not ask; the fixed wording); escalation, text and alert tests 34 passed; OpenAPI snapshot refreshed and contract, identifier, alert and death tests 67 passed; no missing migrations; mypy, ruff and import contracts clean; the staff and doctor apps type-check.
 
+### DEV-337: lists that stopped silently at 200 rows now page (follows DEV-171, DEV-314, DEV-320)
+
+- **Why:** many lists returned only their newest 100 or 200 rows, so older invoices, payments, referrals and held messages simply disappeared from the screen with no sign that more existed.
+- **What was done:** one shared helper, `foundation.pagination.PageRequest` with `apply()`, so a list function takes an optional page request. Without one it gives exactly what it gave before; with `?limit=` (1 to 100) and/or `?cursor=` it gives one page, newest first, and `next_cursor` (null at the end). The cursor is the same signed one as DEV-171: tied to the login and the list, expires after 15 minutes, carries no permission. Lists now paging: invoices and payments (staff), webhook deliveries, inbound events and held FHIR messages (staff), the doctor's sent referrals and referrals to answer, a patient's referrals, a patient's own lab requests, claims and insurance cover. The staff Billing page now loads 50 invoices at a time with "Show older invoices".
+- **Also (20 Nov):** "Show older" buttons on the staff app's held FHIR messages and webhook deliveries.
+- **Not built:** "show more" buttons on the remaining screens (they still ask for the whole list, as before); a patient's requests list filters rows the login may not see after the page is read, so a page can be shorter than the limit.
+- **Checked:** `test_paging_lists.py`, 3 tests (held FHIR messages page to the end with nothing twice and old screens still get everything; a cursor works only for its own list and login; webhook deliveries page); the existing billing, payments, claims, coverage, referral, FHIR API, webhook and pagination tests; mypy, ruff and import contracts clean; the staff app type-checks.
+
+### DEV-338: held messages are tried again once a code is approved; mappings inside a Bundle (FHIR design step 4)
+
+- **What was done:** approved code mappings (DEV-327) now apply to every report and value inside a `Bundle` too, not only a single report's own code. A held FHIR message can be **tried again**: by clinic staff ("Try again" in the staff app, `POST staff/fhir/quarantine/{id}/retry`) or by an hourly job (`integration.fhir_retry`) for messages held over a code. A retry takes the message in exactly as if it had just arrived (mappings, UK Core, matching the order, delivery, critical alert); if it passes, the held row becomes **"taken in after a retry"** (`released`, migration `integration/0006`), audited, with the note "approved code mapping"; if not, it stays held with its problems brought up to date. Nobody has to ask the partner to resend.
+- **Also fixed:** local codes from the FHIR intake were never added to the two-person review list (only the older partner route did it); now every FHIR and HL7 message lists its local codes, including those inside a Bundle, but not the standard rating codes (N, A, CRIT).
+- **Checked:** 3 end-to-end tests in `test_exchange.py` (the hourly retry takes a message in once its code is approved, once only; staff retry, a still-wrong message stays held, a decided one cannot be retried, reception may not; local codes inside a Bundle are mapped).
+
+### DEV-339: a value over time for the treating doctor
+
+- **What was done:** `GET exchange/requests/{id}/trend?key=` gives one measured value (by SNOMED CT code, or by name when it has none) across the patient's results at this clinic, oldest first, at most 100 points; only the current version of a corrected result counts. The same rule as reading a result: a treating doctor only, every look audited. In the doctor app, a test's name in the values table opens its history: a small line with the normal range shaded, and each date, value, flag and whether it was reviewed.
+- **Checked:** 2 tests in `test_exchange.py` (oldest first, by code and by name, a correction replaces its point; only a treating doctor, and the key is required).
+
+### DEV-340: HL7 v2 lab results (ORU^R01)
+
+- **What was done:** `POST /api/v1/hl7` takes a signed HL7 v2 ORU^R01 message (the same signature and delivery id as FHIR). `modules/integration/hl7.py` reads it into the FHIR Bundle the intake already takes (a DiagnosticReport and its Observations, DEV-330), and from there it goes through exactly the same steps: UK Core, approved code mappings, matching the order (OBR-2 or ORC-2, our request id), delivery or held for a person, the critical alert, corrections (OBR-25 C), retries. Nothing about the patient is taken from the message: the **PID segment is ignored** (names, numbers, birth dates) and the report is about a per-order pseudonym. Read: OBR-4 the test, OBX-2 value type (NM a number, otherwise text), OBX-3 test (SCT = SNOMED CT, LN = LOINC, anything else a local code for review), OBX-5 value, OBX-6 unit, OBX-7 range "low-high", OBX-8 flag (HH, LL, AA critical), OBX-11 status, the NTE after OBR as the conclusion; the overall rating is the worst flag; HL7 escapes are read back. An unreadable message, or one that is not ORU^R01, is held with the reason. The developer sandbox's checker also reads HL7 v2.
+- **Not built:** other HL7 message types (orders out, ADT); MLLP transport (messages come over HTTPS like FHIR); acknowledgements (ACK) in HL7 form (the answer is the same JSON receipt as FHIR).
+- **Checked:** `test_hl7.py`, 4 tests (an ORU becomes a valid UK Core Bundle naming nobody, with values, ranges, flags and the worst rating; a correction and local codes; unreadable messages refused clearly; escapes); 2 end-to-end tests in `test_exchange.py` (a signed HL7 result reaches the doctor with its values, summary and critical email; an unreadable message is held and local codes go for review); 1 in `test_sandbox.py`; the exchange file 96 passed; OpenAPI snapshot refreshed; contract and identifier tests passed; mypy, ruff and import contracts clean.
+- **Was open, now found and fixed (DEV-341):** a test of DEV-323 failed once in a combined run; the cause was a real bug, not the test.
+
+### DEV-341: an order to a lab with several sites was sent only some of the time (fix)
+
+- **What was wrong:** when a patient agreed, the order went to the lab's chosen system by looking at the lab's "first" organisation. The database returns a customer's organisations in no fixed order, so for a lab with more than one site (as the test lab has) the order was sent only when the site that made the choice happened to come first; otherwise nothing was sent and nothing said so (a send failure never undoes the agreement). It showed up as a test that failed once in a combined run.
+- **What was done:** the choice is now read across **all** the lab's organisations: exactly one chosen system sends the order; two sites that chose **different** systems send nothing rather than guess (logged; the lab still has the order in the partner app). The clinic's own organisation on the queued operation is now picked in a fixed order too. A search found no other place that picks "the first organisation" without an order.
+- **Checked:** 2 new tests in `test_exchange.py` (the order is sent whichever site chose the system; two different choices send nothing and the agreement stands); the order tests passed three times in a row; ruff and mypy clean.
+
+### DEV-342: the UK Core rules checked against the published release (fhir.r4.ukcore.stu2 2.0.2)
+
+- **Why:** DEV-319 applied only the UK Core rules we were sure of and said the full rules must be checked against the published package before anything goes live.
+- **What was done:** downloaded the official UK Core package `fhir.r4.ukcore.stu2` version **2.0.2** from the public FHIR package registry (checksum sha1 `c18ff745a590bcac42dcbe0041714570ee433c00`, the same as the registry lists) and read what its lab profiles add to plain FHIR: `UKCoreDiagnosticReportLab` 2.0.0, `UKCoreObservationLab` 2.0.0 and `UKCoreServiceRequest` 2.5.0.
+  - **Found and fixed:** both lab profiles **require a category** (a report: v2-0074 `LAB`; a value: observation-category `laboratory`), but our checker refused `category` as an unknown element, so **every message from a lab that follows UK Core would have been held**. `category` is now accepted (1 to 5 codes) on ServiceRequest, DiagnosticReport and Observation, and under UK Core a lab report and each lab value must carry the lab category. Our own builders add it: the HL7 v2 reader (DEV-340) and the sandbox examples (DEV-329).
+  - **Confirmed:** `subject` is required on the lab report (we already required it); the other profile changes are "must support" or preferred code lists, not rules that refuse a message.
+  - **Recorded as Zoiko's own, not UK Core's:** UK Core only *prefers* SNOMED CT for the report, value and request codes; requiring it is the lead's stricter rule (DEV-321), now said so in the code.
+- **Not done:** the package itself is not kept in the repository (it is public and versioned; the version and checksum above are the record); a validator that runs the complete StructureDefinitions (slicing, every invariant) instead of our hand-written subset.
+- **Checked:** 2 new tests in `test_fhir_validator.py` (a report with the lab category is accepted, without it held under UK Core but not plain FHIR, a radiology category held; each value needs the laboratory category); every hand-built test message now carries the category, as a UK Core lab system's would; FHIR, HL7, sandbox and code-mapping tests 81 passed, and the exchange FHIR tests 65 passed; ruff clean.
+
+### DEV-343: when a death is recorded, waiting lists close and open lab requests stop (LEAD DECISION)
+
+- **Decided by the project lead (20 Nov 2026):** also close waiting lists and open lab requests (telling the treating doctors and push notifications were not chosen).
+- **What was done:** recording a death (DEV-333) now also closes every open waiting-list entry of the patient (reason "the patient has died", migration `waitlist/0002`), and cancels the clinic's partner requests for them that are not yet delivered, erasing any name already shared with the lab; a delivered result stays as it is. Both are audited. The answer and the staff app's Death card say how many appointments, lab requests and waiting lists were closed. If the lab part cannot run (the platform space unreachable), the death record still stands and the failure is logged.
+- **Checked:** 1 new test in `test_death.py` (two open requests cancelled with the shared name erased, the delivered one kept, the waiting-list entry closed "died"); the death tests now run with Zoiko's platform space, as a real system has; 7 passed.
+
+### DEV-344: coded diagnoses on a visit note (LEAD DECISION)
+
+- **Decided by the project lead (20 Nov 2026):** diagnoses only, coded (SNOMED CT), encrypted, signed like notes; no prescribing.
+- **What was done:** a visit note may carry up to 10 diagnoses, each a valid SNOMED CT concept, its words (up to 120 characters) and a status (confirmed, provisional, ruled out); nothing else is accepted. They are stored **encrypted** with the note (migration `clinicalnote/0004`), changed only while it is a draft (an edit without diagnoses keeps them), signed with it, copied into a correction, erased with the text at the end of retention (DEV-324), and never shown in a list. The doctor app's draft has a "Diagnoses" editor and a signed note shows them; the patient sees them with the note after the same 24 hours (DEV-306), in plain words ("not yet confirmed", "ruled out"). Behind the notes switch like notes. No prescribing (drug safety and e-prescribing rules need their own review).
+- **Checked:** 2 new tests in `test_clinical_notes.py` (carried, kept on edit, fixed once signed, copied on correction, shown to the patient; stored encrypted and every bad shape refused); 36 passed.
+
+### DEV-345: the lab's PDF report, for the treating doctor, virus-checked (LEAD DECISION)
+
+- **Decided by the project lead (20 Nov 2026):** a lab may attach its PDF report to a result; only the treating doctor opens it; encrypted, size-limited, virus-scanned before anyone opens it.
+- **What was done:** `POST exchange/incoming/{id}/attachment?filename=` (the lab that handles the request, on a delivered result): a PDF only, checked by its content (`%PDF-` and `%%EOF`), at most 5 MB (read with that cap, not Django's general one) and 5 per result, and refused if it holds active content (scripts, launch or open actions, embedded files, rich media, XFA). Stored **encrypted** in the platform space with its size and SHA-256, tied to the result version (`ResultAttachment`, migration `exchange/0010`, row-level security on). A **virus scan** (`foundation/scanner.py`) runs at once if a scanner is set up and every minute for files still waiting: ClamAV in production (`ATTACHMENT_SCANNER=clamav`, `CLAMAV_HOST`), a development stand-in that finds the EICAR test file; with no scanner, files wait and can never be opened; an unreachable scanner never counts as clean; an infected file's content is deleted. The treating doctor downloads a clean file only (`GET exchange/requests/{id}/attachments/{att}`, sent as a download, `nosniff`, `no-store`), every opening audited; clinic staff, other doctors and the patient cannot. The partner app has "Attach the PDF report" on a delivered request; the doctor app lists the files with "Download" once checked.
+- **Not built:** a ClamAV service in the deployment (only the setting and client); PDFs inside a FHIR DiagnosticReport (`presentedForm`) or HL7 (OBX ED); files on notes; the patient seeing the PDF.
+- **Checked:** 3 new tests in `test_exchange.py` (attach and download by the treating doctor only; a virus is never opened and its content not kept; nothing opens before the scan, then the worker scans it; only a safe PDF of a sensible size on a delivered result, a 3 MB file accepted, over 5 MB and the sixth refused); exchange, notes, death, waiting-list, OpenAPI, contract, identifier and public-id tests 222 passed (snapshot refreshed); no missing migrations; the doctor and partner apps type-check.
+
+### DEV-346: lead decisions of 20 Nov 2026 (scope of the first release)
+
+- **Decided by the project lead (20 Nov 2026):**
+  - **Guardians of adults** who cannot decide for themselves: only with legal proof, a registered Lasting Power of Attorney for health and welfare or a court-appointed deputy; the clinic checks the document, a second staff member approves, reviewed every year.
+  - **Region:** the UK only for now; the design stays ready for more cells.
+  - **Claims:** the payer records payment advice (amount paid, date, its reference) on a paid claim; no documents on claims yet.
+  - **Lab PDFs:** the treating doctor only, as now; no files on notes.
+  - **Prescribing:** no; doctors prescribe in their own certified system.
+  - **Imaging:** reports only, through the same order-and-report flow as labs; no images (DICOM) stored.
+  - **AI:** none in the first release (stays off).
+  - **Billing:** keep it simple: invoices and credit notes, no tax; payments taken elsewhere and recorded.
+  - **Marketplace:** a patient books only with their own clinic; no search across clinics yet.
+  - **Online payment by patients:** no; clinics record payments taken elsewhere.
+  - **Email provider:** SendGrid.
+  - **PDFs inside lab messages** (FHIR `presentedForm`, HL7 embedded PDF): yes, with the same rules and virus check as uploads.
+- **What it unblocks:** adult proxies, claim payment advice, imaging reports, the SendGrid adapter and PDFs in lab messages are built next (DEV-347 onwards). Everything else in the list above is a decision NOT to build now.
+
+### DEV-347: payment advice on a paid claim (LEAD DECISION, DEV-346)
+
+- **What was done:** when the payer marks a claim paid it may also say **how much it paid** (in minor units; at most the amount claimed, never negative; the full amount when not given) and **on which day** (not in the future; today when not given), next to its payment reference (migration `claim/0003`). The clinic's claims list shows them, saying when less was paid than claimed. The partner app's pay form has the two fields.
+- **Checked:** 2 new tests in `test_claims.py` (recorded and seen by the clinic; defaults, and every bad value refused); 41 passed.
+
+### DEV-348: imaging reports through the lab flow (LEAD DECISION, DEV-346)
+
+- **What was done:** a "laboratory or imaging" order already went to the "laboratory or imaging" partner role; but the UK Core check (DEV-342) demanded the LAB category, so an **imaging report (category RAD) would have been held**. Now a report may say LAB or RAD and a value "laboratory" or "imaging". The HL7 v2 reader marks a report as imaging when OBR-24 names an imaging section (RAD, CT, MR, US, NM, MG and kin). No images (DICOM) are taken in.
+- **Checked:** the validator test updated (RAD accepted, another category held); 1 new HL7 test; 54 passed.
+
+### DEV-349: the lab's PDF inside its FHIR or HL7 message (LEAD DECISION, DEV-346)
+
+- **What was done:** a DiagnosticReport may carry up to 5 PDFs in `presentedForm` (contentType `application/pdf`, base64 data, an optional title; checked to be a PDF of at most 5 MB); an HL7 OBX of type ED (`^application^pdf^Base64^...`) becomes the same thing instead of a value. After the result is delivered, each PDF goes through **exactly the upload path** (DEV-345): safety checks, encryption, virus scan, treating doctor only. A PDF that is refused does not undo the result; the answer says how many were attached and refused, and a refusal is audited. The message size limit is now 7.5 MB so a 5 MB PDF fits (read with that cap, not Django's general one); the checker still holds the rest of the message to 256 KB, measured without the PDF data.
+- **Checked:** 1 new validator test, 2 end-to-end tests (a FHIR report with a 3 MB PDF and an unsafe one: one attached, one refused; an HL7 result with its PDF, not counted as a value); FHIR and HL7 suites 83 passed.
+
+### DEV-350: email through SendGrid (LEAD DECISION, DEV-346)
+
+- **What was done:** `foundation/sendgrid_backend.py`, a Django email backend that sends through SendGrid's web API over HTTPS (not SMTP, so it works from Cloud Run). Switched on with `MAIL_PROVIDER=sendgrid` and `SENDGRID_API_KEY` (from Secret Manager; never logged, only in the Authorization header); `SENDGRID_API_HOST` allows the EU host and must be https. Open and click tracking are switched off (no tracking links in clinical mail). The queue, retries, masking and wiping (foundation/mail.py) are unchanged; a failure raises so the queue tries again. Development keeps the local mail inbox.
+- **Not built:** SendGrid delivery receipts (its event webhook).
+- **Checked:** `test_sendgrid.py`, 2 tests (the exact request, no tracking, the key only in the header; failures raise, no key or a non-https host refused); with the existing email tests 56 passed.
+
+### DEV-351: the virus scanner and SendGrid in the deployment
+
+- **What was done:** **Google Cloud** (`deploy/gcp/scanner.tf`): ClamAV runs on a small private VM in the cell's own network (Cloud Run cannot serve clamd's TCP protocol): Container-Optimised OS with Shielded VM, no public address, a service account with no permissions beyond logging, and a firewall that lets only the app's subnet reach port 3310. Every container gets `ATTACHMENT_SCANNER=clamav` and `CLAMAV_HOST` (the VM's private address); `MAIL_PROVIDER=sendgrid`, and the `sendgrid-api-key` secret (filled in by a person, attached once `manual_secrets_ready` is true). **Locally:** an optional `clamav` service in docker-compose (`--profile scan`); development otherwise keeps the stand-in scanner.
+- **Checked:** `terraform fmt -check` and `terraform validate` (official Terraform 1.9.8 image): "The configuration is valid"; `docker compose config` accepts the compose file.
+
+### DEV-352: an adult's attorney or deputy (LEAD DECISION, DEV-346)
+
+- **What was done:** two new relationships for an ADULT (18 or over) who cannot decide for themselves: **attorney** under a registered Lasting Power of Attorney for health and welfare, and **court-appointed deputy**. The clinic approves only with exactly that document (`lpa_health_welfare` or `court_order`); the staff member who marks the document received is recorded (migration `trust/0029`) and **a different** staff member must approve; the link lasts **at most a year** (a year by default) and is renewed by a **yearly review** (`POST staff/family-requests/{id}/review {still_in_force: true}`), also for one that just ran out. `trust.adult_reviews_due` counts those due within 30 days. The patient app offers the two relationships with an explanation; the staff app names the document needed, the two-person rule, and has the review button.
+- **Since decided and built (DEV-353):** an adult's attorney or deputy may read the person's notes with the notes part of the grant.
+- **Checked:** 3 new tests in `test_family.py` (the right document, checked by one and approved by another, at most a year; no skipping the check or running past a year, a deputy with a court order; adults only, yearly review, a parent's link has none); family and guardian-scope tests 53 passed; OpenAPI snapshot refreshed; contract, identifier, public-id, prohibition and sandbox tests 68 passed; no missing migrations; mypy, ruff and import contracts clean; the patient and staff apps type-check.
+
+### DEV-353: an adult's attorney or deputy may read the person's notes (LEAD DECISION)
+
+- **Decided by the project lead (20 Nov 2026):** yes, but only with the "notes" permission ticked when staff approve; the same 24-hour delay; a doctor can still keep a single note from them.
+- **What was done:** the patient app's notes now also open to a login acting for an adult as **attorney** (health and welfare LPA) or **court deputy** under an active, unexpired link (`trust.adult_proxy_persons`), when the grant includes "notes" (the policy engine requires that part, DEV-324). Everything else is as for a guardian: signed notes only, after 24 hours, never one its author kept from guardians, every read audited as a guardian read. A **carer** of an adult never reads notes, even with "notes" ticked. The staff and patient apps describe the "notes" permission accordingly.
+- **Checked:** 2 new tests in `test_clinical_notes.py` (an attorney with "notes" reads them and a hidden note stays hidden; a deputy without "notes", or a carer with it, reads nothing); 6 related passed; ruff and mypy clean; the staff and patient apps type-check.
+
+### DEV-354: SendGrid delivery receipts (follows DEV-350)
+
+- **What was done:** each email now carries our own id to SendGrid (`custom_args`, an id and nothing personal), and `POST /api/v1/webhooks/sendgrid/events` takes SendGrid's Event Webhook back. No sign-in: SendGrid's **ECDSA signature** (P-256, SHA-256, over timestamp and body) is the credential, checked with the account's public key (`SENDGRID_WEBHOOK_PUBLIC_KEY`) before the body is read; no key, a timestamp more than 10 minutes off, or a bad signature is refused (401). Only our id and the outcome are used (delivered, bounced, dropped, deferred; opens and clicks are ignored); addresses and everything else in the post are never stored. The outcome and its time are kept on the queued email (migration `foundation/0009`); a final outcome (delivered, bounced, dropped) is never replaced by a later "deferred". The platform's mail numbers now count receipts. The Google Cloud settings take the public key as a plain variable.
+- **Checked:** 3 new tests in `test_sendgrid.py` (a signed receipt is recorded and a final one never undone; unknown events and ids ignored; unsigned, stale, tampered or keyless posts refused; the API call carries our id); with the email tests 29 passed; `terraform validate` valid and `fmt -check` clean.
+
+### DEV-355: "show older" on the doctor's referral lists; the full UK Core validator not built (follows DEV-337, DEV-342)
+
+- **What was done:** the doctor app's two referral lists (referrals sent, referrals to answer) load 50 at a time with "Show older referrals"; the newest page still refreshes every 15 seconds, and older pages already loaded stay, without repeats.
+- **Also:** the patient app's "My Tests & Requests" loads 50 at a time with "Show older requests". Left as they are, on purpose: the patient's referrals, insurance and claims (loaded with the app's start, and small for any one person), and the staff payments list (the staff app has no screen that shows it).
+- **Decided not to build (engineering):** a second, complete UK Core validator. Reading the published lab profiles (DEV-342) showed that the only rules that can refuse a message are the category (enforced, DEV-342, DEV-348) and the subject (enforced); the rest is "must support" or base FHIR, where our checker is already stricter (a fixed list of allowed elements). The remaining assurance should come from the **official HL7 FHIR validator** run against the first partner lab's real sample messages, during that partner's certification (DEV-230).
+- **Checked:** the doctor app type-checks; OpenAPI snapshot refreshed and contract, identifier, public-id, paging and referral tests 79 passed; no missing migrations; mypy, ruff and import contracts clean.
+
+### DEV-356: the browser robots, all 89, after two days of changes
+
+- **What was found:** a full run of the 25 robot files (89 tests, one at a time, against the running apps) gave 85 passed, 4 failed. Robots 13 (data rights) and 14 (remember me) passed when run again: they failed only while the whole backend test suite was running at the same time and slowed everything. Robots 05 and 19 failed again, both because **earlier robot runs had left data behind**, not because of a fault in the product:
+  - **05 (suspending a customer):** the test clinic had open lab requests left by other robots, so the product rightly asked for a **continuity plan** (who looks after those patients) before a suspension; the robot never filled it in. It now always writes one (accepted, and harmless, when none is needed).
+  - **19 (a partner developer's key):** a partner may hold at most **10 live keys**; earlier runs had left exactly 10 test keys, so the robot could not add one. The robot now revokes the key it makes at the end, and the 10 leftover "Robot ERP" test keys in the local development database were revoked.
+- **Checked:** robots 05 and 19 re-run: 21 passed; robots 13 and 14 passed on their own.
+- **The whole backend suite, once:** 3,097 passed, 2 skipped, 1 failed (2 h 40 min). The one failure, `test_platform_work.py::test_a_closed_incident_is_no_longer_counted`, was a **stale test**: closing a SEV-0 or SEV-1 incident has since needed a restoration notice (DEV-202, with its own test), and this older test never sent one, nor checked that the close succeeded, so the refusal looked like "still open". The test now sends the notice and checks the close worked; its file passes (10). With that, the whole backend suite is green.
+
 ## B. Open and not ours to decide (ESCALATE)
 
 | ID | Question | Docs ref | Owner |

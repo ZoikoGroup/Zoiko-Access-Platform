@@ -534,3 +534,78 @@ def test_recent_care_keeps_older_notes_and_an_unknown_birth_date_erases_nothing(
     _born(clinic, clinic.person, "1960-01-01", "Pat Adult")
     draft(clinic, day="2026-01-05")  # recent care: the 2010 note stays too
     assert erase_expired_all_tenants() == 0
+
+
+
+# ------------------------------------------------------------------ coded diagnoses (DEV-344)
+DX = [{"code": "38341003", "text": "Hypertension", "status": "confirmed"},
+      {"code": "73211009", "text": "Diabetes mellitus", "status": "provisional"}]
+
+
+def test_a_draft_carries_coded_diagnoses_signed_with_the_note_and_shown_to_the_patient(clinic):
+    r = clinic.post("clinician/notes", {"patient": clinic.person, "note_date": "2026-11-16",
+                                        "body": TEXT, "diagnoses": DX}, subject="doc")
+    assert r.status_code == 201, r.content
+    note = body(r)["note"]["id"]
+    got = body(clinic.get(f"clinician/notes/{note}", subject="doc"))["note"]
+    assert got["diagnoses"] == DX and got["has_diagnoses"] is True
+    assert "Hypertension" not in listing(clinic).content.decode()  # never in the list
+    step(clinic, note, "edit", body=TEXT2)  # no diagnoses given: they stay
+    assert body(clinic.get(f"clinician/notes/{note}", subject="doc"))["note"]["diagnoses"] == DX
+    step(clinic, note, "sign")
+    assert step(clinic, note, "edit", body=TEXT, diagnoses=[]).status_code == 409  # signed
+    new = body(step(clinic, note, "amend", reason="clarification"))["note"]["id"]
+    assert body(clinic.get(f"clinician/notes/{new}", subject="doc"))["note"]["diagnoses"] == DX
+    backdate(clinic, note, 25)
+    assert body(clinic.get(f"my/notes/{note}", subject="pat"))["note"]["diagnoses"] == DX
+
+
+def test_diagnoses_are_stored_encrypted_and_bad_ones_refused(clinic):
+    from django.db import connection
+
+    for bad in ([{"code": "38341004", "text": "x"}], [{"code": "38341003", "text": ""}],
+                [{"code": "38341003", "text": "x", "status": "maybe"}],
+                [{"code": "38341003", "text": "x", "note": "free"}],
+                [DX[0], DX[0]], [DX[0]] * 11, "Hypertension"):
+        r = clinic.post("clinician/notes", {"patient": clinic.person, "note_date": "2026-11-16",
+                                            "body": TEXT, "diagnoses": bad}, subject="doc")
+        assert r.status_code == 422, bad
+    clinic.post("clinician/notes", {"patient": clinic.person, "note_date": "2026-11-16",
+                                    "body": TEXT, "diagnoses": DX}, subject="doc")
+    with connection.cursor() as cur:
+        cur.execute("select diagnoses_enc from clinicalnote_clinicalnote")
+        stored = " ".join(row[0] for row in cur.fetchall())
+    assert stored and "Hypertension" not in stored and "38341003" not in stored
+
+
+
+# ------------------------------------------------ an adult's attorney reads their notes (DEV-353)
+def _attorney_of(clinic, rights=("appointments", "notes"), relationship="lpa_attorney"):
+    from modules.trust.models import ProxyGrant
+
+    adult = _child_of_guardian(clinic, _years_ago(84), rights=rights)  # "child" helper, an adult
+    with tenant_transaction(clinic.clinic.ctx):
+        ProxyGrant.objects.filter(person__public_id=adult).update(relationship_type=relationship)
+    return adult
+
+
+def test_an_attorney_with_the_notes_part_reads_the_adults_notes(clinic):
+    _attorney_of(clinic)
+    note = signed(clinic)
+    backdate(clinic, note, 25)
+    assert [n["id"] for n in body(mine(clinic, G))["notes"]] == [note]
+    assert clinic.get(f"my/notes/{note}", subject=G).status_code == 200
+    step(clinic, note, "guardian", hidden=True)  # kept from guardians: from attorneys too
+    assert body(mine(clinic, G))["notes"] == []
+
+
+def test_without_the_notes_part_or_as_a_mere_carer_an_adults_notes_stay_closed(clinic):
+    _attorney_of(clinic, rights=("appointments",), relationship="court_deputy")
+    note = signed(clinic)
+    backdate(clinic, note, 25)
+    assert body(mine(clinic, G))["notes"] == []
+    from modules.trust.models import ProxyGrant
+
+    with tenant_transaction(clinic.clinic.ctx):  # a carer of an adult, even with "notes"
+        ProxyGrant.objects.update(relationship_type="caregiver", rights=["notes"])
+    assert body(mine(clinic, G))["notes"] == []

@@ -585,6 +585,7 @@ export interface MyNote {
   id: string; note_date: string; version: number; corrected: boolean; amend_reason: string | null;
   author_name: string; signed_at: string | null; body?: string;
   for_name?: string | null; erased?: boolean;
+  diagnoses?: { code: string; text: string; status: string }[];
   addenda?: { id: string; added_at: string; body: string }[];
 }
 export const getMyNotes = async () => (await request<{ notes: MyNote[]; enabled?: boolean }>("my/notes")).body;
@@ -604,6 +605,10 @@ export const joinProgramme = async (code: string) =>
 export const leaveProgramme = async (id: string) =>
   (await request<{ programme: MyProgramme }>(`programme/mine/${encodeURIComponent(id)}/leave`, { method: "POST", body: "{}" })).body.programme;
 export const getMyRequests = async () => (await request<{ requests: MyRequest[] }>("exchange/mine")).body.requests;
+// One page, newest first (DEV-337); the cursor from the last page gives older ones.
+export const getMyRequestsPage = async (cursor?: string | null) =>
+  (await request<{ requests: MyRequest[]; next_cursor?: string | null }>(
+    `exchange/mine?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`)).body;
 
 /** Routine reminder emails wait until these quiet hours end; null clears them. */
 export const setQuietHours = async (quiet: QuietHours | null) =>

@@ -242,7 +242,7 @@ export async function clearDisplayName(): Promise<void> {
 export const getClaims = async () => (await v1<{ claims: Claim[] }>("claims/incoming")).claims;
 export const claimCheck = async (id: string) =>
   (await v1<{ check: ClaimCheck }>(`claims/incoming/${encodeURIComponent(id)}/check`)).check;
-export const claimStep = async (id: string, step: "approve" | "decline" | "pay", extra: { reason?: string; payment_ref?: string } = {}) =>
+export const claimStep = async (id: string, step: "approve" | "decline" | "pay", extra: { reason?: string; payment_ref?: string; amount_paid_minor?: number; paid_on?: string } = {}) =>
   (await v1<{ claim: Claim }>(`claims/incoming/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify(extra) })).claim;
 
 // The system this partner receives orders in (DEV-323); "" = the partner app only.
@@ -262,3 +262,17 @@ export const checkSandboxMessage = (raw: string) => v1<SandboxCheck>("portal/san
 
 // One measured value of a result (DEV-330): a number or a short text, with unit, normal range, flag.
 export interface ResultValue { name: string; value: number | string; unit?: string; low?: number | null; high?: number | null; flag?: string; code?: string }
+
+// The lab's PDF report on a delivered result (DEV-345): virus-scanned before anyone can open it.
+export interface Attachment { id: string; filename: string; size: number; scan: "pending" | "clean" | "infected"; result_version: number; uploaded_at: string }
+export async function uploadReportPdf(requestId: string, file: File): Promise<Attachment> {
+  if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
+  const res = await fetch(`/api/v1/exchange/incoming/${encodeURIComponent(requestId)}/attachment?filename=${encodeURIComponent(file.name)}`, {
+    method: "POST", body: file, headers: { "Content-Type": "application/pdf", Authorization: `Bearer ${current.token}` },
+  });
+  const body = (await res.json()) as { attachment?: Attachment; title?: string; code?: string };
+  if (!res.ok || !body.attachment) throw new ApiError(body.title ?? `Upload failed (${res.status})`, body.code);
+  return body.attachment;
+}
+export const getAttachments = async (requestId: string) =>
+  (await v1<{ attachments: Attachment[] }>(`exchange/requests/${encodeURIComponent(requestId)}/attachments`)).attachments;

@@ -250,6 +250,8 @@ FIELDS.update(dict.fromkeys((
     "deputy_ref",                                                  # DEV-202
     "delivered_by_ref", "replaced_by_ref",                         # DEV-325
     "death_recorded_by_ref",                                       # DEV-333
+    "uploaded_by_ref",                                             # DEV-345
+    "proof_checked_by_ref",                                        # DEV-352
 ), "actor_ref"))
 
 # Where one field name means different things in different tables: (app_label.Model, field).

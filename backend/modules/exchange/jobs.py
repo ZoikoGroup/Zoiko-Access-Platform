@@ -33,3 +33,20 @@ def escalate_holds_all() -> int:
         return 0
     with tenant_transaction(trust.context_for(platform["public_id"])):
         return escalate_old_holds()
+
+
+
+def scan_attachments_all() -> int:
+    """Scan lab PDFs still waiting for the virus check (DEV-345), in the platform space."""
+    from modules.trust import api as trust
+
+    platform = next(
+        (t for t in trust.list_tenants() if t["type"] == "platform" and t["status"] == "active"),
+        None,
+    )
+    if platform is None:
+        return 0
+    with tenant_transaction(trust.context_for(platform["public_id"])):
+        from .services import scan_pending_attachments
+
+        return scan_pending_attachments()

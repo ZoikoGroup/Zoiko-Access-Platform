@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, addNoteAddendum, amendNote, createNote, editNote, getNote, getNotes, getPatients, setNoteGuardianHidden, signNote } from "../api";
-import type { Note, PatientRow } from "../types";
+import type { Diagnosis, Note, PatientRow } from "../types";
 import { Card, Pill } from "../ui";
 
 const STATE: Record<Note["state"], { text: string; kind: "ok" | "warn" | "info" }> = {
@@ -16,12 +16,13 @@ const today = () => new Date().toISOString().slice(0, 10);
 function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void }) {
   const [note, setNote] = useState<Note | null>(null);
   const [text, setText] = useState("");
+  const [dx, setDx] = useState<Diagnosis[]>([]);
   const [reason, setReason] = useState("clarification");
   const [addendum, setAddendum] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    getNote(id).then((n) => { setNote(n); setText(n.body ?? ""); }).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not open"));
+    getNote(id).then((n) => { setNote(n); setText(n.body ?? ""); setDx(n.diagnoses ?? []); }).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not open"));
   }, [id]);
   async function run(action: () => Promise<Note>, then?: (n: Note) => void) {
     setBusy(true); setError("");
@@ -46,14 +47,18 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
           <label>Note
             <textarea className="field" rows={8} value={text} onChange={(e) => setText(e.target.value)} style={{ width: "100%" }} />
           </label>
+          <DiagnosesEditor rows={dx} onChange={setDx} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className="btn ghost" disabled={busy || !text.trim()} onClick={() => void run(() => editNote(id, text))}>Save draft</button>
-            <button className="btn" disabled={busy || !text.trim()} onClick={() => void run(async () => { await editNote(id, text); return signNote(id); })}>Sign this note</button>
+            <button className="btn ghost" disabled={busy || !text.trim()} onClick={() => void run(() => editNote(id, text, dx))}>Save draft</button>
+            <button className="btn" disabled={busy || !text.trim()} onClick={() => void run(async () => { await editNote(id, text, dx); return signNote(id); })}>Sign this note</button>
           </div>
           <small>Once signed it cannot be changed. A correction is a new version.</small>
         </>
       ) : (
-        <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }} aria-label="Note text">{note.body}</pre>
+        <>
+          <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }} aria-label="Note text">{note.body}</pre>
+          <DiagnosesList items={note.diagnoses} />
+        </>
       )}
       {note.state === "signed" && note.mine && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -176,5 +181,42 @@ export function Notes() {
         {openId && <Card title="Note"><Open key={openId} id={openId} onDone={(next) => { setOpenId(next ?? ""); void load(person); }} /></Card>}
       </div>
     </>
+  );
+}
+
+
+const DX_STATUS: Record<Diagnosis["status"], string> = { confirmed: "Confirmed", provisional: "Provisional", ruled_out: "Ruled out" };
+
+/** The visit's coded diagnoses, as signed (DEV-344). */
+export function DiagnosesList({ items }: { items?: Diagnosis[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div role="region" aria-label="Diagnoses" style={{ marginTop: 6 }}>
+      <b>Diagnoses</b>
+      <ul style={{ margin: "4px 0" }}>
+        {items.map((d) => <li key={d.code}>{d.text} <small>({DX_STATUS[d.status]}, SNOMED CT {d.code})</small></li>)}
+      </ul>
+    </div>
+  );
+}
+
+/** Up to 10 coded diagnoses on a draft: a SNOMED CT concept id, its words and a status. */
+function DiagnosesEditor({ rows, onChange }: { rows: Diagnosis[]; onChange: (rows: Diagnosis[]) => void }) {
+  const set = (i: number, d: Partial<Diagnosis>) => onChange(rows.map((r, n) => (n === i ? { ...r, ...d } : r)));
+  return (
+    <div role="group" aria-label="Diagnoses">
+      <b>Diagnoses (coded, optional)</b>
+      {rows.map((d, i) => (
+        <div key={i} style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+          <input className="field" aria-label={`SNOMED CT code ${i + 1}`} placeholder="SNOMED CT, e.g. 38341003" value={d.code} maxLength={18} onChange={(e) => set(i, { code: e.target.value.trim() })} style={{ width: 170 }} />
+          <input className="field" aria-label={`Diagnosis words ${i + 1}`} placeholder="Hypertension" value={d.text} maxLength={120} onChange={(e) => set(i, { text: e.target.value })} style={{ flex: 1, minWidth: 160 }} />
+          <select aria-label={`Diagnosis status ${i + 1}`} value={d.status} onChange={(e) => set(i, { status: e.target.value as Diagnosis["status"] })}>
+            <option value="confirmed">Confirmed</option><option value="provisional">Provisional</option><option value="ruled_out">Ruled out</option>
+          </select>
+          <button className="btn ghost" aria-label={`Remove diagnosis ${i + 1}`} onClick={() => onChange(rows.filter((_, n) => n !== i))}>×</button>
+        </div>
+      ))}
+      {rows.length < 10 && <div><button className="btn ghost" onClick={() => onChange([...rows, { code: "", text: "", status: "confirmed" }])}>Add a diagnosis</button></div>}
+    </div>
   );
 }

@@ -2,12 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, getFamily, requestFamily, withdrawFamily, type FamilyRow } from "../api";
 import { Card, Pill } from "../ui";
 
-const RELATIONSHIP: Record<string, string> = { parent: "Your child", guardian: "Someone you are guardian for", caregiver: "Someone you care for" };
+const RELATIONSHIP: Record<string, string> = {
+  parent: "Your child", guardian: "Someone you are guardian for", caregiver: "Someone you care for",
+  lpa_attorney: "An adult you are attorney for (health and welfare)", court_deputy: "An adult you are deputy for",
+};
 
 const SCOPE_WORDS: Record<string, string> = {
   appointments: "book and see appointments", messages: "send and read messages",
   referrals: "see referrals", insurance: "see and manage insurance",
-  notes: "read their consultation notes until they turn 16",
+  notes: "read their consultation notes (a child until they turn 16; an adult you are attorney or deputy for)",
 };
 /** What the clinic allowed this person to do, in words. */
 const allowed = (scopes?: string[]) => {
@@ -77,8 +80,13 @@ function AddForm({ onAdded }: { onAdded: () => Promise<void> }) {
           <option value="parent">My child (I am the parent)</option>
           <option value="guardian">I am their legal guardian</option>
           <option value="caregiver">I care for them</option>
+          <option value="lpa_attorney">I am their attorney (registered health and welfare power of attorney)</option>
+          <option value="court_deputy">I am their deputy (appointed by the court)</option>
         </select>
       </label>
+      {(relationship === "lpa_attorney" || relationship === "court_deputy") && (
+        <small>For an adult who cannot decide for themselves. Bring the registered document to the clinic: one member of staff checks it and another approves. The link is reviewed every year.</small>
+      )}
       <label>Their full name
         <input value={name} maxLength={120} onChange={(e) => setName(e.target.value)} required />
       </label>

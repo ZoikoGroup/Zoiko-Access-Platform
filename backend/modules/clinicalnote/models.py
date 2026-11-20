@@ -49,6 +49,9 @@ class ClinicalNote(CellScopedModel):
     # When the retention period ran out and the text was erased (DEV-324, NHS rules). The row
     # stays, so the history of what existed is not lost; only the words are gone.
     erased_at = models.DateTimeField(null=True, blank=True)
+    # The visit's coded diagnoses (DEV-344, LEAD DECISION): SNOMED CT code, words and status, as
+    # JSON, ENCRYPTED like the text. Changed only while a draft; signed with the note.
+    diagnoses_enc = models.TextField(blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [

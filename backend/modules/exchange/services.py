@@ -39,7 +39,9 @@ from .models import (
     ExchangeRequest,
     ExchangeResultVersion,
     Kind,
+    ResultAttachment,
     ResultFlag,
+    ScanState,
     State,
     Urgency,
 )
@@ -228,6 +230,7 @@ def clinic_dict(r: ExchangeRequest) -> dict[str, Any]:
         "result_flag": r.result_flag,
         "has_summary": bool(r.result_summary_enc),
         "has_values": bool(r.result_values_enc),
+        "has_attachments": ResultAttachment.objects.filter(request=r).exists(),
         "result_version": r.result_version,
         "result_correction": r.result_correction or None,
         "on_hold": r.on_hold_at is not None,
@@ -423,14 +426,16 @@ def page_sent(
     return [clinic_dict(r) for r in found], nxt
 
 
-def list_for_patients(*, tenant_ref: str, person_refs: list[str]) -> list[dict[str, Any]]:
+def list_for_patients(
+    *, tenant_ref: str, person_refs: list[str], page: pagination.PageRequest | None = None
+) -> list[dict[str, Any]]:
     """Requests the clinic made for these patients (the caller has checked each one)."""
     if not person_refs:
         return []
     rows = ExchangeRequest.objects.filter(
         from_tenant_ref=tenant_ref, person_ref__in=person_refs, **_scope()
     )
-    return [patient_dict(r) for r in rows.order_by("-created_at")[:200]]
+    return [patient_dict(r) for r in pagination.apply(rows, page)]
 
 
 def _incoming_rows(tenant_ref: str, state: str | None) -> Any:
@@ -1062,3 +1067,190 @@ def delivery_lookup(request_ref: str) -> dict[str, str] | None:
         "to_tenant_ref": row.to_tenant_ref,
         "state": str(row.state),
     }
+
+
+
+MAX_TREND_POINTS = 100
+
+
+def value_trend(
+    *, person_ref: str, tenant_ref: str, key: Any, actor_ref: str
+) -> list[dict[str, Any]]:
+    """One measured value across this patient's results at this clinic, oldest first (DEV-339):
+    matched by SNOMED CT code, or by name when the value has no code. Only the current version of
+    each result counts (a corrected one replaces its earlier version). The caller has checked that
+    this is a treating doctor of the patient. Audited once per look. Call with the platform tenant
+    bound."""
+    if not isinstance(key, str) or not 1 <= len(key.strip()) <= 80:
+        raise _bad("key")
+    wanted = key.strip().lower()
+    rows = ExchangeRequest.objects.filter(
+        from_tenant_ref=tenant_ref, person_ref=person_ref,
+        state__in=(State.RESULT_AVAILABLE, State.REVIEWED), **_scope(),
+    ).exclude(result_values_enc="").order_by("result_at")
+    points: list[dict[str, Any]] = []
+    for r in rows:
+        for v in _open_values(r, r.result_values_enc):
+            code, name = str(v.get("code") or ""), str(v.get("name") or "")
+            if code == key.strip() or (not code and name.lower() == wanted):
+                points.append({
+                    "request": r.public_id, "label": r.label,
+                    "at": r.result_at.isoformat() if r.result_at else None,
+                    "value": v.get("value"), "unit": v.get("unit") or "",
+                    "low": v.get("low"), "high": v.get("high"), "flag": v.get("flag") or "",
+                    "reviewed": r.state == State.REVIEWED, "version": r.result_version,
+                })
+    first = rows.first()
+    if first is not None:
+        _audit(actor_ref, "exchange.trend_read", first)
+    return points[-MAX_TREND_POINTS:]
+
+
+
+def cancel_open_for_patient(*, person_ref: str, tenant_ref: str, actor_ref: str) -> int:
+    """The patient is recorded as having died (DEV-343): the clinic's requests for them that are
+    not yet delivered are cancelled, and a name already shared with the partner is erased. A
+    delivered result stays as it is. Returns how many were cancelled. Call with the platform
+    tenant bound."""
+    rows = ExchangeRequest.objects.select_for_update().filter(
+        from_tenant_ref=tenant_ref, person_ref=person_ref, state__in=OPEN_STATES, **_scope())
+    done = 0
+    with transaction.atomic():
+        for row in rows:
+            row.state = State.CANCELLED
+            row.shared_identity_enc = ""
+            row.entity_version += 1
+            row.save(update_fields=["state", "shared_identity_enc", "entity_version", "updated_at"])
+            _event(row, "cancel", "clinic", actor_ref)
+            _audit(actor_ref, "exchange.cancel_patient_died", row)
+            done += 1
+    return done
+
+
+
+# ------------------------------------------------------------------ the lab's PDF (DEV-345)
+MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+MAX_ATTACHMENTS = 5
+# Active content a PDF report has no need for, and that can run when the file is opened.
+# Whole PDF names only, so a font called /AAAAAB+Arial is not mistaken for /AA.
+_ACTIVE_PDF = re.compile(
+    rb"/(JavaScript|JS|Launch|EmbeddedFile|OpenAction|AA|RichMedia|XFA)(?![A-Za-z0-9])")
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9 ._()-]")
+
+
+def _attach_context(row: ExchangeRequest) -> str:
+    return f"exchange:{row.public_id}:attachment"
+
+
+def attachment_dict(a: ResultAttachment) -> dict[str, Any]:
+    return {
+        "id": a.public_id, "filename": a.filename, "size": a.size, "scan": a.scan_state,
+        "result_version": a.result_version, "uploaded_at": a.created_at.isoformat(),
+    }
+
+
+def _apply_scan(a: ResultAttachment, data: bytes, clock: Clock | None = None) -> None:
+    from foundation import scanner
+
+    verdict = scanner.scan(data)
+    if verdict == "pending":
+        return
+    a.scan_state = ScanState.CLEAN if verdict == "clean" else ScanState.INFECTED
+    a.scanned_at = utc_now(clock)
+    if a.scan_state == ScanState.INFECTED:
+        a.content_enc = ""  # never kept, never opened
+    a.entity_version += 1
+    a.save(update_fields=["scan_state", "scanned_at", "content_enc", "entity_version",
+                          "updated_at"])
+    _audit("system", f"exchange.attachment_{a.scan_state}", a.request)
+
+
+def attach_pdf(
+    *, request_ref: str, tenant_ref: str, actor_ref: str, filename: Any, data: bytes,
+    clock: Clock | None = None,
+) -> dict[str, Any]:
+    """The lab attaches its PDF report to a delivered result. A PDF only (checked by its content,
+    not its name), at most 5 MB and 5 per result, with no active content. It is scanned at once
+    if a scanner is set up; otherwise it waits for the worker. Call with the platform tenant."""
+    if not isinstance(data, bytes) or not 1 <= len(data) <= MAX_ATTACHMENT_BYTES:
+        raise _bad("file")
+    if not data.startswith(b"%PDF-") or b"%%EOF" not in data[-2048:]:
+        raise _bad("file")  # not a whole PDF
+    if _ACTIVE_PDF.search(data):
+        raise _bad("file")  # scripts, launch actions or embedded files: refused
+    name = _SAFE_NAME.sub("_", filename.strip())[:100] if isinstance(filename, str) else ""
+    if not name.lower().endswith(".pdf"):
+        name = (name or "report")[:96] + ".pdf"
+    import base64
+    import hashlib
+
+    with transaction.atomic():
+        row = (ExchangeRequest.objects.select_for_update()
+               .filter(public_id=request_ref, to_tenant_ref=tenant_ref, **_scope()).first())
+        if row is None:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        if row.state not in (State.RESULT_AVAILABLE, State.REVIEWED):
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)  # attach to a delivered result
+        if ResultAttachment.objects.filter(request=row, **_scope()).count() >= MAX_ATTACHMENTS:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        a = ResultAttachment(
+            request=row, result_version=max(row.result_version, 1), filename=name,
+            size=len(data), sha256=hashlib.sha256(data).hexdigest(), content_enc="",
+            uploaded_by_ref=actor_ref, **_scope())
+        a.content_enc = encrypt(base64.b64encode(data).decode("ascii"),
+                                tenant_id=require_context().tenant_id,
+                                context=_attach_context(row))
+        a.save()
+        _audit(actor_ref, "exchange.attachment_added", row)
+        _apply_scan(a, data, clock)
+        return attachment_dict(a)
+
+
+def list_attachments(*, request_ref: str, tenant_ref: str) -> list[dict[str, Any]]:
+    """The files on a result, for either party to it (names, sizes and scan state only)."""
+    row = ExchangeRequest.objects.filter(public_id=request_ref, **_scope()).first()
+    if row is None or tenant_ref not in (row.from_tenant_ref, row.to_tenant_ref):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    rows = ResultAttachment.objects.filter(request=row, **_scope()).order_by("created_at")
+    return [attachment_dict(a) for a in rows]
+
+
+def open_attachment(
+    *, request_ref: str, attachment_ref: str, tenant_ref: str, actor_ref: str
+) -> tuple[str, bytes]:
+    """The file itself, for the ordering clinic's treating doctor (the caller checked that), and
+    only once scanned clean. Every opening is audited. Call with the platform tenant bound."""
+    import base64
+
+    a = (ResultAttachment.objects.select_related("request")
+         .filter(public_id=attachment_ref, request__public_id=request_ref,
+                 request__from_tenant_ref=tenant_ref, **_scope()).first())
+    if a is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if a.scan_state != ScanState.CLEAN:
+        raise ZoikoError(ErrorCode.CONFLICT_VERSION)  # not checked yet, or a virus was found
+    try:
+        data = base64.b64decode(decrypt(a.content_enc, tenant_id=a.tenant_id,
+                                        context=_attach_context(a.request)))
+    except (CryptoError, ValueError):
+        raise ZoikoError(ErrorCode.NOT_FOUND) from None
+    _audit(actor_ref, "exchange.attachment_opened", a.request)
+    return a.filename, data
+
+
+def scan_pending_attachments(limit: int = 20, clock: Clock | None = None) -> int:
+    """The worker's job: scan files still waiting. Returns how many got a verdict."""
+    import base64
+
+    done = 0
+    for a in ResultAttachment.objects.select_related("request").filter(
+            scan_state=ScanState.PENDING, **_scope()).order_by("created_at")[:limit]:
+        try:
+            data = base64.b64decode(decrypt(a.content_enc, tenant_id=a.tenant_id,
+                                            context=_attach_context(a.request)))
+        except (CryptoError, ValueError):
+            continue
+        with transaction.atomic():
+            _apply_scan(a, data, clock)
+        done += a.scan_state != ScanState.PENDING
+    return done

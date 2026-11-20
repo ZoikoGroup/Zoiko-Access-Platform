@@ -22,6 +22,7 @@ OPEN_STATES = (WaitState.WAITING, WaitState.OFFERED)
 class CloseReason(models.TextChoices):
     BOOKED = "booked", "Booked"
     LEFT = "left", "Left the list"
+    DIED = "died", "The patient has died"  # DEV-343
 
 
 class WaitEntry(CellScopedModel):

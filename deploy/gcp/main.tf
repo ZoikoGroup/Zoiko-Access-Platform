@@ -41,11 +41,17 @@ locals {
     EMAIL_HOST_USER        = var.email_user
     EMAIL_USE_TLS          = "1"
     EMAIL_FROM             = var.email_from
-    TEXT_PROVIDER          = var.twilio_account_sid == "" ? "" : "twilio"
-    TWILIO_ACCOUNT_SID     = var.twilio_account_sid
-    TWILIO_FROM            = var.twilio_from
-    TWILIO_STATUS_URL      = "https://api.${var.domain}/api/v1/webhooks/twilio/status"
-    PATIENT_APP_URL        = "https://${local.app_hosts["patient"]}"
+    MAIL_PROVIDER          = "sendgrid" # DEV-350
+    # SendGrid signs its delivery receipts; this is its PUBLIC key, from the SendGrid account (DEV-354).
+    SENDGRID_WEBHOOK_PUBLIC_KEY = var.sendgrid_webhook_public_key
+    ATTACHMENT_SCANNER          = "clamav" # DEV-345, DEV-351: files open only after this scan
+    CLAMAV_HOST                 = google_compute_instance.clamav.network_interface[0].network_ip
+    CLAMAV_PORT                 = "3310"
+    TEXT_PROVIDER               = var.twilio_account_sid == "" ? "" : "twilio"
+    TWILIO_ACCOUNT_SID          = var.twilio_account_sid
+    TWILIO_FROM                 = var.twilio_from
+    TWILIO_STATUS_URL           = "https://api.${var.domain}/api/v1/webhooks/twilio/status"
+    PATIENT_APP_URL             = "https://${local.app_hosts["patient"]}"
   }
   # Cloud Run will not start with a secret that has no value, so the two secrets a person fills in
   # by hand are attached only once `manual_secrets_ready` is set to true.
@@ -56,6 +62,7 @@ locals {
     ZOIKO_METRICS_TOKEN = google_secret_manager_secret.s["metrics-token"].secret_id
     }, var.manual_secrets_ready ? {
     EMAIL_HOST_PASSWORD = google_secret_manager_secret.s["email-password"].secret_id
+    SENDGRID_API_KEY    = google_secret_manager_secret.s["sendgrid-api-key"].secret_id
     TWILIO_AUTH_TOKEN   = google_secret_manager_secret.s["twilio-auth-token"].secret_id
   } : {})
 }
@@ -172,7 +179,7 @@ resource "random_bytes" "field_key" {
 resource "google_secret_manager_secret" "s" {
   for_each = toset([
     "django-secret-key", "field-keys", "db-owner-password", "db-app-password", "metrics-token",
-    "email-password", "twilio-auth-token",
+    "email-password", "twilio-auth-token", "sendgrid-api-key",
   ])
   secret_id = "${local.name}-${each.value}"
   labels    = local.labels

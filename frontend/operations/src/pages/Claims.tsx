@@ -30,7 +30,7 @@ function Row({ c, onDone }: { c: Claim; onDone: () => Promise<void> }) {
         <b>{c.label} <Pill kind={state.kind}>{state.text}</Pill></b>
         <small>{c.payer} · {c.patient_name || c.patient} · member …{c.member_tail} · {money(c.amount_minor, c.currency)} · service on {c.service_date} · {c.claim_no}</small>
         {c.state === "declined" && c.decision_reason && <small>Reason given: {REASON[c.decision_reason] ?? c.decision_reason}</small>}
-        {c.state === "paid" && c.payment_ref && <small>Payment reference {c.payment_ref}</small>}
+        {c.state === "paid" && c.payment_ref && <small>Payment reference {c.payment_ref}{c.amount_paid_minor != null ? `, paid ${(c.amount_paid_minor / 100).toFixed(2)} ${c.currency}${c.amount_paid_minor < c.amount_minor ? " (less than claimed)" : ""}` : ""}{c.paid_on ? ` on ${c.paid_on}` : ""}</small>}
         {error && <div className="error" role="alert">{error}</div>}
       </div>
       {c.state === "submitted" && <div><button className="btn ghost" disabled={busy} onClick={() => void withdraw()}>Withdraw the claim</button></div>}

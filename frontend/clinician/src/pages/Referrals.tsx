@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { decideReferral, getAnswerInbox, getPatients, getReferrals, getServices, sendReferral } from "../api";
-import { Gate, useLoad } from "../useLoad";
+import { decideReferral, getAnswerInboxPage, getPatients, getReferralsPage, getServices, sendReferral, type ReferralPage } from "../api";
+import type { Referral } from "../types";
+import { Gate, useLoad, type Loaded } from "../useLoad";
 import { Card, Patient, Pill, Table, shortId, type PillKind } from "../ui";
 
 const STATE: Record<string, { text: string; kind: PillKind }> = {
@@ -108,10 +109,39 @@ function Answer({ id, onDone }: { id: string; onDone: () => void }) {
   );
 }
 
-function AnswerList({ onAnswered }: { onAnswered: () => void }) {
-  const inbox = useLoad(getAnswerInbox, 15_000);
+/** The newest page, refreshed by `useLoad`, plus older pages the doctor asked for (DEV-337). */
+function useOlder(load: (cursor?: string | null) => Promise<ReferralPage>) {
+  const first = useLoad(() => load(), 15_000);
+  const [older, setOlder] = useState<Referral[]>([]);
+  const [cursor, setCursor] = useState<string | null | undefined>(undefined);
+  const [error, setError] = useState("");
+  const next = cursor === undefined ? first.data?.next_cursor : cursor;
+  async function more() {
+    if (!next) return;
+    try { const p = await load(next); setOlder([...older, ...p.referrals]); setCursor(p.next_cursor ?? null); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load older referrals"); }
+  }
+  const merge = (rows: Referral[]) => {
+    const seen = new Set(rows.map((r) => r.id));
+    return [...rows, ...older.filter((r) => !seen.has(r.id))];
+  };
+  const result: Loaded<Referral[]> = { ...first, data: first.data ? merge(first.data.referrals) : null };
+  return { result, more, hasMore: Boolean(next), error };
+}
+
+function OlderButton({ list }: { list: { more: () => Promise<void>; hasMore: boolean; error: string } }) {
   return (
-    <Gate result={inbox}>
+    <>
+      {list.hasMore && <div style={{ marginTop: 8 }}><button className="btn ghost" onClick={() => void list.more()}>Show older referrals</button></div>}
+      {list.error && <div className="error" role="alert">{list.error}</div>}
+    </>
+  );
+}
+
+function AnswerList({ onAnswered }: { onAnswered: () => void }) {
+  const list = useOlder(getAnswerInboxPage);
+  return (
+    <Gate result={list.result}>
       {(rows) => (
         <Card title={`Referrals for you to answer (${rows.length})`}
           sub="You are named to answer these. Accepting means you take the patient on; declining leaves the patient with the doctor who sent them.">
@@ -129,6 +159,7 @@ function AnswerList({ onAnswered }: { onAnswered: () => void }) {
                 ? <span key="a">{r.decision_reason}</span>
                 : <Answer key="a" id={r.id} onDone={onAnswered} />,
             ])} />
+          <OlderButton list={list} />
         </Card>
       )}
     </Gate>
@@ -136,9 +167,9 @@ function AnswerList({ onAnswered }: { onAnswered: () => void }) {
 }
 
 function SentList() {
-  const sent = useLoad(getReferrals, 15_000);
+  const list = useOlder(getReferralsPage);
   return (
-    <Gate result={sent}>
+    <Gate result={list.result}>
       {(rows) => (
         <Card title={`Your referrals (${rows.length})`}>
           <Table headers={["Patient", "Sent to", "Urgency", "Status", "Clinic's note", "Sent"]}
@@ -151,6 +182,7 @@ function SentList() {
               r.decision_reason || "",
               r.created_at.slice(0, 10),
             ])} />
+          <OlderButton list={list} />
         </Card>
       )}
     </Gate>

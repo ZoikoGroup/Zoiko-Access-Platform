@@ -2,7 +2,14 @@
 
 This is the ONLY module other domain modules may import from `modules.integration`.
 """
-from .fhir import list_quarantined, quarantine_step, receive_fhir
+from .fhir import (
+    list_quarantined,
+    parse_payload,
+    quarantine_step,
+    receive_fhir,
+    retry_code_held,
+    retry_quarantined,
+)
 from .inbound import (
     create_client,
     issue_client_secret,
@@ -30,6 +37,9 @@ from .services import (
 )
 
 __all__ = [
+    "parse_payload",
+    "retry_code_held",
+    "retry_quarantined",
     "FhirQuarantineState",
     "create_client",
     "create_endpoint",

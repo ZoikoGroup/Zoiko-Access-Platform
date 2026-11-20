@@ -46,3 +46,17 @@ def test_the_checker_says_accepted_or_held_and_why():
     assert got["result"] == "held" and got["issues"]
     huge = {**good, "conclusion": "x" * 70_000}
     assert dev.call("post", "portal/sandbox/check", huge).status_code == 422
+
+
+def test_the_checker_reads_an_hl7_v2_result_too():
+    from tests.test_hl7 import oru
+
+    dev = Partner("R10", "dev3")
+    raw = oru(placer="synthetic-001-order")
+    r = dev.client.post("/api/v1/portal/sandbox/check", raw, content_type="text/plain",
+                        HTTP_AUTHORIZATION=f"Bearer dev:{dev.tenant_public_id}:idp:dev3")
+    assert r.status_code == 200 and body(r)["result"] == "accepted", r.content
+    bad = dev.client.post("/api/v1/portal/sandbox/check", "MSH|^~\&|A|B|C|D|1||ADT^A01|1|P|2.5",
+                          content_type="text/plain",
+                          HTTP_AUTHORIZATION=f"Bearer dev:{dev.tenant_public_id}:idp:dev3")
+    assert body(bad)["result"] == "held" and "ORU" in body(bad)["issues"][0]["text"]

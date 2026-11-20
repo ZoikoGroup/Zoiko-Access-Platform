@@ -106,6 +106,8 @@ def clinic_dict(c: Claim) -> dict[str, Any]:
         "consent": c.consent_state,
         "decision_reason": c.decision_reason or None,
         "payment_ref": c.payment_ref or None,
+        "amount_paid_minor": c.amount_paid_minor,
+        "paid_on": c.paid_on.isoformat() if c.paid_on else None,
         "created_at": c.created_at.isoformat(),
         "decided_at": c.decided_at.isoformat() if c.decided_at else None,
         "paid_at": c.paid_at.isoformat() if c.paid_at else None,
@@ -127,6 +129,8 @@ def payer_dict(c: Claim) -> dict[str, Any]:
         "state": c.state,
         "decision_reason": c.decision_reason or None,
         "payment_ref": c.payment_ref or None,
+        "amount_paid_minor": c.amount_paid_minor,
+        "paid_on": c.paid_on.isoformat() if c.paid_on else None,
         "created_at": c.created_at.isoformat(),
     }
 
@@ -314,6 +318,8 @@ def payer_step(
     reason: Any = "",
     payment_ref: Any = "",
     clock: Clock | None = None,
+    amount_paid_minor: Any = None,
+    paid_on: Any = None,
 ) -> dict[str, Any]:
     if step not in PAYER_STEPS:
         raise ZoikoError(ErrorCode.NOT_FOUND)
@@ -323,6 +329,22 @@ def payer_step(
     if step == "pay" and (not isinstance(payment_ref, str) or not _PAYMENT.match(payment_ref)):
         raise _bad("payment_ref")
     now = utc_now(clock)
+    paid_day = None
+    if step == "pay":
+        # Payment advice (DEV-347): the day paid, never in the future; today when not given.
+        if paid_on in (None, ""):
+            paid_day = now.date()
+        else:
+            try:
+                paid_day = dt.date.fromisoformat(paid_on) if isinstance(paid_on, str) else None
+            except ValueError:
+                paid_day = None
+            if paid_day is None or paid_day > now.date():
+                raise _bad("paid_on")
+        if amount_paid_minor is not None and (
+                isinstance(amount_paid_minor, bool) or not isinstance(amount_paid_minor, int)
+                or amount_paid_minor < 0):
+            raise _bad("amount_paid_minor")
     with transaction.atomic():
         row = (
             Claim.objects.select_for_update()
@@ -341,7 +363,11 @@ def payer_step(
         if step == "decline":
             row.decision_reason = reason
         if step == "pay":
+            paid = row.amount_minor if amount_paid_minor is None else amount_paid_minor
+            if paid > row.amount_minor:
+                raise _bad("amount_paid_minor")  # never more than claimed
             row.payment_ref, row.paid_at = payment_ref, now
+            row.amount_paid_minor, row.paid_on = paid, paid_day
         row.entity_version += 1
         row.save()
         _event(row, step, "payer", actor_ref)
@@ -406,11 +432,13 @@ def patient_dict(c: Claim) -> dict[str, Any]:
     }
 
 
-def list_for_patients(*, tenant_ref: str, person_refs: list[str]) -> list[dict[str, Any]]:
+def list_for_patients(
+    *, tenant_ref: str, person_refs: list[str], page: pagination.PageRequest | None = None
+) -> list[dict[str, Any]]:
     rows = Claim.objects.filter(
         from_tenant_ref=tenant_ref, person_ref__in=person_refs, **_scope()
-    ).order_by("-created_at")
-    return [patient_dict(c) for c in rows[:200]]
+    )
+    return [patient_dict(c) for c in pagination.apply(rows, page)]
 
 
 def answer(

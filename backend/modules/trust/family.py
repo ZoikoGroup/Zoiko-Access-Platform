@@ -42,7 +42,12 @@ from .profile import get_person_profiles, store_profile
 from .services import _audit, _own, assign_role
 
 WRITE_PERSON = "write:person"
-RELATIONSHIPS = ("parent", "guardian", "caregiver")
+RELATIONSHIPS = ("parent", "guardian", "caregiver", "lpa_attorney", "court_deputy")
+# Someone acting for an ADULT who cannot decide for themselves (DEV-352, LEAD DECISION): only with
+# legal proof of exactly this kind, checked by one staff member and approved by another, for at
+# most a year at a time.
+ADULT_PROOF = {"lpa_attorney": "lpa_health_welfare", "court_deputy": "court_order"}
+ADULT_REVIEW = dt.timedelta(days=365)
 APPROVING_ROLES = frozenset({"R04", "R13"})
 MAX_PENDING_PER_PERSON = 5
 
@@ -64,6 +69,8 @@ def _grant_dict(g: ProxyGrant, names: dict[str, dict[str, str]]) -> dict[str, An
         "birth_date": profile.get("birth_date", ""),
         "delegate_ref": g.delegate.public_id, "scopes": list(g.rights or []),
         "proof_kind": g.proof_kind, "proof_ref": g.proof_ref,
+        "proof_checked_by": g.proof_checked_by_ref or None,
+        "adult": g.relationship_type in ADULT_PROOF,
         "valid_until": g.valid_until.isoformat() if g.valid_until else None,
         "created_at": g.created_at.isoformat(),
     }
@@ -108,6 +115,14 @@ def request_family_member(
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["relationship"])
     if not (birth_date or "").strip():
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["birth_date"])
+    if relationship in ADULT_PROOF:
+        try:
+            born = dt.date.fromisoformat(birth_date.strip())
+        except ValueError:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["birth_date"]) from None
+        age = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+        if age < 18:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["relationship"])  # a child
     with transaction.atomic():
         own = _own(Person, own_person_ref)
         requester = _own(Actor, requester_public_id)
@@ -205,7 +220,8 @@ def _staff_check(
 # What staff may say they saw to establish a guardian's legal basis (DEV-144). The list is ours, not
 # the specification's: it names kinds of document, never which one a given relationship needs.
 PROOF_KINDS = ("birth_record", "adoption_record", "court_order", "power_of_attorney",
-               "carer_registration", "patient_written_consent", "other_document")
+               "carer_registration", "patient_written_consent", "other_document",
+               "lpa_health_welfare")  # DEV-352: a registered LPA for health and welfare
 _PROOF_REF = re.compile(r"^[A-Za-z0-9._:-]{4,64}$")
 
 
@@ -245,6 +261,19 @@ def approve_family_member(
     with transaction.atomic():
         grant = _own(ProxyGrant, grant_ref)
         _staff_check(grant, approver_public_id, decision, organization_public_id)
+        if grant.relationship_type in ADULT_PROOF:
+            # DEV-352: the right legal document, checked by someone else, at most a year.
+            if proof_kind != ADULT_PROOF[grant.relationship_type]:
+                raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["proof_kind"])
+            if grant.status != ProxyStatus.APPROVAL_PENDING or not grant.proof_checked_by_ref:
+                raise ZoikoError(ErrorCode.CONFLICT_VERSION)  # the document must be checked first
+            if grant.proof_checked_by_ref == approver_public_id:
+                raise ZoikoError(ErrorCode.POLICY_DENIED)  # a second staff member approves
+            latest = now + ADULT_REVIEW
+            if until is None:
+                until = latest
+            elif until > latest:
+                raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["valid_until"])
         approve_proxy_grant(
             grant_ref, approver_public_id, valid_until=until, rights=scopes,
             proof_kind=proof_kind, proof_ref=proof_ref, clock=clock)
@@ -320,10 +349,14 @@ def mark_proof_received(
     *, grant_ref: str, approver_public_id: str, decision: policy.Decision,
     organization_public_id: str | None,
 ) -> dict[str, Any]:
-    """The proof has arrived and the request waits for the clinic's decision."""
-    return _step(grant_ref, approver_public_id, decision, organization_public_id,
+    """The proof has arrived and the request waits for the clinic's decision. Who checked it is
+    recorded: for an adult's attorney or deputy someone else must approve (DEV-352)."""
+    done = _step(grant_ref, approver_public_id, decision, organization_public_id,
                  from_states=(ProxyStatus.PROPOSED, ProxyStatus.PROOF_REQUIRED),
                  to_state=ProxyStatus.APPROVAL_PENDING, action="family.proof_received")
+    ProxyGrant.objects.filter(public_id=grant_ref, **_scope()).update(
+        proof_checked_by_ref=approver_public_id)
+    return done
 
 
 def suspend_family_member(
@@ -352,3 +385,47 @@ def resume_family_member(
         resume_proxy_grant(grant_ref, by=approver_public_id)
         grant.refresh_from_db()
         return _grant_dict(grant, {})
+
+
+
+def review_adult_grant(
+    *, grant_ref: str, approver_public_id: str, decision: policy.Decision,
+    organization_public_id: str, still_in_force: Any, clock: Clock | None = None,
+) -> dict[str, Any]:
+    """The yearly review of an adult's attorney or deputy (DEV-352): a staff member confirms the
+    document is still in force (not revoked, the deputy order not ended), and the link runs for
+    another year from today. Also renews one that just ran out. Audited."""
+    if still_in_force is not True:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["still_in_force"])
+    now = utc_now(clock)
+    with transaction.atomic():
+        grant = _own(ProxyGrant, grant_ref)
+        _staff_check(grant, approver_public_id, decision, organization_public_id)
+        if grant.relationship_type not in ADULT_PROOF or grant.status != ProxyStatus.ACTIVE:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        grant.valid_until = now + ADULT_REVIEW
+        grant.entity_version += 1
+        grant.save(update_fields=["valid_until", "entity_version", "updated_at"])
+        _audit(approver_public_id, "family.adult_review", "proxy_grant", grant.public_id)
+        return _grant_dict(grant, {})
+
+
+def adult_reviews_due(within_days: int = 30, clock: Clock | None = None) -> int:
+    """How many adult attorneys and deputies need their yearly review within this many days, or
+    have run out (for the staff dashboard)."""
+    horizon = utc_now(clock) + dt.timedelta(days=within_days)
+    return ProxyGrant.objects.filter(
+        relationship_type__in=list(ADULT_PROOF), status=ProxyStatus.ACTIVE,
+        valid_until__lte=horizon, **_scope()).count()
+
+
+
+def adult_proxy_persons(delegate_public_id: str, clock: Clock | None = None) -> set[str]:
+    """The adults this login acts for as attorney or court deputy right now (an active link, not
+    run out). Used to let them read the person's notes when the "notes" part was granted
+    (DEV-353)."""
+    now = utc_now(clock)
+    rows = ProxyGrant.objects.filter(
+        delegate__public_id=delegate_public_id, relationship_type__in=list(ADULT_PROOF),
+        status=ProxyStatus.ACTIVE, **_scope()).select_related("person")
+    return {g.person.public_id for g in rows if g.valid_until is None or g.valid_until > now}

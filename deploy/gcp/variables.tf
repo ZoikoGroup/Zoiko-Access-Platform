@@ -48,7 +48,7 @@ variable "alert_email" {
 }
 
 variable "email_host" {
-  description = "The SMTP server of the mail provider (the provider itself is still undecided, DEV-016)."
+  description = "The SMTP server, kept as a fallback; mail goes through SendGrid's web API (DEV-350)."
   type        = string
 }
 
@@ -79,6 +79,18 @@ variable "twilio_account_sid" {
 
 variable "twilio_from" {
   description = "The sending number (+44...) or messaging service (MG...)."
+  type        = string
+  default     = ""
+}
+
+variable "scanner_machine_type" {
+  description = "The VM size for the ClamAV virus scanner (DEV-351); it needs about 2 GB of memory."
+  type        = string
+  default     = "e2-medium"
+}
+
+variable "sendgrid_webhook_public_key" {
+  description = "SendGrid's Event Webhook verification key (public, base64), from the SendGrid account (DEV-354). Empty: receipts are refused."
   type        = string
   default     = ""
 }

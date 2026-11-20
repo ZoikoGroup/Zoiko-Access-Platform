@@ -1530,10 +1530,11 @@ def staff_billing_invoices(request: HttpRequest, auth: trust.Authenticated) -> H
             )
         return JsonResponse({"invoice": made}, status=201)
     _authorize(auth, "read:billing", organization_public_id=org)
+    pg = _page_req(request, auth, f"invoices:{request.GET.get('status') or ''}")
     with tenant_transaction():
-        rows = billing.list_invoices(org, request.GET.get("status") or None)
+        rows = billing.list_invoices(org, request.GET.get("status") or None, page=pg)
     _add_names(auth, rows, "person_ref")
-    return JsonResponse({"invoices": rows, "can_admin": "R13" in auth.roles})
+    return JsonResponse(_with_cursor({"invoices": rows, "can_admin": "R13" in auth.roles}, pg))
 
 
 @endpoint("GET")
@@ -2746,6 +2747,22 @@ def portal_entitlement(request: HttpRequest, auth: trust.Authenticated) -> HttpR
 
 
 # ------------------------------------------------------------------ the exchange with partners
+def _page_req(request: HttpRequest, auth: trust.Authenticated, lst: str) -> Any:
+    """The page asked for (`?limit=` and/or `?cursor=`), or None for the whole list as before
+    (DEV-337). The cursor is tied to this login and this list."""
+    if "limit" not in request.GET and "cursor" not in request.GET:
+        return None
+    return pagination.PageRequest(
+        limit=pagination.limit_from(request.GET.get("limit")),
+        cursor=request.GET.get("cursor") or None, actor=auth.actor_public_id, lst=lst)
+
+
+def _with_cursor(body: dict[str, Any], pg: Any) -> dict[str, Any]:
+    if pg is not None:
+        body["next_cursor"] = pg.next_cursor
+    return body
+
+
 def _platform_context() -> Any:
     """The exchange lives in Zoiko's own platform space; this is the context to reach it, always
     used OUTSIDE the caller's own transaction (switching tenants inside one would lose it)."""
@@ -2939,8 +2956,9 @@ def exchange_mine(request: HttpRequest, auth: trust.Authenticated) -> HttpRespon
         reachable = trust.reachable_persons(auth.actor_public_id)
     mine = _my_customer(auth)
     allowed: dict[tuple[str, str], bool] = {}
+    pg = _page_req(request, auth, "exchange_mine")
     with tenant_transaction(_platform_context()):
-        rows = exchange.list_for_patients(tenant_ref=mine, person_refs=reachable)
+        rows = exchange.list_for_patients(tenant_ref=mine, person_refs=reachable, page=pg)
     out = []
     for r in rows:
         key = (r["kind"], r["person"])
@@ -2948,7 +2966,7 @@ def exchange_mine(request: HttpRequest, auth: trust.Authenticated) -> HttpRespon
             allowed[key] = is_allowed(auth, _EXCHANGE_READ[r["kind"]], subject_ref=r["person"])
         if allowed[key]:
             out.append({k: v for k, v in r.items() if k != "person"})
-    return JsonResponse({"requests": out})
+    return JsonResponse(_with_cursor({"requests": out}, pg))
 
 
 @endpoint("GET")
@@ -3042,13 +3060,20 @@ def _send_order(
             order = exchange.order_to_send(request_ref=request_id, tenant_ref=clinic_ref)
         if order is None:
             return
+        # The lab's choice across ALL its organisations (DEV-341): the database gives them in no
+        # fixed order, so "the first one" sent an order only some of the time. Exactly one
+        # chosen system sends; two different choices are not guessed between.
         with tenant_transaction(trust.context_for(order["partner"])):
-            orgs = list(trust.organization_names())
-            system = trust.booking_system_of(orgs[0]) if orgs else ""
-        if not system or not connector.is_live(system):
+            chosen = {trust.booking_system_of(o) for o in trust.organization_names()} - {""}
+        if len(chosen) != 1:
+            if len(chosen) > 1:
+                logging.getLogger("zoiko.orders").warning("lab has several order systems")
+            return
+        system = chosen.pop()
+        if not connector.is_live(system):
             return
         with tenant_transaction():
-            clinic_orgs = list(trust.organization_names())
+            clinic_orgs = sorted(trust.organization_names())
             connector.request_operation(
                 connector_key=system, operation_type="exchange.order", subject_ref=request_id,
                 organization_ref=clinic_orgs[0] if clinic_orgs else "",
@@ -3059,6 +3084,100 @@ def _send_order(
             )
     except Exception as exc:  # noqa: BLE001 - the agreement stands; the lab still has the app
         logging.getLogger("zoiko.orders").warning("order send failed: %s", type(exc).__name__)
+
+
+# ------------------------------------------------------------------ the lab's PDF (DEV-345)
+@endpoint("POST")
+def exchange_incoming_attachment(
+    request: HttpRequest, auth: trust.Authenticated, request_id: str
+) -> HttpResponse:
+    """The lab attaches its PDF report to a delivered result: the raw file as the request body,
+    `?filename=`. At most 5 MB; read here with that cap, not Django's general one."""
+    org = _portal_org(auth, "partner")
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        kind = exchange.kind_of(request_id, mine)
+    if exchange.role_for(kind) not in auth.roles:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "write:partner", organization_public_id=org)
+    data = request.read(5 * 1024 * 1024 + 1)
+    with tenant_transaction(_platform_context()):
+        done = exchange.attach_pdf(request_ref=request_id, tenant_ref=mine,
+                                   actor_ref=auth.actor_public_id,
+                                   filename=request.GET.get("filename"), data=data)
+    return JsonResponse({"attachment": done}, status=201)
+
+
+@endpoint("GET")
+def exchange_request_attachments(
+    request: HttpRequest, auth: trust.Authenticated, request_id: str
+) -> HttpResponse:
+    """The files on a result (names, sizes, scan state), for the ordering clinic's treating
+    doctor or the lab that sent them."""
+    mine = _my_customer(auth)
+    if home_for(auth.actor_type, list(auth.roles), auth.tenant_type) == "partner":
+        org = _portal_org(auth, "partner")
+        _authorize(auth, "read:partner", organization_public_id=org)
+    else:
+        org = _clinic_org(auth)
+        _clinician_only(auth)
+        with tenant_transaction(_platform_context()):
+            person = exchange.person_of(request_id, mine)
+        _authorize(auth, "read:diagnostic", organization_public_id=org, subject_ref=person)
+    with tenant_transaction(_platform_context()):
+        rows = exchange.list_attachments(request_ref=request_id, tenant_ref=mine)
+    return JsonResponse({"attachments": rows})
+
+
+@endpoint("GET")
+def exchange_request_attachment_file(
+    request: HttpRequest, auth: trust.Authenticated, request_id: str, attachment_id: str
+) -> HttpResponse:
+    """The PDF itself, for the ordering clinic's treating doctor only, and only once scanned
+    clean. Recorded. Sent as a download, never shown inside the app."""
+    org = _clinic_org(auth)
+    _clinician_only(auth)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        person = exchange.person_of(request_id, mine)
+    _authorize(auth, "read:diagnostic", organization_public_id=org, subject_ref=person)
+    with tenant_transaction(_platform_context()):
+        name, data = exchange.open_attachment(
+            request_ref=request_id, attachment_ref=attachment_id, tenant_ref=mine,
+            actor_ref=auth.actor_public_id)
+    with tenant_transaction():
+        evidence.record(actor_ref=auth.actor_public_id, action="exchange.attachment_opened",
+                        object_type="exchange_request", object_ref=request_id,
+                        outcome=evidence.AuditOutcome.ALLOWED)
+    response = HttpResponse(data, content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{name}"'
+    response["Cache-Control"] = "no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@endpoint("GET")
+def exchange_request_trend(
+    request: HttpRequest, auth: trust.Authenticated, request_id: str
+) -> HttpResponse:
+    """?key=<SNOMED code or value name>: that value across this patient's results at the clinic,
+    oldest first (DEV-339). The same rule as reading a result: a treating doctor only."""
+    org = _clinic_org(auth)
+    _clinician_only(auth)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        person = exchange.person_of(request_id, mine)
+    _authorize(auth, "read:diagnostic", organization_public_id=org, subject_ref=person)
+    with tenant_transaction(_platform_context()):
+        points = exchange.value_trend(
+            person_ref=person, tenant_ref=mine, key=request.GET.get("key"),
+            actor_ref=auth.actor_public_id)
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id, action="exchange.trend_read",
+            object_type="exchange_request", object_ref=request_id,
+            outcome=evidence.AuditOutcome.ALLOWED)
+    return JsonResponse({"points": points})
 
 
 @endpoint("GET")
@@ -3378,8 +3497,9 @@ def claims_mine(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse
     with tenant_transaction():
         reachable = trust.reachable_persons(auth.actor_public_id)
     mine = _my_customer(auth)
+    pg = _page_req(request, auth, "claims_mine")
     with tenant_transaction(_platform_context()):
-        rows = claim.list_for_patients(tenant_ref=mine, person_refs=reachable)
+        rows = claim.list_for_patients(tenant_ref=mine, person_refs=reachable, page=pg)
     allowed: dict[str, bool] = {}
     out = []
     for r in rows:
@@ -3387,7 +3507,7 @@ def claims_mine(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse
             allowed[r["person"]] = is_allowed(auth, "read:coverage", subject_ref=r["person"])
         if allowed[r["person"]]:
             out.append({k: v for k, v in r.items() if k != "person"})
-    return JsonResponse({"claims": out})
+    return JsonResponse(_with_cursor({"claims": out}, pg))
 
 
 @endpoint("POST")
@@ -3486,6 +3606,8 @@ def claim_payer_step(
             actor_ref=auth.actor_public_id,
             reason=body.get("reason"),
             payment_ref=body.get("payment_ref"),
+            amount_paid_minor=body.get("amount_paid_minor"),
+            paid_on=body.get("paid_on"),
         )
     with tenant_transaction():
         evidence.record(
@@ -3526,11 +3648,12 @@ def portal_sandbox_check(request: HttpRequest, auth: trust.Authenticated) -> Htt
     _developer(auth)
     if len(request.body) > SANDBOX_MAX_BYTES:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["body"])
-    try:
-        resource = json.loads(request.body or b"null")
-    except ValueError:
+    try:  # FHIR JSON, or an HL7 v2 ORU^R01 message read the same way as the intake (DEV-340)
+        resource = integration.parse_payload((request.body or b"null").decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        text = str(exc)[:200] if (request.body or b"").startswith(b"MSH") else "not valid JSON"
         return JsonResponse({"result": "held", "issues": [
-            {"path": "", "code": "invalid", "text": "not valid JSON"}]})
+            {"path": "", "code": "invalid", "text": text}]})
     return JsonResponse(synthetic.check(resource))
 
 
@@ -4545,6 +4668,14 @@ def _family_step(
                 decision=decision,
                 organization_public_id=org,
             )
+        elif step == "review":  # DEV-352: the yearly review of an adult's attorney or deputy
+            done = trust.review_adult_grant(
+                grant_ref=grant_id,
+                approver_public_id=me,
+                decision=decision,
+                organization_public_id=org,
+                still_in_force=body.get("still_in_force"),
+            )
         elif step == "suspend":
             done = trust.suspend_family_member(
                 grant_ref=grant_id,
@@ -4575,6 +4706,13 @@ def staff_family_proof_received(
     request: HttpRequest, auth: trust.Authenticated, grant_id: str
 ) -> HttpResponse:
     return _family_step(request, auth, grant_id, "proof-received")
+
+
+@endpoint("POST")
+def staff_family_review(
+    request: HttpRequest, auth: trust.Authenticated, grant_id: str
+) -> HttpResponse:
+    return _family_step(request, auth, grant_id, "review")
 
 
 @endpoint("POST")
@@ -4731,9 +4869,10 @@ def coverage_entries(request: HttpRequest, auth: trust.Authenticated) -> HttpRes
     with tenant_transaction():
         reachable = trust.reachable_persons(auth.actor_public_id)
     persons = [p for p in reachable if is_allowed(auth, "read:coverage", subject_ref=p)]
+    pg = _page_req(request, auth, "coverage_mine")
     with tenant_transaction():
-        rows = coverage.list_coverage(persons)
-    return JsonResponse({"coverage": [_coverage_json(c) for c in rows]})
+        rows = coverage.list_coverage(persons, page=pg)
+    return JsonResponse(_with_cursor({"coverage": [_coverage_json(c) for c in rows]}, pg))
 
 
 @endpoint("GET")
@@ -4968,16 +5107,17 @@ def clinician_referrals(request: HttpRequest, auth: trust.Authenticated) -> Http
     """A doctor sends a patient to another service, and sees what became of their referrals."""
     _clinician_only(auth)
     if request.method == "GET":
+        pg = _page_req(request, auth, "referrals_sent")
         with tenant_transaction():
-            rows = referral.list_referrals(referrer_ref=auth.actor_public_id)
+            rows = referral.list_referrals(referrer_ref=auth.actor_public_id, page=pg)
         allowed = {
             p
             for p in sorted({r["person_ref"] for r in rows})
             if is_allowed(auth, "read:referral", subject_ref=p)
         }
-        return JsonResponse(
-            {"referrals": _referrals_out([r for r in rows if r["person_ref"] in allowed], auth)}
-        )
+        return JsonResponse(_with_cursor(
+            {"referrals": _referrals_out([r for r in rows if r["person_ref"] in allowed], auth)},
+            pg))
     body = json_body(request)
     person, service = text(body, "patient"), text(body, "service")
     org = _catalog_org(auth)
@@ -5062,16 +5202,16 @@ def referral_acknowledge(
 def clinician_referral_inbox(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """Referrals this doctor is named to answer, as owner or as the fallback."""
     _clinician_only(auth)
+    pg = _page_req(request, auth, "referrals_to_answer")
     with tenant_transaction():
-        rows = referral.list_for_answerer(auth.actor_public_id)
+        rows = referral.list_for_answerer(auth.actor_public_id, page=pg)
     allowed = {
         p
         for p in sorted({r["person_ref"] for r in rows})
         if is_allowed(auth, "read:referral", subject_ref=p)
     }
-    return JsonResponse(
-        {"referrals": _referrals_out([r for r in rows if r["person_ref"] in allowed], auth)}
-    )
+    return JsonResponse(_with_cursor(
+        {"referrals": _referrals_out([r for r in rows if r["person_ref"] in allowed], auth)}, pg))
 
 
 # ------------------------------------------------------------------ data-rights requests (DEV-126)
@@ -5550,12 +5690,13 @@ def staff_webhook_step(
 def staff_webhook_deliveries(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     org = _manager(auth)
     _authorize(auth, "read:integration", organization_public_id=org)
+    pg = _page_req(request, auth, f"deliveries:{request.GET.get('state') or ''}")
     with tenant_transaction():
-        rows = integration.list_deliveries(request.GET.get("state") or None)
+        rows = integration.list_deliveries(request.GET.get("state") or None, page=pg)
         labels = trust.actor_labels()
     for r in rows:
         r["owner_name"] = labels.get(r["owner"], "")
-    return JsonResponse({"deliveries": rows})
+    return JsonResponse(_with_cursor({"deliveries": rows}, pg))
 
 
 @endpoint("GET", "POST")
@@ -5642,9 +5783,41 @@ def platform_partner_check(
 def staff_inbound_events(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     org = _manager(auth)
     _authorize(auth, "read:integration", organization_public_id=org)
+    pg = _page_req(request, auth, f"inbound:{request.GET.get('state') or ''}")
     with tenant_transaction():
-        rows = integration.list_events(request.GET.get("state") or None)
-    return JsonResponse({"events": rows})
+        rows = integration.list_events(request.GET.get("state") or None, page=pg)
+    return JsonResponse(_with_cursor({"events": rows}, pg))
+
+
+@csrf_exempt
+@require_POST
+def sendgrid_events(request: HttpRequest) -> HttpResponse:
+    """SendGrid's delivery receipts (DEV-354). No sign-in: SendGrid's ECDSA signature IS the
+    credential and is checked before the body is read. Only our own email id and the outcome
+    are used; addresses and anything else in the post are ignored and never stored."""
+    import datetime as _dt
+    import time as _time
+
+    from foundation import sendgrid_backend
+    from foundation.mail import record_delivery
+
+    body = request.read(1_000_001)
+    if len(body) > 1_000_000:
+        return HttpResponse(status=413)
+    ok = sendgrid_backend.verify_event_signature(
+        body, request.headers.get(sendgrid_backend.SIGNATURE_HEADER, ""),
+        request.headers.get(sendgrid_backend.TIMESTAMP_HEADER, ""), _time.time())
+    if not ok:
+        return HttpResponse(status=401)
+    try:
+        events = json.loads(body)
+    except ValueError:
+        return HttpResponse(status=400)
+    changed = 0
+    for ref, status, when in sendgrid_backend.receipts_from(events):
+        changed += record_delivery(
+            ref, status, _dt.datetime.fromtimestamp(when, tz=_dt.timezone.utc))
+    return JsonResponse({"recorded": changed})
 
 
 @csrf_exempt
@@ -5687,7 +5860,11 @@ def _note_codes(raw: bytes, status: int) -> None:
     if status not in (200, 201, 202):
         return
     try:
-        codings = fhir.codings_in(json.loads(raw))
+        codings = [
+            c for c in fhir.codings_in(integration.parse_payload(raw.decode("utf-8")))
+            # the standard rating codes (N, A, CRIT ...) are not a lab's own codes
+            if c["system"] != "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation"
+        ]
         if codings:
             with tenant_transaction(_platform_context()):
                 codemap.note_seen(codings)
@@ -5745,6 +5922,33 @@ def platform_codemap_step(
     return JsonResponse({"mapping": done})
 
 
+def _capped_body(request: HttpRequest) -> bytes:
+    """A lab message's body, read with the intake's own cap (7.5 MB, so a 5 MB PDF fits) instead
+    of Django's general 2.5 MB; anything longer is cut, and the intake then refuses it as too
+    large (DEV-349)."""
+    return request.read(7_500_001)
+
+
+@csrf_exempt
+@require_POST
+def hl7_inbound(request: HttpRequest) -> HttpResponse:
+    """A partner's signed HL7 v2 lab result (ORU^R01), DEV-340: read into the same FHIR shape and
+    then treated exactly like a FHIR message (same signature, checks, holding and delivery)."""
+    raw = _capped_body(request)
+    status, body, headers = integration.receive_fhir(
+        raw_body=raw,
+        signature=request.headers.get("Zoiko-Signature", ""),
+        delivery_id=request.headers.get("Zoiko-Delivery-Id", ""),
+        fmt="hl7v2",
+    )
+    _note_codes(raw, status)  # local codes go to the two-person review list (DEV-322)
+    response = JsonResponse(body, status=status)
+    response["Cache-Control"] = "no-store"
+    for name, value in headers.items():
+        response[name] = value
+    return response
+
+
 @csrf_exempt
 @require_POST
 def fhir_inbound(request: HttpRequest) -> HttpResponse:
@@ -5754,11 +5958,13 @@ def fhir_inbound(request: HttpRequest) -> HttpResponse:
     exchange delivery); invalid or unmappable resources are stored in quarantine with no clinical
     state.
     """
+    raw = _capped_body(request)
     status, body, headers = integration.receive_fhir(
-        raw_body=request.body,
+        raw_body=raw,
         signature=request.headers.get("Zoiko-Signature", ""),
         delivery_id=request.headers.get("Zoiko-Delivery-Id", ""),
     )
+    _note_codes(raw, status)  # local codes go to the two-person review list (DEV-322)
     response = JsonResponse(body, status=status)
     response["Cache-Control"] = "no-store"
     for name, value in headers.items():
@@ -5772,6 +5978,7 @@ def staff_fhir_quarantine(request: HttpRequest, auth: trust.Authenticated) -> Ht
     org = _manager(auth)
     _authorize(auth, "read:integration", organization_public_id=org)
     state = request.GET.get("state")
+    pg = _page_req(request, auth, f"fhir_held:{state or ''}")
     with tenant_transaction():
         evidence.record(
             actor_ref=auth.actor_public_id,
@@ -5780,18 +5987,24 @@ def staff_fhir_quarantine(request: HttpRequest, auth: trust.Authenticated) -> Ht
             object_ref="quarantine",
             outcome=evidence.AuditOutcome.ALLOWED,
         )
-        items = integration.list_quarantined(state=state)
-    return JsonResponse({"items": items})
+        items = integration.list_quarantined(state=state, page=pg)
+    return JsonResponse(_with_cursor({"items": items}, pg))
 
 
 @endpoint("POST")
 def staff_fhir_quarantine_step(
     request: HttpRequest, auth: trust.Authenticated, quarantine_id: str, step: str
 ) -> HttpResponse:
-    """Clinic staff discards or requests resend for a quarantined FHIR message."""
+    """Clinic staff discards, requests a resend for, or retries (DEV-338) a held FHIR message."""
     org = _manager(auth)
     decision = _authorize(auth, "write:integration", organization_public_id=org)
     body = json_body(request)
+    if step == "retry":
+        with tenant_transaction():
+            done = integration.retry_quarantined(
+                quarantine_ref=quarantine_id, actor_public_id=auth.actor_public_id,
+                decision=decision, organization_ref=org)
+        return JsonResponse({"item": done})
     with tenant_transaction():
         done = integration.quarantine_step(
             quarantine_ref=quarantine_id,
@@ -5865,11 +6078,12 @@ def my_referrals(request: HttpRequest, auth: trust.Authenticated) -> HttpRespons
     with tenant_transaction():
         reachable = trust.reachable_persons(auth.actor_public_id)
     persons = [p for p in reachable if is_allowed(auth, "read:referral", subject_ref=p)]
+    pg = _page_req(request, auth, "referrals_mine")
     rows: list[dict[str, Any]] = []
     if persons:
         with tenant_transaction():
-            rows = referral.list_referrals(person_refs=persons)
-    return JsonResponse({"referrals": _referrals_out(rows, auth)})
+            rows = referral.list_referrals(person_refs=persons, page=pg)
+    return JsonResponse(_with_cursor({"referrals": _referrals_out(rows, auth)}, pg))
 
 
 # ---------------------------------------------------------------- AI permits (off by default)
@@ -6310,6 +6524,7 @@ def clinician_notes(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
                 note_date=body.get("note_date"),
                 by=auth.actor_public_id,
                 decision=decision,
+                diagnoses=body.get("diagnoses"),
             )
             names = trust.actor_labels()
         out = _note_json(made, names)
@@ -6396,7 +6611,7 @@ def clinician_note_step(
         if step == "edit":
             done = notes.edit_draft(
                 note_ref=note_id, body=body.get("body"), by=auth.actor_public_id,
-                decision=decision,
+                decision=decision, diagnoses=body.get("diagnoses"),
             )
         elif step == "addendum":
             done = notes.add_addendum(
@@ -6422,17 +6637,20 @@ def clinician_note_step(
 
 
 def _note_people(auth: trust.Authenticated, notes: Any) -> dict[str, bool]:
-    """Whose notes this login may read in the patient app: {person: as_guardian}. Their own, and
-    a child's only while the child is under 16 (DEV-324). The policy engine has already required
-    the "notes" part of the guardian's grant."""
+    """Whose notes this login may read in the patient app: {person: as_guardian}. Their own; a
+    child's only while the child is under 16 (DEV-324); an adult's they act for as attorney or
+    court deputy (DEV-353, LEAD DECISION). The policy engine has already required the "notes"
+    part of the grant, so without it there is nothing. A note its author kept from guardians is
+    kept from attorneys and deputies too."""
     people = _my_people(auth, notes.READ)
     with tenant_transaction():
         own = trust.own_person_of(auth.actor_public_id)
         others = [p for p in people if p != own]
         births = trust.get_person_profiles(others) if others else {}
+        adults = trust.adult_proxy_persons(auth.actor_public_id) if others else set()
     out = {p: False for p in people if p == own}
     for person in others:
-        if notes.guardian_may_read(births.get(person, {}).get("birth_date")):
+        if person in adults or notes.guardian_may_read(births.get(person, {}).get("birth_date")):
             out[person] = True
     return out
 
@@ -6570,9 +6788,10 @@ def staff_billing_payments(request: HttpRequest, auth: trust.Authenticated) -> H
     if org is None:
         raise ZoikoError(ErrorCode.POLICY_DENIED)
     _authorize(auth, "read:billing", organization_public_id=org)
+    pg = _page_req(request, auth, f"payments:{request.GET.get('invoice') or ''}")
     with tenant_transaction():
-        rows = billing.list_payments(org, request.GET.get("invoice") or None)
-    return JsonResponse({"payments": rows})
+        rows = billing.list_payments(org, request.GET.get("invoice") or None, page=pg)
+    return JsonResponse(_with_cursor({"payments": rows}, pg))
 
 
 # --------------------------------------------------------------------------- circuits (DEV-221)

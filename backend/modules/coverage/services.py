@@ -14,6 +14,7 @@ from typing import Any
 
 from django.db import transaction
 
+from foundation import pagination
 from foundation.cell_context import require_context
 from foundation.crypto import encrypt
 from foundation.errors import ErrorCode, ZoikoError
@@ -179,7 +180,8 @@ def get_coverage(coverage_ref: str, *, clock: Clock | None = None) -> dict[str, 
 
 
 def list_coverage(
-    person_refs: list[str], *, include_ended: bool = False, clock: Clock | None = None
+    person_refs: list[str], *, include_ended: bool = False, clock: Clock | None = None,
+    page: pagination.PageRequest | None = None,
 ) -> list[dict[str, Any]]:
     """Newest first. The caller has already been allowed to read each of these patients."""
     if not person_refs:
@@ -188,7 +190,7 @@ def list_coverage(
     rows = Coverage.objects.filter(person_ref__in=person_refs, **_scope())
     if not include_ended:
         rows = rows.filter(status=CoverageStatus.ACTIVE)
-    return [coverage_dict(c, today) for c in rows.order_by("-created_at")[:200]]
+    return [coverage_dict(c, today) for c in pagination.apply(rows, page)]
 
 
 def shared_with_staff(person_refs: list[str]) -> dict[str, bool]:

@@ -127,6 +127,7 @@ export interface FamilyRequest {
   id: string;
   status: string;
   scopes?: string[];
+  valid_until?: string | null;
   relationship: string;
   person: string;
   name: string;
@@ -455,6 +456,7 @@ export interface Claim {
   id: string; claim_no: string; payer: string; payer_ref: string; patient: string; patient_name?: string | null;
   member_tail: string; category: string; label: string; amount_minor: number; currency: string; service_date: string;
   state: ClaimState; decision_reason: string | null; payment_ref: string | null; created_at: string;
+  amount_paid_minor?: number | null; paid_on?: string | null;
   decided_at: string | null; paid_at: string | null;
 }
 
@@ -471,7 +473,7 @@ export interface FhirIssue {
   text: string;
 }
 
-export type FhirQuarantineState = "held" | "discarded" | "resend_requested";
+export type FhirQuarantineState = "held" | "discarded" | "resend_requested" | "released";
 
 export interface FhirQuarantineItem {
   public_id: string;

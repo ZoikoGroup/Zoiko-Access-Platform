@@ -163,8 +163,8 @@ export const addPatientCoverage = (person: string, body: {
 export const endPatientCoverage = (id: string) => post(`coverage/${encodeURIComponent(id)}/end`);
 export const listFamilyRequests = async () =>
   await v1<{ requests: FamilyRequest[]; approved: FamilyRequest[] }>("staff/family-requests");
-export const familyStep = (id: string, step: "proof-needed" | "proof-received" | "suspend" | "resume", reason = "") =>
-  post(`staff/family-requests/${encodeURIComponent(id)}/${step}`, reason ? { reason } : {});
+export const familyStep = (id: string, step: "proof-needed" | "proof-received" | "suspend" | "resume" | "review", reason = "") =>
+  post(`staff/family-requests/${encodeURIComponent(id)}/${step}`, step === "review" ? { still_in_force: true } : reason ? { reason } : {});
 export const approveFamily = (id: string, validUntil: string, scopes: string[], proofKind: string, proofRef: string) =>
   post(`staff/family-requests/${encodeURIComponent(id)}/approve`, { verified: true, valid_until: validUntil, scopes, proof_kind: proofKind, proof_ref: proofRef });
 export const rejectFamily = (id: string) => post(`staff/family-requests/${encodeURIComponent(id)}/reject`);
@@ -279,8 +279,10 @@ export const getBillingFees = () =>
   v1<{ fees: FeeRow[]; can_set: boolean }>("staff/billing/fees");
 export const setFee = (service: string, currency: string, amount_minor: number) =>
   post("staff/billing/fees", { service, currency, amount_minor });
-export const getInvoices = () =>
-  v1<{ invoices: InvoiceRow[]; can_admin: boolean }>("staff/billing/invoices");
+// One page of invoices, newest first (DEV-337); pass the cursor from the last page for older ones.
+export const getInvoices = (cursor?: string) =>
+  v1<{ invoices: InvoiceRow[]; can_admin: boolean; next_cursor?: string | null }>(
+    `staff/billing/invoices?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
 export const getInvoice = async (id: string) =>
   (await v1<{ invoice: InvoiceRow }>(`staff/billing/invoices/${encodeURIComponent(id)}`)).invoice;
 export const createInvoice = (person: string, lines: { service: string; quantity: number }[]) =>
@@ -301,8 +303,10 @@ export const addWebhook = async (label: string, url: string, topics: string[]) =
   (await post<{ endpoint: WebhookEndpoint }>("staff/integrations/webhooks", { label, url, topics })).endpoint;
 export const webhookStep = async (id: string, step: "verify" | "pause" | "resume" | "revoke" | "rotate-secret") =>
   (await post<{ endpoint: WebhookEndpoint }>(`staff/integrations/webhooks/${encodeURIComponent(id)}/${step}`)).endpoint;
-export const listWebhookDeliveries = async () =>
-  (await v1<{ deliveries: WebhookDelivery[] }>("staff/integrations/deliveries")).deliveries;
+// One page of deliveries, newest first (DEV-337); the cursor from the last page gives older ones.
+export const listWebhookDeliveries = async (cursor?: string) =>
+  v1<{ deliveries: WebhookDelivery[]; next_cursor?: string | null }>(
+    `staff/integrations/deliveries?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
 export const redriveDelivery = (id: string) =>
   post(`staff/integrations/deliveries/${encodeURIComponent(id)}/redrive`);
 export const rightsStep = (id: string, step: "start" | "verify" | "complete" | "decline" | "hold" | "release", note = "") =>
@@ -465,12 +469,14 @@ export const getCircuits = () => v1<{ circuits: ConnectorCircuit[]; can_act: boo
 export const resetCircuit = (key: string) =>
   post<{ circuit: ConnectorCircuit }>(`staff/connector/circuits/${encodeURIComponent(key)}/reset`);
 
-export const listFhirQuarantine = async (state?: string) => {
-  const query = state ? `state=${encodeURIComponent(state)}` : "";
-  return (await v1<{ items: FhirQuarantineItem[] }>(`staff/fhir/quarantine?${query}`)).items;
+// One page of held messages, newest first (DEV-337).
+export const listFhirQuarantine = async (state?: string, cursor?: string) => {
+  const query = [state ? `state=${encodeURIComponent(state)}` : "", "limit=50",
+    cursor ? `cursor=${encodeURIComponent(cursor)}` : ""].filter(Boolean).join("&");
+  return v1<{ items: FhirQuarantineItem[]; next_cursor?: string | null }>(`staff/fhir/quarantine?${query}`);
 };
 
-export const fhirQuarantineStep = (id: string, step: "discard" | "re-request", note?: string) =>
+export const fhirQuarantineStep = (id: string, step: "discard" | "re-request" | "retry", note?: string) =>
   v1<{ item: FhirQuarantineItem }>(`staff/fhir/quarantine/${encodeURIComponent(id)}/${encodeURIComponent(step)}`, {
     method: "POST",
     body: JSON.stringify({ note }),
@@ -484,7 +490,7 @@ export interface DeathInfo {
 }
 export const getDeath = (person: string) => v1<{ death: DeathInfo }>(`people/${enc(person)}/death`);
 export const recordDeath = (person: string, died_on: string, source: string) =>
-  post<{ death: DeathInfo; bookings_cancelled: number }>(`people/${enc(person)}/death`, { died_on, source });
+  post<{ death: DeathInfo; bookings_cancelled: number; waitlist_closed: number; requests_cancelled: number }>(`people/${enc(person)}/death`, { died_on, source });
 export const withdrawDeath = (person: string, reason: string) =>
   post<{ death: DeathInfo }>(`people/${enc(person)}/death/withdraw`, { reason });
 

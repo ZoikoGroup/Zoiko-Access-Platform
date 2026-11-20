@@ -33,6 +33,8 @@ from .email_flows import (
     verify_email,
 )
 from .family import (
+    adult_proxy_persons,
+    adult_reviews_due,
     approve_family_member,
     approved_family_grants,
     ask_for_proof,
@@ -44,6 +46,7 @@ from .family import (
     reject_family_member,
     request_family_member,
     resume_family_member,
+    review_adult_grant,
     suspend_family_member,
     withdraw_family_member,
 )
@@ -164,6 +167,7 @@ __all__ = [
     "decide_match", "identity_history", "identity_status_of", "linked_people", "list_cases",
     "open_case_people", "rebuild_match_keys", "record_identity_check",
     "refresh_expired_identities", "withdraw_identity_check",
+    "adult_proxy_persons", "adult_reviews_due", "review_adult_grant",
     "approve_family_member", "approved_family_grants", "ask_for_proof", "mark_proof_received",
     "resume_family_member", "suspend_family_member", "get_family_grant", "list_family",
     "pending_family_count", "pending_family_requests",

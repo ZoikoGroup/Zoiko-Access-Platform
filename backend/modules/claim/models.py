@@ -76,6 +76,10 @@ class Claim(CellScopedModel):
     decided_at = models.DateTimeField(null=True, blank=True)
     payment_ref = models.CharField(max_length=40, blank=True, default="")
     paid_at = models.DateTimeField(null=True, blank=True)
+    # Payment advice (DEV-347, LEAD DECISION): what the payer actually paid, and on which day.
+    # May be less than claimed; never more.
+    amount_paid_minor = models.PositiveIntegerField(null=True, blank=True)
+    paid_on = models.DateField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [

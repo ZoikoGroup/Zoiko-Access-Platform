@@ -21,6 +21,7 @@ import uuid
 
 import pytest
 
+from foundation import fhir
 from foundation.errors import ErrorCode, ZoikoError
 from modules.exchange.models import State
 from modules.integration.delivery import signature_header
@@ -230,6 +231,7 @@ def test_diagnostic_report_for_missing_order_quarantined(
 
     report = {
         "resourceType": "DiagnosticReport",
+        "category": [fhir.LAB_REPORT_CATEGORY],
         "id": "rep-101",
         "status": "final",
         "code": {
@@ -280,6 +282,7 @@ def test_valid_diagnostic_report_advances_exchange_to_result_available(
 
     report = {
         "resourceType": "DiagnosticReport",
+        "category": [fhir.LAB_REPORT_CATEGORY],
         "id": "crit-rep-101",
         "status": "final",
         "code": {
@@ -438,6 +441,7 @@ def test_a_loinc_only_report_is_held_because_uk_core_needs_snomed_ct(
     mock_quar.create.return_value = q_mock
     report = {
         "resourceType": "DiagnosticReport",
+        "category": [fhir.LAB_REPORT_CATEGORY],
         "id": "rep-loinc",
         "status": "final",
         "code": {"coding": [{"system": "http://loinc.org", "code": "57021-8"}]},
@@ -461,6 +465,7 @@ def test_a_loinc_only_report_is_held_because_uk_core_needs_snomed_ct(
 def _corrected_report(status):
     return {
         "resourceType": "DiagnosticReport",
+        "category": [fhir.LAB_REPORT_CATEGORY],
         "id": "rep-201",
         "status": status,
         "code": {"coding": [{"system": "http://snomed.info/sct", "code": "26604007"}]},
