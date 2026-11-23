@@ -8,6 +8,7 @@ import pytest
 from django.db import DatabaseError, transaction
 
 from foundation.cell_context import tenant_transaction
+from foundation.timeutil import UTC
 from modules.evidence.models import AuditEvent
 from modules.readiness.models import Decision, Evidence, GateDecision, Release
 from tests.test_packs import call, full, signed
@@ -44,6 +45,7 @@ def settle_hazards(w, leave=None):
         Hazard.objects.update(status="ACCEPTED")
         if leave:
             first = Hazard.objects.order_by("ref_no").first()
+            assert first is not None
             Hazard.objects.filter(pk=first.pk).update(status=leave)
 
 
@@ -309,7 +311,7 @@ def test_an_attestation_stops_counting_when_it_expires_and_the_decision_is_recor
     rel = release(world)
     sign_g3(world, rel)
     assert decision_of(world, rel) == "g3_ready"
-    later = dt.datetime.now(dt.UTC) + dt.timedelta(days=120)
+    later = dt.datetime.now(UTC) + dt.timedelta(days=120)
     monkeypatch.setattr(services, "utc_now", lambda clock=None: later)
     live = show(world, rel)
     assert live["decision"] == "no_go" and live["recorded_decision"] == "g3_ready"

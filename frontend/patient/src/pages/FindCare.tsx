@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, createBooking, getSlots, joinWaitlist, searchServices, type Booking, type CategoryOption, type Me, type Service, type ServiceFilters, type ProfileRow, type Slot, type WaitEntry } from "../api";
 import type { PageId } from "../App";
 import { dayKey, dayLabel, timeLabel, whenLabel } from "../format";
@@ -13,8 +13,10 @@ function usuallyText(h: number): string {
   return `${Math.round(h / 24)} days`;
 }
 
-export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery = "" }: {
-  initialQuery?: string;
+const FIRST_DAYS = 5;       // days of free times shown at first; the rest behind "Show more days"
+
+export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery = "", initialService = "" }: {
+  initialQuery?: string; initialService?: string;
   me: Me; waiting: WaitEntry[]; profiles: ProfileRow[]; onBooked: () => Promise<void>; goTo: (p: PageId) => void;
 }) {
   const [query, setQuery] = useState(initialQuery);
@@ -32,6 +34,9 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery =
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState<Booking | null>(null);
+  const [days, setDays] = useState(FIRST_DAYS);
+  const confirmRef = useRef<HTMLDivElement | null>(null);
+  const openedRef = useRef(false);
 
   const [category, setCategory] = useState("");
   const [mode, setMode] = useState<ServiceFilters["mode"]>("");
@@ -53,8 +58,26 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery =
   // Reload when a filter changes or a search is submitted (typing alone waits for the button).
   useEffect(() => { void loadServices(); }, [loadServices]);
 
+  // Opened with a service already chosen ("Book again", a waiting-list time): show its times once.
+  useEffect(() => {
+    if (openedRef.current || !initialService || !services) return;
+    const found = services.find((s) => s.id === initialService);
+    openedRef.current = true;
+    if (found) void choose(found);
+    else setError("That service is not offered at the moment. Search for another below.");
+  }, [services, initialService]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After a time is chosen, bring the confirm box into view and give it focus (keyboard and
+  // screen-reader users would otherwise have to find it at the bottom of a long list).
+  useEffect(() => {
+    if (slot && confirmRef.current) {
+      confirmRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      confirmRef.current.focus();
+    }
+  }, [slot]);
+
   async function choose(s: Service) {
-    setService(s); setSlot(null); setSlots(null); setDone(null); setError("");
+    setService(s); setSlot(null); setSlots(null); setDone(null); setError(""); setDays(FIRST_DAYS);
     try { setSlots(await getSlots(s.id)); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not load times"); }
   }
@@ -174,12 +197,14 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery =
             {slots === null ? <div className="empty">Loading times…</div> : slots.length === 0 ? (
               <div className="empty">There are no free times right now.</div>
             ) : (
-              [...byDay.entries()].map(([day, list]) => (
+              [...byDay.entries()].slice(0, days).map(([day, list]) => (
                 <div key={day}>
                   <div className="slot-day">{dayLabel(list[0].local_start)} - {list[0].location} ({list[0].local_zone})</div>
-                  <div className="slots">
+                  <div className="slots" role="group" aria-label={`Free times on ${dayLabel(list[0].local_start)}`}>
                     {list.map((s) => (
-                      <button key={s.id} className={`slot ${slot?.id === s.id ? "chosen" : ""}`} onClick={() => { setSlot(s); setDone(null); }}>
+                      <button key={s.id} className={`slot ${slot?.id === s.id ? "chosen" : ""}`} aria-pressed={slot?.id === s.id}
+                        aria-label={`${whenLabel(s.local_start, s.local_zone)}${s.provider ? `, with ${s.provider.name}` : ""}`}
+                        onClick={() => { setSlot(s); setDone(null); }}>
                         {timeLabel(s.local_start)}{s.provider ? <small style={{ display: "block", fontWeight: 400 }}>{s.provider.name} <VerifiedMark on={s.provider.verified} /></small> : null}
                       </button>
                     ))}
@@ -188,8 +213,14 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery =
               ))
             )}
 
+            {slots && byDay.size > days && (
+              <button className="btn ghost" onClick={() => setDays(days + FIRST_DAYS)}>
+                Show more days ({byDay.size - days} more)
+              </button>
+            )}
+
             {slot && (
-              <div className="confirm-box">
+              <div className="confirm-box" ref={confirmRef} tabIndex={-1} role="region" aria-label="Confirm your booking">
                 <b>Book {service.name}</b>
                 <div>{whenLabel(slot.local_start, slot.local_zone)} - {slot.location}{slot.provider ? ` - with ${slot.provider.name} ` : ""}{slot.provider && <VerifiedMark on={slot.provider.verified} />}</div>
                 {me.persons.length > 1 && (
@@ -211,7 +242,8 @@ export function FindCare({ me, waiting, profiles, onBooked, goTo, initialQuery =
             {done && (
               <div className="notice" role="status">
                 Request sent for {whenLabel(done.local_start, done.local_zone)}. It is not confirmed until the clinic confirms it.{" "}
-                <button className="btn ghost" onClick={() => goTo("appointments")}>View appointments</button>
+                <button className="btn ghost" onClick={() => goTo("appointments")}>View appointments</button>{" "}
+                <button className="btn ghost" onClick={() => goTo("notifications")}>Reminders by email or text</button>
               </div>
             )}
           </Card>

@@ -118,6 +118,7 @@ def test_the_timeline_cannot_be_changed_even_by_the_owner_of_the_table(world):
     ref = made(world, severity="sev2")
     with tenant_transaction(world.ctx):
         row = IncidentEvent.objects.filter(incident__public_id=ref).first()
+        assert row is not None
         with pytest.raises(DatabaseError), transaction.atomic():
             IncidentEvent.objects.filter(pk=row.pk).update(note="rewritten")
 

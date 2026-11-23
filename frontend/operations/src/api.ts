@@ -1,5 +1,5 @@
 // The only file that talks to the backend. Pages call these functions, never fetch().
-import type { IdentityData, MatchesData } from "./consoleTypes";
+import type { IdentityData, MatchesData, MergeInfo } from "./consoleTypes";
 import type { BookingHistoryData } from "@shared/BookingHistory";
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
@@ -412,6 +412,11 @@ const enc = encodeURIComponent;
 export const getMatches = () => v1<MatchesData>("staff/matches");
 export const decideMatch = (id: string, action: string, note = "") =>
   post(`staff/matches/${enc(id)}/decide`, { action, note });
+// Merging two records of a confirmed link, and undoing it (DEV-365).
+export const mergeMatch = (id: string, primary = "") =>
+  post<{ merge: MergeInfo }>(`staff/matches/${enc(id)}/merge`, primary ? { primary } : {});
+export const unmergeMatch = (id: string) =>
+  post<{ merge: MergeInfo }>(`staff/matches/${enc(id)}/unmerge`);
 export const getIdentity = (person: string) => v1<IdentityData>(`people/${enc(person)}/identity`);
 export const recordIdentityCheck = (person: string, body: { evidence_type: string; outcome: string; valid_days?: number }) =>
   post(`people/${enc(person)}/identity/check`, body);

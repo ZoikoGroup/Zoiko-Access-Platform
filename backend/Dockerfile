@@ -8,6 +8,8 @@ WORKDIR /app
 
 # Dependencies first so this layer is cached until requirements change.
 COPY requirements ./requirements
+# pip itself first: the one in the base image had known flaws (DEV-364).
+RUN pip install --default-timeout=120 --retries 10 --upgrade "pip>=26.2,<27"
 RUN pip install --default-timeout=120 --retries 10 -r requirements/dev.txt
 
 COPY . .

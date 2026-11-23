@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { decideMatch, getMatches } from "../api";
-import type { MatchCase, MatchFactor, MatchesData, MatchState } from "../consoleTypes";
+import { decideMatch, getMatches, mergeMatch, unmergeMatch } from "../api";
+import type { MatchCase, MatchFactor, MatchesData, MatchState, MergeInfo } from "../consoleTypes";
 import { Gate, useLoad } from "../useLoad";
 import { Card, Pill, type PillKind } from "../ui";
 
@@ -27,7 +27,8 @@ const FLAG: Record<string, string> = {
 const ACTION: Record<string, string> = {
   opened: "Held for review", request_recheck: "Asked for the details to be checked again",
   confirm_same: "Agreed they are the same person", mark_not_same: "Decided they are not the same person",
-  split: "Sent the link back for review", reopened: "Reopened because the details changed",
+  split: "Sent the link back for review", merge: "Merged the two records", unmerge: "Undid the merge",
+  reopened: "Reopened because the details changed",
 };
 
 const NOTES: [string, string][] = [
@@ -35,6 +36,14 @@ const NOTES: [string, string][] = [
   ["different_people", "They are different people"], ["twins", "They are twins or siblings"],
   ["data_entry_error", "A data entry mistake"], ["other", "Another reason"],
 ];
+
+function summary(lead: string, m: MergeInfo): string {
+  const parts = [lead, `${m.moved} item${m.moved === 1 ? "" : "s"} moved to the surviving record.`];
+  if (m.left_behind > 0) parts.push(`${m.left_behind} could not move because the surviving record already had one.`);
+  if (m.not_moved > 0) parts.push(`${m.not_moved} record${m.not_moved === 1 ? "" : "s"} (clinical notes, bills, claims, lab or data requests, sharing choices) stay${m.not_moved === 1 ? "s" : ""} on the other record: a merge never moves these.`);
+  if (m.access_not_carried > 0) parts.push(`${m.access_not_carried} guardian or doctor access grant${m.access_not_carried === 1 ? "" : "s"} must be approved again for the surviving record.`);
+  return parts.join(" ");
+}
 
 const when = (iso: string) => new Date(iso).toLocaleString();
 const isOpen = (c: MatchCase) => c.state === "possible_match" || c.state === "matched_pending_auth" || c.state === "split_review";
@@ -59,14 +68,28 @@ function View({ data, onChanged }: { data: MatchesData; onChanged: () => void })
     finally { setBusy(""); }
   }
 
+  async function combine(id: string, primary: string) {
+    setBusy(id); setError(""); setNote("");
+    try { const done = await mergeMatch(id, primary); setNote(summary("The two records are now one.", done.merge)); onChanged(); }
+    catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(""); }
+  }
+
+  async function undo(id: string) {
+    setBusy(id); setError(""); setNote("");
+    try { await unmergeMatch(id); setNote("The merge was undone. The case is back in review."); onChanged(); }
+    catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(""); }
+  }
+
   return (
     <>
       <div className="hero"><div>
         <h1>Duplicates</h1>
         <p>Two patient records that might be the same person are held here for a person to decide. Nothing is ever
-          merged automatically, and nothing is merged at all: a confirmed link only records the decision. Details are
-          masked on purpose (initials, birth year, the last two phone digits). While a case is open, neither
-          patient can have their identity checked.</p>
+          merged automatically: confirming a link only records the decision. Once a link is confirmed, a reviewer can
+          merge the two records into one, and undo that later. Details are masked on purpose (initials, birth year,
+          the last two phone digits). While a case is open, neither patient can have their identity checked.</p>
       </div></div>
       {error && <div className="error" role="alert">{error}</div>}
       {note && <div className="success" role="status">{note}</div>}
@@ -74,25 +97,29 @@ function View({ data, onChanged }: { data: MatchesData; onChanged: () => void })
       <div className="grid">
         <Card title={`Needs a decision (${open.length})`} sub="Cases that are critical (twins, a slipped date, or a patient with a doctor or guardian) need two different reviewers.">
           {open.length === 0 ? <div className="empty">No possible duplicates are waiting.</div>
-            : open.map((c) => <Case key={c.public_id} c={c} canDecide={data.can_decide} busy={busy === c.public_id} run={run} />)}
+            : open.map((c) => <Case key={c.public_id} c={c} canDecide={data.can_decide} busy={busy === c.public_id} run={run} combine={combine} undo={undo} />)}
         </Card>
         <Card title={`Settled (${settled.length})`} sub="Confirmed links, and cases closed in the last month.">
           {settled.length === 0 ? <div className="empty">Nothing settled recently.</div>
-            : settled.map((c) => <Case key={c.public_id} c={c} canDecide={data.can_decide} busy={busy === c.public_id} run={run} />)}
+            : settled.map((c) => <Case key={c.public_id} c={c} canDecide={data.can_decide} busy={busy === c.public_id} run={run} combine={combine} undo={undo} />)}
         </Card>
       </div>
     </>
   );
 }
 
-function Case({ c, canDecide, busy, run }: {
+function Case({ c, canDecide, busy, run, combine, undo }: {
   c: MatchCase; canDecide: boolean; busy: boolean;
   run: (id: string, action: string, reason: string, success: string) => Promise<void>;
+  combine: (id: string, primary: string) => Promise<void>;
+  undo: (id: string) => Promise<void>;
 }) {
   const [reason, setReason] = useState("");
-  const [asking, setAsking] = useState<"" | "same" | "not_same" | "split">("");
+  const [asking, setAsking] = useState<"" | "same" | "not_same" | "split" | "merge" | "undo">("");
+  const [survivor, setSurvivor] = useState("");
   const [history, setHistory] = useState(false);
-  const s = STATE[c.state];
+  const merged = c.merge !== null && c.merge.state === "merged";
+  const s = merged ? { text: "Merged into one record", kind: "ok" as PillKind } : STATE[c.state];
   const label = `case ${c.ref_no}`;
   const pending = c.state === "matched_pending_auth";
   return (
@@ -102,6 +129,7 @@ function Case({ c, canDecide, busy, run }: {
           <Pill kind={c.confidence === "high" ? "bad" : "info"}>{c.confidence === "high" ? "High similarity" : "Medium similarity"}</Pill>
           {c.critical && <>{" "}<Pill kind="bad">Critical: two reviewers</Pill></>}</b>
         <small>Opened {when(c.created_at)}.{c.recheck_requested && " A recheck of the details was asked for."}</small>
+        {merged && c.merge && <small>{summary("Merged.", c.merge)}</small>}
       </div>
       <div className="table-wrap">
         <table>
@@ -142,7 +170,13 @@ function Case({ c, canDecide, busy, run }: {
               {isOpen(c) && (
                 <button className="btn" disabled={busy} onClick={() => setAsking("not_same")}>They are different people<span className="sr-only"> ({label})</span></button>
               )}
-              {c.state === "linked" && (
+              {c.state === "linked" && !merged && (
+                <button className="btn" disabled={busy} onClick={() => { setSurvivor(""); setAsking("merge"); }}>Merge the two records<span className="sr-only"> ({label})</span></button>
+              )}
+              {merged && (
+                <button className="btn ghost" disabled={busy} onClick={() => setAsking("undo")}>Undo the merge<span className="sr-only"> ({label})</span></button>
+              )}
+              {c.state === "linked" && !merged && (
                 <button className="btn ghost" disabled={busy} onClick={() => setAsking("split")}>Send the link back for review<span className="sr-only"> ({label})</span></button>
               )}
             </>
@@ -153,7 +187,25 @@ function Case({ c, canDecide, busy, run }: {
                 : "This records that the two records are one person. Nothing is merged.")}
               {asking === "not_same" && "This closes the case. The pair will not be proposed again unless their details change."}
               {asking === "split" && "The link goes back to review. Decide again afterwards."}
-              <div className="form-row">
+              {asking === "merge" && "The two records become one: bookings, waiting list entries, referrals, messages and insurance move to the surviving record. Nothing is deleted, and you can undo this. Guardian and doctor access does not move: it must be approved again for the surviving record. Clinical notes, bills, claims, lab and data requests and sharing choices never move. A record with a death recorded cannot be merged."}
+              {asking === "undo" && "What the merge moved goes back to the other record. Anything created since stays with the surviving record. The case returns to review."}
+              {asking === "merge" && (
+                <div className="form-row">
+                  <select aria-label="Which record survives" value={survivor} onChange={(e) => setSurvivor(e.target.value)}>
+                    <option value="">The older record survives</option>
+                    {c.people.map((p, i) => <option key={p.id} value={p.id}>Record {i === 0 ? "A" : "B"} survives ({p.initials || "no name"}, born {p.birth_year || "unknown"})</option>)}
+                  </select>
+                  <button className="btn" disabled={busy} onClick={() => { setAsking(""); void combine(c.public_id, survivor); }}>Yes, merge them</button>
+                  <button className="btn ghost" onClick={() => setAsking("")}>Cancel</button>
+                </div>
+              )}
+              {asking === "undo" && (
+                <div className="form-row">
+                  <button className="btn" disabled={busy} onClick={() => { setAsking(""); void undo(c.public_id); }}>Yes, undo the merge</button>
+                  <button className="btn ghost" onClick={() => setAsking("")}>Cancel</button>
+                </div>
+              )}
+              {asking !== "merge" && asking !== "undo" && <div className="form-row">
                 <select aria-label="Reason" value={reason} onChange={(e) => setReason(e.target.value)}>
                   {NOTES.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
                 </select>
@@ -163,7 +215,7 @@ function Case({ c, canDecide, busy, run }: {
                   void run(c.public_id, action, reason, "Decision recorded.");
                 }}>Yes, record it</button>
                 <button className="btn ghost" onClick={() => setAsking("")}>Cancel</button>
-              </div>
+              </div>}
             </div>
           )}
         </div>

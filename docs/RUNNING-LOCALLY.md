@@ -35,7 +35,7 @@ Development only. Nothing here is for a real server (that is `docs/DEPLOYMENT.md
 
 ## One page with every link
 
-Run `python scripts/dev_links.py`. It writes `dev-links.html` (ignored by git) and opens it: every app, the mail inbox, the developer console and the API check, with a green or red dot for each, and an **Open signed in** button for each demo account (no typing). The button uses a development-only sign-in that is removed from production builds.
+Run `python scripts/dev_links.py`. It writes `dev-links.html` (ignored by git) and opens it: every app, the mail inbox, the developer console and the API check, with a green or red dot for each, and an **Open signed in** button for each demo account (no typing). The button uses a development-only sign-in that is removed from production builds. The partner portal's six logins are on it too. If an app runs on another port (for example another project holds 5173), say so with the robots' variables: `E2E_STAFF=http://localhost:5183 python scripts/dev_links.py` (in PowerShell: `$env:E2E_STAFF="http://localhost:5183"` first).
 
 ## Demo logins (development only; the demo password is in `scripts/README.md`)
 

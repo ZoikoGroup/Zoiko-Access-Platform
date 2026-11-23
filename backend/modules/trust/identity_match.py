@@ -41,7 +41,9 @@ from .models import (
     MatchCase,
     MatchDecision,
     MatchState,
+    MergeState,
     Person,
+    PersonMerge,
     PersonProfile,
     PersonSite,
     ProxyGrant,
@@ -239,8 +241,17 @@ def _log(
         raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None
 
 
+# Written out in full (not built from `kind`) so the event catalogue's check can see them (DEV-365).
+_LINK_EVENTS = {
+    "review_required": "patient.link.review_required.v1",
+    "corrected": "patient.link.corrected.v1",
+    "merged": "patient.link.merged.v1",
+    "unmerged": "patient.link.unmerged.v1",
+}
+
+
 def _announce(case: MatchCase, kind: str) -> None:
-    emit(event_type=f"patient.link.{kind}.v1", aggregate_type="match_case",
+    emit(event_type=_LINK_EVENTS[kind], aggregate_type="match_case",
          aggregate_ref=case.public_id,
          payload={"case_ref": case.public_id, "state": case.state},
          dedupe_key=f"match:{case.public_id}:{case.state}:{case.entity_version}")
@@ -398,8 +409,9 @@ def decide(
             else:
                 raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         else:                                                   # split
-            if state != MatchState.LINKED:
-                raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+            if state != MatchState.LINKED or PersonMerge.objects.filter(
+                    case=case, state=MergeState.MERGED, **_scope()).exists():
+                raise ZoikoError(ErrorCode.CONFLICT_VERSION)    # a merged link is undone first
             new, case.first_reviewer_ref = MatchState.SPLIT_REVIEW, ""
         case.state = new
         case.entity_version += 1

@@ -11,7 +11,7 @@ from django.core.management import call_command
 from foundation import dispatch
 from foundation.cell_context import tenant_transaction
 from foundation.outbox import emit, relay_once
-from foundation.timeutil import FixedClock
+from foundation.timeutil import UTC, FixedClock
 from modules.evidence.models import AuditEvent
 from modules.integration import api as integration
 from modules.integration import services
@@ -117,7 +117,7 @@ def signed_with(secret, headers, body):
 
 
 def later(minutes):
-    return dt.datetime.now(dt.UTC) + dt.timedelta(minutes=minutes)
+    return dt.datetime.now(UTC) + dt.timedelta(minutes=minutes)
 
 
 # ------------------------------------------------------------------ registering

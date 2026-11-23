@@ -16,3 +16,10 @@ class ClinicalNoteConfig(AppConfig):
         periodic.register(
             "clinicalnote.retention", RETENTION_EVERY_SECONDS, erase_expired_all_tenants
         )
+
+        # A patient-record merge (DEV-365): these rows never move, they are only counted.
+        from foundation import person_refs
+
+        from .models import ClinicalNote
+
+        person_refs.keep("clinicalnote.ClinicalNote", ClinicalNote)

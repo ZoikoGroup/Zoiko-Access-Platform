@@ -153,6 +153,38 @@
     }
    }
   },
+  "patient_link_corrected_v1": {
+   "address": "patient.link.corrected.v1",
+   "messages": {
+    "patient_link_corrected_v1": {
+     "$ref": "#/components/messages/patient_link_corrected_v1"
+    }
+   }
+  },
+  "patient_link_merged_v1": {
+   "address": "patient.link.merged.v1",
+   "messages": {
+    "patient_link_merged_v1": {
+     "$ref": "#/components/messages/patient_link_merged_v1"
+    }
+   }
+  },
+  "patient_link_review_required_v1": {
+   "address": "patient.link.review_required.v1",
+   "messages": {
+    "patient_link_review_required_v1": {
+     "$ref": "#/components/messages/patient_link_review_required_v1"
+    }
+   }
+  },
+  "patient_link_unmerged_v1": {
+   "address": "patient.link.unmerged.v1",
+   "messages": {
+    "patient_link_unmerged_v1": {
+     "$ref": "#/components/messages/patient_link_unmerged_v1"
+    }
+   }
+  },
   "professional_privilege_revoked_v1": {
    "address": "professional.privilege.revoked.v1",
    "messages": {
@@ -787,6 +819,94 @@
     },
     "x-schema-hash": "cb376b563ef8482c"
    },
+   "patient_link_corrected_v1": {
+    "contentType": "application/json",
+    "name": "patient.link.corrected.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "case_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "case_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "match_case"
+    },
+    "x-schema-hash": "7673b3cd9f19c1dd"
+   },
+   "patient_link_merged_v1": {
+    "contentType": "application/json",
+    "name": "patient.link.merged.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "case_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "case_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "match_case"
+    },
+    "x-schema-hash": "7673b3cd9f19c1dd"
+   },
+   "patient_link_review_required_v1": {
+    "contentType": "application/json",
+    "name": "patient.link.review_required.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "case_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "case_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "match_case"
+    },
+    "x-schema-hash": "7673b3cd9f19c1dd"
+   },
+   "patient_link_unmerged_v1": {
+    "contentType": "application/json",
+    "name": "patient.link.unmerged.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "case_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "case_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "match_case"
+    },
+    "x-schema-hash": "7673b3cd9f19c1dd"
+   },
    "professional_privilege_revoked_v1": {
     "contentType": "application/json",
     "name": "professional.privilege.revoked.v1",
@@ -1157,6 +1277,34 @@
     "$ref": "#/channels/message_sent_v1"
    },
    "summary": "Zoiko publishes message.sent.v1"
+  },
+  "publish_patient_link_corrected_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/patient_link_corrected_v1"
+   },
+   "summary": "Zoiko publishes patient.link.corrected.v1"
+  },
+  "publish_patient_link_merged_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/patient_link_merged_v1"
+   },
+   "summary": "Zoiko publishes patient.link.merged.v1"
+  },
+  "publish_patient_link_review_required_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/patient_link_review_required_v1"
+   },
+   "summary": "Zoiko publishes patient.link.review_required.v1"
+  },
+  "publish_patient_link_unmerged_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/patient_link_unmerged_v1"
+   },
+   "summary": "Zoiko publishes patient.link.unmerged.v1"
   },
   "publish_professional_privilege_revoked_v1": {
    "action": "send",

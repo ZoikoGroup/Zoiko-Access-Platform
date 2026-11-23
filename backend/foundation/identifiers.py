@@ -252,6 +252,7 @@ FIELDS.update(dict.fromkeys((
     "death_recorded_by_ref",                                       # DEV-333
     "uploaded_by_ref",                                             # DEV-345
     "proof_checked_by_ref",                                        # DEV-352
+    "merged_by_ref", "unmerged_by_ref",                            # DEV-365
 ), "actor_ref"))
 
 # Where one field name means different things in different tables: (app_label.Model, field).
@@ -261,6 +262,9 @@ MODEL_FIELDS: dict[tuple[str, str], str] = {
     ("integration.FhirQuarantine", "delivery_id"): "partner_delivery_id",
     # a payment provider's own reference for a payment, not a clinician (DEV-139 skeleton)
     ("billing.PaymentAttempt", "provider_ref"): "external_ref",
+    # a patient-record merge (DEV-365): the moved login, and each moved row, by internal id only
+    ("trust.PersonMerge", "login_actor_id"): "id",
+    ("trust.PersonMergeItem", "row_id"): "id",
 }
 
 # Fields shaped like identifiers that are not identifiers, and why. A keyed fingerprint of personal

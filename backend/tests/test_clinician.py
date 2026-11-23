@@ -22,6 +22,8 @@ class Practice(Web):
     """A clinic with a receptionist, two doctors and a patient."""
 
     before: set[str]          # the clinic's own starting times, kept by some tests
+    boss_id: str              # logins some tests add
+    ops2_id: str
 
     def __init__(self):
         super().__init__()

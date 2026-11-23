@@ -15,8 +15,10 @@ services:
       retries: 10
 
   backend:
+    # No fixed image name: Compose names it <project>-backend, so two checkouts on one machine never
+    # replace each other's image. The worker and webhook sender build the same Dockerfile, which the
+    # build cache makes almost instant.
     build: ./backend
-    image: zoiko-backend:dev     # the worker below reuses this image
     env_file: .env
     environment:
       POSTGRES_HOST: db          # inside the compose network the DB host is "db"
@@ -33,7 +35,7 @@ services:
 
   # Delivers queued events to their subscribers (the transactional outbox). Safe to run several.
   worker:
-    image: zoiko-backend:dev
+    build: ./backend
     env_file: .env
     environment:
       POSTGRES_HOST: db
@@ -50,7 +52,7 @@ services:
 
   # Sends queued webhook deliveries to registered partner addresses (retries, dead letters).
   webhooks:
-    image: zoiko-backend:dev
+    build: ./backend
     env_file: .env
     environment:
       POSTGRES_HOST: db

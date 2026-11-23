@@ -7,7 +7,7 @@ import json
 import pytest
 
 from foundation.cell_context import tenant_transaction
-from foundation.timeutil import FixedClock
+from foundation.timeutil import UTC, FixedClock
 from modules.evidence.models import AuditEvent
 from modules.jurisdiction import api as jurisdiction
 from modules.jurisdiction.models import CountryPack
@@ -59,7 +59,7 @@ def mine(p):
 
 
 def hours_until(iso):
-    return (dt.datetime.fromisoformat(iso) - dt.datetime.now(dt.UTC)).total_seconds() / 3600
+    return (dt.datetime.fromisoformat(iso) - dt.datetime.now(UTC)).total_seconds() / 3600
 
 
 # ------------------------------------------------------------------ setting the country
@@ -206,7 +206,7 @@ def test_the_lookup_itself_only_counts_signed_unexpired_packs(world):
         assert jurisdiction.data_request_days("GB") == (30, "gb-care-navigation@1")
         assert jurisdiction.data_request_days("DE") is None
         assert jurisdiction.data_request_days("") is None
-        far = FixedClock(dt.datetime.now(dt.UTC) + dt.timedelta(days=800))
+        far = FixedClock(dt.datetime.now(UTC) + dt.timedelta(days=800))
         assert jurisdiction.data_request_days("GB", far) is None             # past its review date
 
 

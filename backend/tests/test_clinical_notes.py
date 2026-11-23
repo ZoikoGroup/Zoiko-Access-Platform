@@ -251,6 +251,7 @@ def backdate(clinic, note_id, hours):
 
     with tenant_transaction(clinic.clinic.ctx):
         row = ClinicalNote.objects.get(public_id=note_id)
+        assert row.signed_at is not None
         row.signed_at = row.signed_at - timedelta(hours=hours)
         row.save(update_fields=["signed_at"])
 

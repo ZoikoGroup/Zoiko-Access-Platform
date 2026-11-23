@@ -1,6 +1,7 @@
 """Secrets never reach the logs (GHE-20 B-05, DEV-186)."""
 import io
 import logging
+from typing import Any
 
 import pytest
 from django.conf import settings
@@ -82,7 +83,8 @@ def test_the_filter_never_drops_a_record_or_breaks_on_odd_input():
 
 
 def test_the_console_handler_is_configured_with_the_filter():
-    handler = settings.LOGGING["handlers"]["console"]
+    conf: dict[str, Any] = settings.LOGGING
+    handler = conf["handlers"]["console"]
     assert "secrets" in handler["filters"]
     wanted = "foundation.log_redaction.SecretRedactionFilter"
-    assert settings.LOGGING["filters"]["secrets"]["()"] == wanted
+    assert conf["filters"]["secrets"]["()"] == wanted

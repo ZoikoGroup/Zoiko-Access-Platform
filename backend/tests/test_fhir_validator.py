@@ -152,7 +152,9 @@ def test_identifiers_are_short_and_few():
 
 
 def test_the_wrong_kind_of_thing_is_refused():
-    for bad in (None, [], "text", 5, {}, {"resourceType": "Patient"}, {"resourceType": "Bundle"}):
+    cases: tuple[object, ...] = (None, [], "text", 5, {}, {"resourceType": "Patient"},
+                                 {"resourceType": "Bundle"})
+    for bad in cases:
         assert fhir.validate(bad), bad
 
 

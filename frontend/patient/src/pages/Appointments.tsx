@@ -11,7 +11,9 @@ const STATUS: Record<Booking["status"], { text: string; kind: PillKind }> = {
   cancelled: { text: "Cancelled", kind: "bad" },
 };
 
-function Row({ b, onChanged, earlierStays }: { b: Booking; onChanged: () => Promise<void>; earlierStays: boolean }) {
+function Row({ b, onChanged, earlierStays, onBookAgain }: {
+  b: Booking; onChanged: () => Promise<void>; earlierStays: boolean; onBookAgain?: (serviceId: string) => void;
+}) {
   const [asking, setAsking] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const loadHistory = useCallback(() => getBookingHistory(b.id), [b.id]);
@@ -87,6 +89,7 @@ function Row({ b, onChanged, earlierStays }: { b: Booking; onChanged: () => Prom
           <button className="btn ghost" onClick={() => setAsking(false)}>Keep it</button>
         </span>
       )}
+      {!upcoming && onBookAgain && <button className="btn ghost" onClick={() => onBookAgain(b.service.id)}>Book again</button>}
       {showHistory && <div style={{ flexBasis: "100%" }}><BookingHistory load={loadHistory} /></div>}
       {moving && (
         <div style={{ flexBasis: "100%" }}>
@@ -112,7 +115,7 @@ function Row({ b, onChanged, earlierStays }: { b: Booking; onChanged: () => Prom
   );
 }
 
-function WaitRow({ w, onChanged }: { w: WaitEntry; onChanged: () => Promise<void> }) {
+function WaitRow({ w, onChanged, onBookAgain }: { w: WaitEntry; onChanged: () => Promise<void>; onBookAgain?: (serviceId: string) => void }) {
   const [busy, setBusy] = useState(false);
   async function leave() {
     setBusy(true);
@@ -124,17 +127,18 @@ function WaitRow({ w, onChanged }: { w: WaitEntry; onChanged: () => Promise<void
         <b>{w.service.name}</b>
         <small>{w.organization.name} - on the list since {w.joined_at.slice(0, 10)}</small>
         <small>{w.state === "offered"
-          ? "A time opened up. Book it under Find Healthcare before it is taken."
+          ? "A time opened up. Book it before someone else does."
           : "We will tell you when a time opens up."}</small>
       </div>
       <Pill kind={w.state === "offered" ? "ok" : "warn"}>{w.state === "offered" ? "Time open" : "Waiting"}</Pill>
+      {w.state === "offered" && onBookAgain && <button className="btn" onClick={() => onBookAgain(w.service.id)}>Book this now</button>}
       <button className="btn ghost" disabled={busy} onClick={() => void leave()}>Leave the list</button>
     </div>
   );
 }
 
-export function Appointments({ bookings, waiting, onChanged }: {
-  bookings: Booking[]; waiting: WaitEntry[]; onChanged: () => Promise<void>;
+export function Appointments({ bookings, waiting, onChanged, onBookAgain }: {
+  bookings: Booking[]; waiting: WaitEntry[]; onChanged: () => Promise<void>; onBookAgain?: (serviceId: string) => void;
 }) {
   const now = new Date().toISOString();
   // True while the earlier appointment this one would replace is still standing.
@@ -150,11 +154,11 @@ export function Appointments({ bookings, waiting, onChanged }: {
         </Card>
         {waiting.length > 0 && (
           <Card title={`Waiting list (${waiting.length})`} sub="Services with no free time that you asked to hear about.">
-            {waiting.map((w) => <WaitRow key={w.id} w={w} onChanged={onChanged} />)}
+            {waiting.map((w) => <WaitRow key={w.id} w={w} onChanged={onChanged} onBookAgain={onBookAgain} />)}
           </Card>
         )}
         <Card title={`Past and cancelled (${other.length})`}>
-          {other.length === 0 ? <div className="empty">Nothing here yet.</div> : other.map((b) => <Row key={b.id} b={b} onChanged={onChanged} earlierStays={stays(b)} />)}
+          {other.length === 0 ? <div className="empty">Nothing here yet.</div> : other.map((b) => <Row key={b.id} b={b} onChanged={onChanged} earlierStays={stays(b)} onBookAgain={onBookAgain} />)}
         </Card>
       </div>
     </>

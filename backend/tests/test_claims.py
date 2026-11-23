@@ -2,6 +2,7 @@
 
 import datetime as dt
 import json
+from typing import Any
 
 import pytest
 from django.db import connection
@@ -44,7 +45,7 @@ class Payer(World):
             )
 
     def call(self, method, path, body=None, subject=None):
-        header = {
+        header: dict[str, Any] = {
             "HTTP_AUTHORIZATION": f"Bearer dev:{self.tenant_public_id}:idp:"
             f"{subject or self.subject}"
         }

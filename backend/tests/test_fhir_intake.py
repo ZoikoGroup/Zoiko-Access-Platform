@@ -9,6 +9,7 @@ import json
 import os
 import time
 from contextlib import contextmanager
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.test")
@@ -499,7 +500,7 @@ def _intake(mock_exchange, mock_dec, mock_trust, mock_pclient, mock_quar, report
     return client, receive_fhir(raw_body=raw, signature=sig, delivery_id=delivery_id)
 
 
-_PATCHES = [
+_PATCHES: list[Any] = [
     patch("modules.integration.fhir.tenant_transaction", dummy_cm),
     patch("modules.integration.fhir.transaction.atomic", dummy_cm),
     patch("modules.integration.fhir.require_context",
@@ -507,7 +508,7 @@ _PATCHES = [
 ]
 
 
-def _patched(fn):
+def _patched(fn: Any) -> Any:
     for p in reversed(_PATCHES):
         fn = p(fn)
     return fn

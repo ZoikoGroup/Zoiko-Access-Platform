@@ -41,7 +41,7 @@ class Partner(World):
             )
 
     def call(self, method, path, body=None, subject=None):
-        header = {
+        header: dict[str, Any] = {
             "HTTP_AUTHORIZATION": f"Bearer dev:{self.tenant_public_id}:idp:"
             f"{subject or self.subject}"
         }
@@ -644,6 +644,7 @@ def test_an_agreement_ends_after_thirty_days_and_can_be_given_again(world):
     request_id = made(clinic, lab)
     with tx(platform.ctx):
         row = ExchangeRequest.objects.get(public_id=request_id)
+        assert row.consent_expires_at is not None and row.consent_at is not None
         assert (row.consent_expires_at - row.consent_at) == timedelta(days=xm.CONSENT_DAYS)
         row.consent_expires_at = row.consent_at - timedelta(minutes=1)
         row.save(update_fields=["consent_expires_at"])
@@ -699,6 +700,7 @@ def test_the_worker_erases_the_stored_name_once_the_agreement_has_run_out(world)
     assert agree(clinic, old).status_code == 200 and agree(clinic, fresh).status_code == 200
     with tx(platform.ctx):
         row = ExchangeRequest.objects.get(public_id=old)
+        assert row.consent_at is not None
         row.consent_expires_at = row.consent_at - timedelta(minutes=1)
         row.save(update_fields=["consent_expires_at"])
     assert jobs.erase_expired_all() == 1
@@ -746,6 +748,7 @@ def test_a_request_held_for_three_days_is_escalated_to_the_administrator(world):
     assert HOLD_ESCALATE_DAYS == 3 and jobs.escalate_holds_all() == 0  # just held: too early
     with tx(platform.ctx):
         row = ExchangeRequest.objects.get(public_id=old)
+        assert row.on_hold_at is not None
         row.on_hold_at = row.on_hold_at - timedelta(days=3, minutes=1)
         row.save(update_fields=["on_hold_at"])
     assert jobs.escalate_holds_all() == 1 and jobs.escalate_holds_all() == 0  # once only
@@ -934,6 +937,7 @@ def test_the_administrator_is_emailed_once_a_day_about_requests_held_too_long(wo
     _suspend(platform, lab)
     with tx(platform.ctx):
         row = ExchangeRequest.objects.get(public_id=old)
+        assert row.on_hold_at is not None
         row.on_hold_at = row.on_hold_at - timedelta(days=3, minutes=1)
         row.save(update_fields=["on_hold_at"])
     assert comms_api.send_escalation_alerts() == 0  # not escalated yet
@@ -1360,6 +1364,7 @@ def _reviewed_with_values(clinic, lab, hours_ago):
     platform = next(t for t in trust_api.list_tenants() if t["type"] == "platform")
     with tenant_transaction(trust_api.context_for(platform["public_id"])):
         row = ExchangeRequest.objects.get(public_id=request_id)
+        assert row.reviewed_at is not None
         row.reviewed_at = row.reviewed_at - timedelta(hours=hours_ago)
         row.save(update_fields=["reviewed_at"])
     return request_id
@@ -1531,7 +1536,7 @@ def test_an_unreadable_hl7_message_is_held_and_local_codes_go_for_review(world):
 
     platform, clinic, lab = world
     sender = _fhir_partner(world)
-    held = _send_hl7(sender, "MSH|^~\&|A|B|C|D|2026||ADT^A01|1|P|2.5", "hl7-e2e-0002")
+    held = _send_hl7(sender, r"MSH|^~\&|A|B|C|D|2026||ADT^A01|1|P|2.5", "hl7-e2e-0002")
     assert held.json()["quarantined"] is True and held.json()["error"] == "invalid_hl7"
     request_id = accepted(clinic, lab)
     local = oru(placer=request_id, obr4="FBC^Full blood count^L",

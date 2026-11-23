@@ -29,3 +29,10 @@ class CommsConfig(AppConfig):
         from foundation.texts import send_due_texts
 
         periodic.register("comms.texts", 30.0, lambda: send_due_texts())
+
+        # A patient-record merge (DEV-365): these rows move to the surviving record.
+        from foundation import person_refs
+
+        from .models import Notification
+
+        person_refs.register("comms.Notification", Notification)

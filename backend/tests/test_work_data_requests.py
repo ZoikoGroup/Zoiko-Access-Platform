@@ -10,6 +10,7 @@ from foundation import dispatch
 from foundation.cell_context import tenant_transaction
 from foundation.models import OutboxEvent
 from foundation.outbox import relay_once
+from foundation.timeutil import UTC
 from modules.trust import api as trust
 from modules.workflow import api as workflow
 from modules.workflow import jobs
@@ -59,7 +60,7 @@ def step(p, case, name, who="ops", note=""):
 
 
 def hours_until(iso):
-    return (dt.datetime.fromisoformat(iso) - dt.datetime.now(dt.UTC)).total_seconds() / 3600
+    return (dt.datetime.fromisoformat(iso) - dt.datetime.now(UTC)).total_seconds() / 3600
 
 
 # ------------------------------------------------------------------ opening
@@ -144,7 +145,7 @@ def test_the_item_is_late_once_its_date_has_passed(p):
     deliver()
     with tenant_transaction(p.clinic.ctx):
         WorkItem.objects.filter(kind=Kind.ANSWER_DATA_REQUEST).update(
-            due_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1))
+            due_at=dt.datetime.now(UTC) - dt.timedelta(hours=1))
     [item] = queue(p)
     assert item["overdue"] is True
 
@@ -184,7 +185,7 @@ def test_another_customers_staff_see_none_of_it_and_doctors_see_the_queue_rules_
 def go_past_date(p, hours=1):
     from modules.rights.models import RightsCase
     with tenant_transaction(p.clinic.ctx):
-        RightsCase.objects.update(due_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=hours))
+        RightsCase.objects.update(due_at=dt.datetime.now(UTC) - dt.timedelta(hours=hours))
 
 
 def late_numbers(p):
@@ -205,7 +206,7 @@ def test_a_request_with_no_date_is_late_after_the_clinics_own_target(p):
     file_request(p)
     with tenant_transaction(p.clinic.ctx):
         RightsCase.objects.update(
-            created_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=30))   # past 24 hours
+            created_at=dt.datetime.now(UTC) - dt.timedelta(hours=30))   # past 24 hours
     assert late_numbers(p)["data_requests"] == 1
 
 
@@ -213,7 +214,7 @@ def test_a_request_not_yet_past_its_date_or_already_ended_is_not_late(p):
     made = file_request(p)
     from modules.rights.models import RightsCase
     with tenant_transaction(p.clinic.ctx):
-        RightsCase.objects.update(due_at=dt.datetime.now(dt.UTC) + dt.timedelta(days=5))
+        RightsCase.objects.update(due_at=dt.datetime.now(UTC) + dt.timedelta(days=5))
     assert late_numbers(p)["data_requests"] == 0
     go_past_date(p)
     p.post(f"rights/{made['id']}/withdraw", subject="pat")

@@ -20,3 +20,10 @@ class RightsConfig(AppConfig):
         from .retention import persons_on_hold
 
         retention.register_holds(persons_on_hold)
+
+        # A patient-record merge (DEV-365): these rows never move, they are only counted.
+        from foundation import person_refs
+
+        from .models import RightsCase
+
+        person_refs.keep("rights.RightsCase", RightsCase)

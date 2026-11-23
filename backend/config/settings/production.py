@@ -20,6 +20,12 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
+# The setting above only takes effect through this middleware, which the base list lacked (A7).
+# Placed after SecurityMiddleware. CSRF middleware is left out on purpose: the API signs in with
+# bearer tokens only (no sessions or cookies), so `check --deploy` warning W003 is expected.
+MIDDLEWARE = [*MIDDLEWARE]  # noqa: F405
+MIDDLEWARE.insert(MIDDLEWARE.index("django.middleware.security.SecurityMiddleware") + 1,
+                  "django.middleware.clickjacking.XFrameOptionsMiddleware")
 
 # Clinical notes stay off in production until the clinical safety review has signed them off
 # (DEV-324, LEAD DECISION). Turning them on needs BOTH the switch and the sign-off reference

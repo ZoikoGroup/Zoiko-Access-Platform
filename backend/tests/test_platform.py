@@ -37,6 +37,8 @@ class Platform(World):
     tess: str
     support: str
     safety: str
+    iyer: str
+    ravi: str
 
     def __init__(self):
         super().__init__(tenant_type=trust.TenantType.PLATFORM)

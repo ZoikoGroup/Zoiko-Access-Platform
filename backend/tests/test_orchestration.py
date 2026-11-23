@@ -4,12 +4,13 @@ person, and one tamper-evident history."""
 import datetime as dt
 import itertools
 import json
+from typing import Any
 
 import pytest
 from django.db import DatabaseError, transaction
 
 from foundation.cell_context import tenant_transaction
-from foundation.timeutil import FixedClock
+from foundation.timeutil import UTC, FixedClock
 from modules.evidence.models import AuditEvent
 from modules.orchestration import api as orchestration
 from modules.orchestration.engine import EDGE_EVIDENCE, REFUSED_KINDS
@@ -117,7 +118,7 @@ RESOLVED = [{"kind": "exception_resolution", "ref": "resolution-0001"}]
 def tick(p, minutes):
     with tenant_transaction(p.clinic.ctx):
         return orchestration.fire_due_timers(
-            clock=FixedClock(dt.datetime.now(dt.UTC) + dt.timedelta(minutes=minutes)))
+            clock=FixedClock(dt.datetime.now(UTC) + dt.timedelta(minutes=minutes)))
 
 
 def escalations(p, who="boss"):
@@ -446,8 +447,9 @@ def test_blocking_needs_a_reason_evidence_and_a_named_incident_owner(p):
     base = {"expected_version": 1, "to_state": "blocked", "evidence": ev("blocked"),
             "idempotency_key": "idem-block-0001", "note": "Identity doubt",
             "incident_owner": p.ops2_id}
-    for bad in ({"note": ""}, {"evidence": []}, {"incident_owner": ""},
-                {"incident_owner": "nobody-real-0000000000"}):
+    cases: list[dict[str, Any]] = [{"note": ""}, {"evidence": []}, {"incident_owner": ""},
+                                   {"incident_owner": "nobody-real-0000000000"}]
+    for bad in cases:
         r = post(p, f"staff/workflows/{inst['public_id']}/advance",
                  {**base, **bad, "idempotency_key": f"idem-b-{next(_counter):08d}"}, "ops")
         assert r.status_code == 422
@@ -526,7 +528,7 @@ def test_a_timer_for_a_step_that_is_over_does_nothing(p):
     with tenant_transaction(p.clinic.ctx):
         from modules.orchestration.models import WorkflowTimer
         WorkflowTimer.objects.filter(status="pending").update(
-            due_at=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1))
+            due_at=dt.datetime.now(UTC) - dt.timedelta(minutes=1))
     go(p, inst, "in_progress")                                            # the step is left
     assert tick(p, 0)["fired"] == 0 and escalations(p) == []
     assert current(p, inst)["overlay"] == "clear"
@@ -873,10 +875,10 @@ def test_a_deadline_is_a_fixed_number_of_minutes_so_a_clock_change_cannot_move_i
     from modules.orchestration.models import WorkflowInstance, WorkflowTimer
     inst = accepted(p)
     edges = (
-        dt.datetime(2027, 3, 14, 6, 30, tzinfo=dt.UTC),     # US springs forward at 07:00 UTC
-        dt.datetime(2027, 3, 28, 0, 30, tzinfo=dt.UTC),     # Europe springs forward at 01:00 UTC
-        dt.datetime(2027, 10, 31, 0, 30, tzinfo=dt.UTC),    # Europe falls back at 01:00 UTC
-        dt.datetime(2027, 11, 7, 5, 30, tzinfo=dt.UTC),     # US falls back at 06:00 UTC
+        dt.datetime(2027, 3, 14, 6, 30, tzinfo=UTC),     # US springs forward at 07:00 UTC
+        dt.datetime(2027, 3, 28, 0, 30, tzinfo=UTC),     # Europe springs forward at 01:00 UTC
+        dt.datetime(2027, 10, 31, 0, 30, tzinfo=UTC),    # Europe falls back at 01:00 UTC
+        dt.datetime(2027, 11, 7, 5, 30, tzinfo=UTC),     # US falls back at 06:00 UTC
     )
     for start in edges:
         with tenant_transaction(p.clinic.ctx):

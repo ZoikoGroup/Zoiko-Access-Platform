@@ -6,3 +6,11 @@ class ClaimConfig(AppConfig):
 
     name = "modules.claim"
     label = "claim"
+
+    def ready(self) -> None:
+        # A patient-record merge (DEV-365): these rows never move, they are only counted.
+        from foundation import person_refs
+
+        from .models import Claim
+
+        person_refs.keep("claim.Claim", Claim)

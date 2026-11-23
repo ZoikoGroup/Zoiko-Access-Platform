@@ -48,8 +48,13 @@ def test_the_breaker_opens_after_failures_in_a_row_and_the_rest_wait_untouched()
 def test_while_open_nothing_is_sent_at_all():
     texts(6)
     send_due_texts(send=broken)
-    calls = []
-    assert send_due_texts(send=lambda n, b: calls.append(n) or "SM1") == 0
+    calls: list[str] = []
+
+    def send(number: str, body: str) -> str:
+        calls.append(number)
+        return "SM1"
+
+    assert send_due_texts(send=send) == 0
     assert calls == []
 
 

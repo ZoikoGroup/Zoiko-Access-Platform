@@ -61,7 +61,9 @@ def test_a_foreign_key_stays_inside_its_own_module_and_points_at_an_internal_id(
         for field in model._meta.concrete_fields:
             if not field.is_relation:
                 continue
-            target = field.related_model._meta
+            related = field.related_model
+            assert related is not None and not isinstance(related, str)
+            target = related._meta
             where = f"{model._meta.label}.{field.name}"
             assert target.app_label == model._meta.app_label, f"{where} crosses modules"
             assert target.pk.name == "id" and field.attname.endswith("_id"), where
@@ -140,8 +142,10 @@ def test_kinds_without_a_fixed_format_cannot_be_checked():
 
 
 def test_the_catalogue_patterns_agree_with_the_code_that_makes_and_accepts_the_values():
-    assert IDENTIFIERS["cell_id"].pattern.pattern == cell_context._CELL_ID.pattern
-    assert IDENTIFIERS["request_id"].pattern.pattern == request_context._SAFE_ID.pattern
+    cell, request = IDENTIFIERS["cell_id"].pattern, IDENTIFIERS["request_id"].pattern
+    assert cell is not None and request is not None
+    assert cell.pattern == cell_context._CELL_ID.pattern
+    assert request.pattern == request_context._SAFE_ID.pattern
 
 
 def test_every_column_holding_a_fixed_format_kind_is_wide_enough():
@@ -150,7 +154,7 @@ def test_every_column_holding_a_fixed_format_kind_is_wide_enough():
         if kind is None or IDENTIFIERS[kind].pattern is not PUBLIC_ID:
             continue
         if isinstance(field, models.CharField):
-            assert field.max_length >= 22, f"{label}.{field.name}"
+            assert field.max_length is not None and field.max_length >= 22, f"{label}.{field.name}"
 
 
 # ------------------------------------------------------------- (e) never made from personal data

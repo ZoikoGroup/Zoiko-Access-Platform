@@ -16,3 +16,10 @@ class BillingConfig(AppConfig):
         # tests). No real provider has been chosen, so production registers none.
         if getattr(settings, "BILLING_PRETEND_PROVIDER", False):
             payments.register(payments.pretend_provider)
+
+        # A patient-record merge (DEV-365): these rows never move, they are only counted.
+        from foundation import person_refs
+
+        from .models import Invoice
+
+        person_refs.keep("billing.Invoice", Invoice)

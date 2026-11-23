@@ -19,3 +19,10 @@ class SchedulingConfig(AppConfig):
         from .retention import count_older
 
         retention.register("bookings", "Appointments", "the appointment time", count_older)
+
+        # A patient-record merge (DEV-365): these rows move to the surviving record.
+        from foundation import person_refs
+
+        from .models import Booking
+
+        person_refs.register("scheduling.Booking", Booking)

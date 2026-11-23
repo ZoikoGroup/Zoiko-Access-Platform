@@ -41,7 +41,10 @@ def ask(p, subject="pat"):
 
 def last_code():
     row = QueuedText.objects.filter(kind="phone_check").order_by("-created_at").first()
-    return re.search(r"\b(\d{6})\b", row.body).group(1)
+    assert row is not None
+    found = re.search(r"\b(\d{6})\b", row.body)
+    assert found is not None
+    return found.group(1)
 
 
 def confirm(p, code, subject="pat"):

@@ -21,3 +21,10 @@ class MessagingConfig(AppConfig):
 
         retention.register("message_threads", "Closed message conversations",
                            "the last message", count_older)
+
+        # A patient-record merge (DEV-365): these rows move to the surviving record.
+        from foundation import person_refs
+
+        from .models import Thread
+
+        person_refs.register("messaging.Thread", Thread)

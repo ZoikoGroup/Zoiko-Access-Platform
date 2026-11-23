@@ -13,6 +13,21 @@ export interface MaskedPerson {
   phone_end: string;
 }
 
+export interface MergeInfo {
+  id: string;
+  state: "merged" | "unmerged";
+  kept: string;
+  ended: string;
+  login_moved: boolean;
+  /** Rows that could not move because the surviving record already had the same thing. */
+  left_behind: number;
+  /** Guardian and doctor access that stays on the ended record and must be approved again. */
+  access_not_carried: number;
+  /** Records a merge never moves (clinical notes, bills, claims, lab requests, data requests, sharing choices). */
+  not_moved: number;
+  moved: number;
+}
+
 export interface MatchCase {
   public_id: string;
   ref_no: string;
@@ -29,6 +44,8 @@ export interface MatchCase {
   people: MaskedPerson[];
   history: { seq: number; action: string; state_after: string; note: string; occurred_at: string; by: string }[];
   chain_ok: boolean;
+  /** The merge in force for this case, if the two records have been merged. */
+  merge: MergeInfo | null;
 }
 
 export interface MatchesData { cases: MatchCase[]; can_decide: boolean }

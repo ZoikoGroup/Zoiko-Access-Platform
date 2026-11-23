@@ -1,0 +1,32 @@
+# Keep images small and free of local files (backlog A7). Development mounts ./backend over /app,
+# so this only affects built images.
+
+# Local virtual environments: a Windows .venv was 197 MB of a 234 MB image.
+.venv/
+venv/
+env/
+
+# Tool caches and compiled files.
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.import_linter_cache/
+.coverage
+htmlcov/
+
+# Secrets and local settings never go into an image; production reads them from Secret Manager.
+.env
+.env.*
+*.pem
+*.key
+
+# Not needed inside the image.
+Dockerfile
+Dockerfile.production
+.dockerignore
+.git/
+.gitignore
+.idea/
+.vscode/

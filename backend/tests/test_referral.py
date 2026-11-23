@@ -23,6 +23,8 @@ def dev_login(settings):
 class Clinic2(Practice):
     """A practice where the doctor has already seen the patient, plus a Cardiology service."""
 
+    third: str                # a third doctor some tests add
+
     def __init__(self, name_inbox=True):
         super().__init__()
         self.boss = self.login("boss", trust.ActorType.FACILITY_USER, "R13")

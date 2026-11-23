@@ -14,6 +14,16 @@ def test_production_settings_switch_development_off_and_protections_on():
     assert "secrets" in prod.LOGGING["handlers"]["console"]["filters"]
 
 
+def test_the_frame_header_is_actually_sent_in_production():
+    """X_FRAME_OPTIONS does nothing without its middleware (A7); the base list stays as it is."""
+    prod = importlib.import_module("config.settings.production")
+    base = importlib.import_module("config.settings.base")
+    xfo = "django.middleware.clickjacking.XFrameOptionsMiddleware"
+    security = "django.middleware.security.SecurityMiddleware"
+    assert prod.MIDDLEWARE.index(xfo) == prod.MIDDLEWARE.index(security) + 1
+    assert xfo not in base.MIDDLEWARE
+
+
 def test_the_health_probes_are_not_redirected_to_https():
     prod = importlib.import_module("config.settings.production")
     for path in ("healthz", "readyz"):

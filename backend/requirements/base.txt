@@ -4,4 +4,6 @@ psycopg[binary]>=3.2,<4
 # Time-zone database. Linux has one built in; Windows does not, and zoneinfo needs it.
 tzdata>=2024.1
 # Field-level encryption of health data (AES-GCM). Do not write our own crypto.
-cryptography>=43,<46
+# 50.0.2 or later (DEV-364): earlier versions did not check that a loaded EC public key is valid
+# (the SendGrid receipt check loads one) and bundled a vulnerable OpenSSL.
+cryptography>=50.0.2,<51

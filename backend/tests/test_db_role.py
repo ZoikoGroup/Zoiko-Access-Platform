@@ -5,7 +5,7 @@ import pytest
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import OperationalError, connection, transaction
+from django.db import OperationalError, ProgrammingError, connection, transaction
 
 from foundation import dbrole
 from foundation.management.commands import relay_outbox
@@ -179,6 +179,47 @@ def test_a_database_outage_at_start_is_retried_not_treated_as_a_refusal(monkeypa
     relay_outbox.run_loop(stop, interval=0.0, batch=10, once=False, log=lambda text: None,
                           guard=flaky_guard)
     assert len(calls) == 2                                         # asked again after the outage
+
+
+# ------------------------------------------------------------------ the webhook sender (DEV-359)
+def test_the_webhook_sender_does_not_start_when_the_guard_refuses(monkeypatch):
+    from modules.integration.management.commands import deliver_webhooks
+    reached: list[int] = []
+
+    def deliver() -> dict[str, int]:
+        reached.append(1)
+        return {}
+
+    monkeypatch.setattr(deliver_webhooks.integration, "deliver_all_tenants", deliver)
+
+    def refuse():
+        raise ImproperlyConfigured("Refusing to start: the database login is a superuser")
+
+    monkeypatch.setattr(deliver_webhooks, "assert_safe_database_role", refuse)
+    with pytest.raises(CommandError, match="Refusing to start"):
+        call_command("deliver_webhooks", "--once")
+    assert reached == []                                           # it never sent anything
+
+
+def test_the_webhook_sender_waits_for_the_database_instead_of_crashing(monkeypatch):
+    from modules.integration.management.commands import deliver_webhooks
+    calls = []
+
+    def not_migrated_yet():
+        calls.append(1)
+        if len(calls) == 1:
+            raise ProgrammingError('relation "trust_tenant" does not exist')
+        return {"delivered": 0, "retrying": 0, "dead_letter": 0}
+
+    monkeypatch.setattr(deliver_webhooks.integration, "deliver_all_tenants", not_migrated_yet)
+    stop = threading.Event()
+    results = iter([False, True])
+    stop.wait = lambda timeout=None: next(results)                 # type: ignore[method-assign]
+    logged: list[str] = []
+    deliver_webhooks.run_loop(stop, interval=0.0, once=False, log=logged.append,
+                              guard=lambda: None)
+    assert len(calls) == 2 and "retrying" in logged[0]
+    assert "trust_tenant" not in logged[0]                         # the class only, never the text
 
 
 def test_the_web_entry_points_run_the_guard():

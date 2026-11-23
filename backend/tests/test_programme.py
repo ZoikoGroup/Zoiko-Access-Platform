@@ -1,6 +1,7 @@
 """Employer programme links and visit counts: one-time codes, totals only (DEV-312)."""
 
 import json
+from typing import Any
 
 import pytest
 from django.db import connection
@@ -43,7 +44,7 @@ class Employer(World):
             )
 
     def call(self, method, path, body=None, subject=None):
-        header = {
+        header: dict[str, Any] = {
             "HTTP_AUTHORIZATION": f"Bearer dev:{self.tenant_public_id}:idp:"
             f"{subject or self.subject}"
         }
@@ -206,6 +207,7 @@ def test_visits_count_only_attended_appointments(world):
         redeem(clinic, code_for(employer, f"emp-000{i}"), name)
     with tx(clinic.clinic.ctx):
         first = Booking.objects.order_by("created_at").first()
+        assert first is not None
         first.attendance = "attended"
         first.save(update_fields=["attendance"])
     month = activity(employer)["months"][0]

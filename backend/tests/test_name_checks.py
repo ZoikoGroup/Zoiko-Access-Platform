@@ -150,7 +150,8 @@ def test_only_a_doctor_of_this_organization_can_be_checked(p):
 def test_a_doctor_of_another_site_cannot_be_checked_by_this_sites_administrator(p):
     with tenant_transaction(p.clinic.ctx):
         site = trust.create_organization(name="Other Site").public_id
-        away = trust.register_actor(actor_type="clinician", issuer="idp", subject="away").public_id
+        away = trust.register_actor(actor_type=trust.ActorType.CLINICIAN, issuer="idp",
+                                   subject="away").public_id
         trust.assign_role(
             actor_public_id=away, organization_public_id=site, role_code="R03", by="system"
         )

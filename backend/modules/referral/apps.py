@@ -12,3 +12,10 @@ class ReferralConfig(AppConfig):
         from .subscribers import register_subscribers
 
         register_subscribers()
+
+        # A patient-record merge (DEV-365): these rows move to the surviving record.
+        from foundation import person_refs
+
+        from .models import Referral
+
+        person_refs.register("referral.Referral", Referral)

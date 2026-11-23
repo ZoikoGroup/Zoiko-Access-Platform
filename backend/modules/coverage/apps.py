@@ -14,3 +14,11 @@ class CoverageConfig(AppConfig):
         from .rotation import rotate
 
         rotation.register("coverage", rotate)
+
+        # A patient-record merge (DEV-365): a policy moves, a sharing choice does not.
+        from foundation import person_refs
+
+        from .models import Coverage, InsuranceSharing
+
+        person_refs.register("coverage.Coverage", Coverage)
+        person_refs.keep("coverage.InsuranceSharing", InsuranceSharing)

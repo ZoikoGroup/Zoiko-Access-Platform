@@ -71,7 +71,9 @@ export default function App() {
   const [unread, setUnread] = useState(0);
   const [page, setPage] = useState<PageId>(startPage());
   const [findQuery, setFindQuery] = useState("");        // set by the top-bar search
-  const openPage = (id: PageId) => { setFindQuery(""); setPage(id); };
+  const [findService, setFindService] = useState("");    // a service to open straight away (DEV-357)
+  const openPage = (id: PageId) => { setFindQuery(""); setFindService(""); setPage(id); };
+  const bookAgain = (serviceId: string) => { setFindQuery(""); setFindService(serviceId); setPage("find"); };
   const [error, setError] = useState("");
   const [asOf, setAsOf] = useState<number | null>(null);   // when the data on screen last loaded
   const [link, setLink] = useState(readLinkAction());
@@ -134,8 +136,8 @@ export default function App() {
   let body;
   if (!me) body = <div className="notice">Loading…</div>;
   else if (!LIVE.includes(page)) body = <Planned title={item.label} waitsFor={item.waitsFor ?? ""} />;
-  else if (page === "find") body = <FindCare key={findQuery} initialQuery={findQuery} me={me} waiting={waiting} profiles={profiles} onBooked={refresh} goTo={setPage} />;
-  else if (page === "appointments") body = <Appointments bookings={bookings} waiting={waiting} onChanged={refresh} />;
+  else if (page === "find") body = <FindCare key={`${findQuery}|${findService}`} initialQuery={findQuery} initialService={findService} me={me} waiting={waiting} profiles={profiles} onBooked={refresh} goTo={setPage} />;
+  else if (page === "appointments") body = <Appointments bookings={bookings} waiting={waiting} onChanged={refresh} onBookAgain={bookAgain} />;
   else if (page === "messages") body = <Messages onChanged={refresh} />;
   else if (page === "help") body = <Help bookings={bookings} goTo={setPage} />;
   else if (page === "family") body = <Family onChanged={refresh} />;

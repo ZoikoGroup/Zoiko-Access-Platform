@@ -162,6 +162,11 @@ class Person(CellScopedModel):
     death_source = models.CharField(max_length=20, blank=True, default="")
     death_recorded_by_ref = models.CharField(max_length=22, blank=True, default="")
     death_recorded_at = models.DateTimeField(null=True, blank=True)
+    # Set when this record was merged into another (a confirmed duplicate, DEV-365). The record is
+    # kept, with status "ended", so the merge can be undone; its records live under `merged_into`.
+    merged_into = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="merged_from"
+    )
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="person_scope_idx")]
@@ -565,6 +570,8 @@ class MatchAction(models.TextChoices):
     MARK_NOT_SAME = "mark_not_same", "Decided they are not the same person"
     SPLIT = "split", "Sent the link back for review"
     REOPENED = "reopened", "Reopened on new evidence"
+    MERGE = "merge", "Merged the two records"
+    UNMERGE = "unmerge", "Undid the merge"
 
 
 class MatchDecision(CellScopedModel):
@@ -586,6 +593,52 @@ class MatchDecision(CellScopedModel):
         constraints = [
             models.UniqueConstraint(fields=["case", "seq"], name="matchdec_one_per_seq"),
         ]
+
+
+class MergeState(models.TextChoices):
+    MERGED = "merged", "Merged"
+    UNMERGED = "unmerged", "Merge undone"
+
+
+class PersonMerge(CellScopedModel):
+    """One merge of a confirmed duplicate into the surviving record, and what it moved, so it can be
+    undone (DEV-365, from the maruthi branch). References and counts only. The reviewers' steps are
+    in the case's own history."""
+
+    case = models.ForeignKey(MatchCase, on_delete=models.PROTECT, related_name="merges")
+    primary = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="merges_kept")
+    secondary = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="merges_ended")
+    state = models.CharField(max_length=10, choices=MergeState.choices, default=MergeState.MERGED)
+    merged_by_ref = models.CharField(max_length=64)
+    merged_at = models.DateTimeField()
+    unmerged_by_ref = models.CharField(max_length=64, blank=True, default="")
+    unmerged_at = models.DateTimeField(null=True, blank=True)
+    # The secondary's login, if it was moved onto the primary (so unmerge can put it back).
+    login_actor_id = models.UUIDField(null=True, blank=True)
+    left_behind = models.PositiveIntegerField(default=0)    # rows that could not move (clashes)
+    access_not_carried = models.PositiveIntegerField(default=0)    # guardian and care grants
+    # Records on the ended record that a merge never moves (clinical notes and references, bills,
+    # claims, data requests, lab exchanges, consent choices): counted so a reviewer knows.
+    not_moved = models.PositiveIntegerField(default=0)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="personmerge_scope_idx")]
+        constraints = [
+            # Only one merge of a case can be in force at a time.
+            models.UniqueConstraint(
+                fields=["case"], condition=models.Q(state="merged"), name="personmerge_one_live"),
+        ]
+
+
+class PersonMergeItem(CellScopedModel):
+    """One row a merge moved: which table and which row. Unmerge moves back exactly these."""
+
+    merge = models.ForeignKey(PersonMerge, on_delete=models.PROTECT, related_name="items")
+    kind = models.CharField(max_length=40)              # e.g. "scheduling.Booking"
+    row_id = models.CharField(max_length=36)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="mergeitem_scope_idx")]
 
 
 class EvidenceType(models.TextChoices):

@@ -43,6 +43,12 @@ EVENTS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "exchange.reviewed.v1": ("exchange_request", ("request_ref", "person_ref", "kind"), ()),
     "workflow.changed.v1": ("workflow", ("instance_ref", "kind", "state", "overlay"), ()),
     "access.denied.v1": ("access_decision", ("operation", "purpose", "reason"), ()),
+    # Possible duplicate patients (DEV-180) and merging them (DEV-365). Published since DEV-180 but
+    # missed by the catalogue (the type is built with an f-string); listed now.
+    "patient.link.review_required.v1": ("match_case", ("case_ref", "state"), ()),
+    "patient.link.corrected.v1": ("match_case", ("case_ref", "state"), ()),
+    "patient.link.merged.v1": ("match_case", ("case_ref", "state"), ()),
+    "patient.link.unmerged.v1": ("match_case", ("case_ref", "state"), ()),
     "identity.subject.proofed.v1": ("person", ("person_ref", "outcome", "status"), ()),
     "connector.operation.accepted.v1": _OPERATION,
     "connector.operation.confirmed.v1": _OPERATION,

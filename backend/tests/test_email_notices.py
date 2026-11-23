@@ -285,7 +285,8 @@ def test_cancelling_leaves_other_mail_and_other_people_alone(p):
     assert ("verify_email", "queued") in states                      # a different kind: kept
     others = QueuedEmail.objects.filter(subject="An update on Zoiko Access",
                                         to_address="someone.else@example.org")
-    assert others.count() == 1 and others.first().state == "queued"  # someone else: kept
+    kept = others.first()
+    assert others.count() == 1 and kept is not None and kept.state == "queued"  # someone else: kept
 
 
 def test_turning_emails_off_with_nothing_waiting_is_harmless(p):

@@ -3,11 +3,16 @@
     python scripts/dev_links.py            # writes dev-links.html in the project folder and opens it
     python scripts/dev_links.py --no-open  # only writes it
 
+An app on another port (for example when another project holds 5173): set the same variable the browser
+robots use, E2E_STAFF, E2E_PATIENT, E2E_PLATFORM, E2E_DOCTOR or E2E_PARTNERS, for example
+E2E_STAFF=http://localhost:5183 python scripts/dev_links.py
+
 The "Open signed in" buttons use the apps' development-only sign-in (frontend/shared/src/devLogin.ts): it is
 removed from production builds. The passwords are the DEMO ones from docs/RUNNING-LOCALLY.md. The file is
 ignored by git. Never share it and never put a real person's password in it.
 """
 import html
+import os
 import pathlib
 import sys
 import urllib.parse
@@ -16,10 +21,12 @@ import webbrowser
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 APPS = {
-    "staff": ("Staff console (clinics)", "http://localhost:5173"),
-    "patient": ("Patient app", "http://localhost:5174"),
-    "platform": ("Platform app (Zoiko staff)", "http://localhost:5175"),
-    "doctor": ("Doctor app", "http://localhost:5176"),
+    "staff": ("Staff console (clinics)", os.environ.get("E2E_STAFF", "http://localhost:5173")),
+    "patient": ("Patient app", os.environ.get("E2E_PATIENT", "http://localhost:5174")),
+    "platform": ("Platform app (Zoiko staff)", os.environ.get("E2E_PLATFORM", "http://localhost:5175")),
+    "doctor": ("Doctor app", os.environ.get("E2E_DOCTOR", "http://localhost:5176")),
+    "partners": ("Partner portal (labs, pharmacies, payers, employers)",
+                 os.environ.get("E2E_PARTNERS", "http://localhost:5177")),
 }
 
 # (app, label, organization, login, password)
@@ -35,6 +42,13 @@ ACCOUNTS = [
     ("staff", "E2E clinic administrator (for the robots)", "E2E Clinic", "e2e.admin@example.org", "E2e-Pass-2026!"),
     ("patient", "E2E patient (for the robots)", "E2E Clinic", "e2e.patient@example.org", "E2e-Pass-2026!"),
     ("doctor", "E2E doctor (for the robots)", "E2E Clinic", "e2e.doctor@example.org", "E2e-Pass-2026!"),
+    # scripts/seed_partners.py
+    ("partners", "Lab", "E2E Lab", "e2e.lab@example.org", "E2e-Pass-2026!"),
+    ("partners", "Pharmacy", "E2E Pharmacy", "e2e.pharmacy@example.org", "E2e-Pass-2026!"),
+    ("partners", "Home care", "E2E Homecare", "e2e.homecare@example.org", "E2e-Pass-2026!"),
+    ("partners", "Payer", "E2E Payer", "e2e.payer@example.org", "E2e-Pass-2026!"),
+    ("partners", "Employer", "E2E Employer", "e2e.employer@example.org", "E2e-Pass-2026!"),
+    ("partners", "Partner developer", "E2E Developer", "e2e.developer@example.org", "E2e-Pass-2026!"),
 ]
 
 HELPERS = [

@@ -155,8 +155,11 @@ def verify_phone(p):
     """Prove the number the way a patient does (DEV-198): ask for a code and type it back."""
     import re
     assert p.post("my/phone-check", {}, subject="pat").status_code == 201
-    body = QueuedText.objects.filter(kind="phone_check").order_by("-created_at").first().body
-    code = re.search(r"\b(\d{6})\b", body).group(1)
+    row = QueuedText.objects.filter(kind="phone_check").order_by("-created_at").first()
+    assert row is not None
+    found = re.search(r"\b(\d{6})\b", row.body)
+    assert found is not None
+    code = found.group(1)
     assert p.post("my/phone-check/confirm", {"code": code}, subject="pat").status_code == 200
     QueuedText.objects.filter(kind="phone_check").delete()      # keep only what this test is about
 

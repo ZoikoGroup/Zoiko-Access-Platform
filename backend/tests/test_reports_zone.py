@@ -6,7 +6,7 @@ import json
 import pytest
 
 from foundation.cell_context import tenant_transaction
-from foundation.timeutil import get_zone, utc_now
+from foundation.timeutil import UTC, get_zone, utc_now
 from modules.catalog import api as catalog
 from modules.scheduling.models import Booking
 from tests.test_clinician import Practice
@@ -46,7 +46,7 @@ def made_at(p, booking, instant):
 
 
 def local_midnight(day, zone=KOLKATA):
-    return dt.datetime.combine(day, dt.time.min, tzinfo=zone).astimezone(dt.UTC)
+    return dt.datetime.combine(day, dt.time.min, tzinfo=zone).astimezone(UTC)
 
 
 # ------------------------------------------------------------------ the clinic's own clock
@@ -110,7 +110,7 @@ def test_places_in_different_zones_fall_back_to_utc_and_say_why(p):
     add_place(p, "Annex", "America/New_York")
     r = report(p)
     assert (r["zone"], r["zone_source"]) == ("UTC", "mixed")
-    assert r["bookings"]["per_day"][-1]["date"] == local_today(dt.UTC).isoformat()
+    assert r["bookings"]["per_day"][-1]["date"] == local_today(UTC).isoformat()
 
 
 def test_a_clinic_with_no_place_falls_back_to_utc_and_says_why(p):
@@ -122,8 +122,8 @@ def test_a_clinic_with_no_place_falls_back_to_utc_and_says_why(p):
 def test_a_utc_clinic_counts_days_as_before(p):
     add_place(p, "Annex", "America/New_York")        # now two zones: UTC
     booking, _ = make_booking(p, confirm=False)
-    yesterday = local_today(dt.UTC) - dt.timedelta(days=1)
-    made_at(p, booking, local_midnight(yesterday, dt.UTC) + dt.timedelta(hours=1))
+    yesterday = local_today(UTC) - dt.timedelta(days=1)
+    made_at(p, booking, local_midnight(yesterday, UTC) + dt.timedelta(hours=1))
     per_day = {d["date"]: d["count"] for d in report(p, days=7)["bookings"]["per_day"]}
     assert per_day[yesterday.isoformat()] == 1
 

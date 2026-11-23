@@ -56,7 +56,7 @@ def test_the_checker_reads_an_hl7_v2_result_too():
     r = dev.client.post("/api/v1/portal/sandbox/check", raw, content_type="text/plain",
                         HTTP_AUTHORIZATION=f"Bearer dev:{dev.tenant_public_id}:idp:dev3")
     assert r.status_code == 200 and body(r)["result"] == "accepted", r.content
-    bad = dev.client.post("/api/v1/portal/sandbox/check", "MSH|^~\&|A|B|C|D|1||ADT^A01|1|P|2.5",
+    bad = dev.client.post("/api/v1/portal/sandbox/check", r"MSH|^~\&|A|B|C|D|1||ADT^A01|1|P|2.5",
                           content_type="text/plain",
                           HTTP_AUTHORIZATION=f"Bearer dev:{dev.tenant_public_id}:idp:dev3")
     assert body(bad)["result"] == "held" and "ORU" in body(bad)["issues"][0]["text"]

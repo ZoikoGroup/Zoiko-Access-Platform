@@ -15,3 +15,10 @@ class ClinicalrefConfig(AppConfig):
 
         retention.register("clinical_references", "Pointers to clinical records",
                            "the day the record is about", count_older)
+
+        # A patient-record merge (DEV-365): these rows never move, they are only counted.
+        from foundation import person_refs
+
+        from .models import ClinicalReference
+
+        person_refs.keep("clinicalref.ClinicalReference", ClinicalReference)

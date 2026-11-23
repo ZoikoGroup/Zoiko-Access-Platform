@@ -37,6 +37,107 @@ jobs:
       - name: Architecture boundaries
         run: lint-imports
       - name: Type check
-        run: mypy foundation modules config
+        run: mypy .                # everything, tests included (DEV-361)
+      - name: No missing migrations
+        run: python manage.py makemigrations --check --dry-run
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
       - name: Tests
         run: pytest
+
+  # The five web apps (DEV-360): a clean install from each app's lock file, a type check and a
+  # production build. Each app also reads ../shared, so the whole repository is checked out.
+  apps:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [operations, patient, platform, clinician, partners]
+    defaults:
+      run:
+        working-directory: frontend/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/${{ matrix.app }}/package-lock.json
+      - name: Install (exactly the lock file)
+        run: npm ci --no-audit --no-fund
+      - name: Type check
+        run: npm run typecheck
+      - name: Production build
+        run: npx vite build
+
+  # The browser robots (DEV-362): the whole development stack, the seeded test customers and the five
+  # apps, exactly as frontend/e2e/README.md sets them up by hand, then every robot once. Development
+  # settings only: a throwaway field key made for this run, nothing real anywhere.
+  robots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5        # the seed scripts and robot 11 call `python`
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Development settings for this run
+        run: |
+          cp .env.example .env
+          key="k1:$(python -c 'import base64,secrets;print(base64.b64encode(secrets.token_bytes(32)).decode())')"
+          sed -i "s|^ZOIKO_FIELD_KEYS=.*|ZOIKO_FIELD_KEYS=${key}|" .env
+      - name: Start the stack
+        run: docker compose up -d --build db backend worker webhooks mail
+      - name: Wait for the API
+        run: |
+          for _ in $(seq 1 90); do
+            curl -fsS http://127.0.0.1:8000/readyz && exit 0
+            sleep 2
+          done
+          docker compose logs backend | tail -50
+          exit 1
+      - name: Seed the test customers
+        run: |
+          python scripts/seed_simple_demo.py
+          python scripts/seed_admins.py
+          python scripts/seed_platform_tenant.py
+          python scripts/seed_e2e.py
+          python scripts/seed_partners.py
+      - name: Start the five apps
+        run: |
+          mkdir -p app-logs
+          start() {
+            (cd "frontend/$1" && npm ci --no-audit --no-fund \
+              && nohup npm run dev -- --strictPort --port "$2" > "../../app-logs/$1.log" 2>&1 &)
+          }
+          start operations 5173
+          start patient 5174
+          start platform 5175
+          start clinician 5176
+          start partners 5177
+          for port in 5173 5174 5175 5176 5177; do
+            for _ in $(seq 1 150); do curl -fsS -o /dev/null "http://localhost:$port/" && break; sleep 2; done
+            curl -fsS -o /dev/null "http://localhost:$port/" || { echo "app on $port did not start"; cat app-logs/*.log; exit 1; }
+          done
+      - name: Install the robots
+        working-directory: frontend/e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Run the robots
+        working-directory: frontend/e2e
+        run: npx playwright test
+      - name: Keep screenshots, traces and logs of a failure
+        if: failure()
+        run: docker compose logs > app-logs/stack.log 2>&1 || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: robot-failures
+          path: |
+            frontend/e2e/test-results/
+            app-logs/
+          retention-days: 7

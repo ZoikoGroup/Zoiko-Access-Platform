@@ -32,6 +32,7 @@ def registry():
     yield
     payments.clear()
     for provider in before.values():
+        assert provider is not None
         payments._providers[provider.key] = provider
 
 
