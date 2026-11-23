@@ -31,6 +31,11 @@ class CommsConfig(AppConfig):
 
         periodic.register("comms.escalations", ESCALATION_EVERY_SECONDS, send_escalation_alerts)
 
+        # Hourly: a clinic that asked for it gets its weekly summary once each week.
+        from .report_email import REPORT_EVERY_SECONDS, send_weekly_reports
+
+        periodic.register("comms.weekly_report", REPORT_EVERY_SECONDS, send_weekly_reports)
+
         # Every 30 seconds the worker sends text messages that are due (DEV-194).
         from foundation.texts import send_due_texts
 

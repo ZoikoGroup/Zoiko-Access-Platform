@@ -65,6 +65,10 @@ class Organization(CellScopedModel):
     # The partner connector that confirms this clinic's bookings (modules/bookingflow). Empty means
     # the clinic's own staff confirm them by hand, as before.
     booking_system = models.CharField(max_length=32, blank=True, default="")
+    # The clinic's working days and opening times (foundation/business_time.py): {"days": [0..6],
+    # "opens": "09:00", "closes": "17:00", "holidays": ["2026-12-25"]}. Empty means not set, and
+    # deadlines then count every hour of the day.
+    business_hours = models.JSONField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="org_scope_idx")]

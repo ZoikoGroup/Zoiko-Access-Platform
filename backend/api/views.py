@@ -1204,22 +1204,58 @@ def staff_settings(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
         if "R13" not in auth.roles:
             raise ZoikoError(ErrorCode.POLICY_DENIED)
         _authorize(auth, "write:staff", organization_public_id=org)
-        hours = json_body(request).get("hours")
+        sent = json_body(request)
         with tenant_transaction():
-            trust.set_response_target(org, hours, by=auth.actor_public_id)
+            if "waitlist_offer_hours" in sent:
+                waitlist.set_offer_hours(
+                    org, sent["waitlist_offer_hours"], by=auth.actor_public_id)
+            if "weekly_report" in sent:
+                comms.set_weekly_report(org, sent["weekly_report"], by=auth.actor_public_id)
+            if "hours" in sent or not {"waitlist_offer_hours", "weekly_report"} & set(sent):
+                trust.set_response_target(org, sent.get("hours"), by=auth.actor_public_id)
     with tenant_transaction():
         recipients = len(trust.verified_emails_for_role(org, "R04"))
         target = trust.response_target_hours(org)
+        offer_hours = waitlist.offer_hours_for(org)
+        weekly = comms.weekly_report_enabled(org)
     return JsonResponse(
         {
             "response_target_hours": target,
             "response_target_default": settings.RESPONSE_TARGET_HOURS,
             "can_set_target": "R13" in auth.roles,
             "reminder_lead_hours": settings.REMINDER_LEAD_HOURS,
-            "waitlist_offer_hours": settings.WAITLIST_OFFER_HOURS,
+            "waitlist_offer_hours": offer_hours,
+            "waitlist_offer_default": settings.WAITLIST_OFFER_HOURS,
+            "weekly_report": weekly,
             "late_email_recipients": recipients,
         }
     )
+
+
+@endpoint("GET", "POST")
+def staff_business_hours(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: the clinic's working days and opening times (or null when not set). POST
+    {"business_hours": {...} | null}: set or clear them (the clinic administrator only). Deadlines
+    of journeys that start afterwards then count only open hours."""
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "read:analytics", organization_public_id=org)
+    if request.method == "POST":
+        if "R13" not in auth.roles:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        _authorize(auth, "write:staff", organization_public_id=org)
+        body = json_body(request)
+        if "business_hours" not in body:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["business_hours"])
+        with tenant_transaction():
+            trust.set_business_hours(org, body["business_hours"], by=auth.actor_public_id)
+    with tenant_transaction():
+        current = trust.business_hours_of(org)
+        zone = catalog.organization_zone(org)
+    return JsonResponse({
+        "business_hours": current, "zone": zone["zone"], "zone_source": zone["source"],
+        "can_set": "R13" in auth.roles})
 
 
 @endpoint("GET")
@@ -4849,7 +4885,10 @@ def coverage_end(request: HttpRequest, auth: trust.Authenticated, coverage_id: s
 
 
 # ------------------------------------------------------------------ waiting list
-def _waitlist_json(rows: list[dict[str, Any]], auth: trust.Authenticated) -> list[dict[str, Any]]:
+def _waitlist_json(
+    rows: list[dict[str, Any]], auth: trust.Authenticated, *, staff: bool = False
+) -> list[dict[str, Any]]:
+    """A patient never sees where the clinic ranks them: priority is for staff screens only."""
     with tenant_transaction():
         orgs = trust.organization_names()
         cache: dict[str, Any] = {}
@@ -4868,6 +4907,11 @@ def _waitlist_json(rows: list[dict[str, Any]], auth: trust.Authenticated) -> lis
                         "id": e["organization_ref"],
                         "name": orgs.get(e["organization_ref"], ""),
                     },
+                    **(
+                        {"priority": e["priority"], "priority_reason": e["priority_reason"]}
+                        if staff
+                        else {}
+                    ),
                 }
             )
     return _add_names(auth, out, "patient")
@@ -4920,9 +4964,10 @@ def staff_waitlist(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
         if is_allowed(auth, "read:booking", organization_public_id=org):
             with tenant_transaction():
                 rows += waitlist.list_entries(organization_ref=org)
-    rows.sort(key=lambda e: e["created_at"])  # longest waiting first
+    # Most urgent first, then longest waiting: the order times are offered in.
+    rows.sort(key=lambda e: (-e["priority"], e["created_at"]))
     place: dict[str, int] = {}
-    entries = _waitlist_json(rows, auth)
+    entries = _waitlist_json(rows, auth, staff=True)
     with tenant_transaction():
         journeys = workflow.instances_for([e["id"] for e in entries], "J3.waitlist")
     for item in entries:
@@ -4931,6 +4976,27 @@ def staff_waitlist(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
         # Where it stands in its journey (none for a request that joined before journeys).
         item["journey"] = journeys[item["id"]]["state"] if item["id"] in journeys else None
     return JsonResponse({"entries": entries})
+
+
+@endpoint("POST")
+def staff_waitlist_priority(
+    request: HttpRequest, auth: trust.Authenticated, entry_id: str
+) -> HttpResponse:
+    """Clinic staff set how soon someone should be offered a time: {"priority": 0|1|2, "reason"}.
+    Staff only: a patient or guardian cannot rank themselves."""
+    _staff_only(auth)
+    body = json_body(request)
+    with tenant_transaction():
+        entry = waitlist.get_entry(entry_id)
+    decision = _authorize(
+        auth, "write:booking", organization_public_id=entry["organization_ref"],
+        subject_ref=entry["person_ref"])
+    with tenant_transaction():
+        done = waitlist.set_priority(
+            entry_ref=entry_id, priority=body.get("priority"),
+            reason=text(body, "reason", required=False), actor_public_id=auth.actor_public_id,
+            decision=decision)
+    return JsonResponse({"entry": _waitlist_json([done], auth, staff=True)[0]})
 
 
 @endpoint("POST")

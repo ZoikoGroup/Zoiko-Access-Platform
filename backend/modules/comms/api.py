@@ -7,6 +7,7 @@ Everything else (models, services, domain rules) is private. Enforced by import-
 from . import alert_phone
 from .exchange_alerts import alert_critical_result, send_escalation_alerts
 from .phone import confirm_code, phone_verified, send_code
+from .report_email import send_weekly_reports
 from .services import (
     email_notices_enabled,
     get_notification,
@@ -16,8 +17,10 @@ from .services import (
     set_email_notices,
     set_quiet_hours,
     set_texts,
+    set_weekly_report,
     texts_enabled,
     unread_count,
+    weekly_report_enabled,
 )
 from .subscribers import register_subscribers
 
@@ -34,9 +37,12 @@ __all__ = [
     "register_subscribers",
     "send_code",
     "send_escalation_alerts",
+    "send_weekly_reports",
     "set_email_notices",
     "set_quiet_hours",
     "set_texts",
+    "set_weekly_report",
     "texts_enabled",
     "unread_count",
+    "weekly_report_enabled",
 ]

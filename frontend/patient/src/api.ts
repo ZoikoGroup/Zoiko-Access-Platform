@@ -614,6 +614,8 @@ export interface DelegateRow {
 }
 export interface ConsentRow {
   purpose: string; audience: string; label: string; state: "granted" | "withdrawn" | "expired";
+  /** What the buttons for this choice say (for example "Allow emails" and "Stop the emails"). */
+  yes_label?: string; no_label?: string;
   shared: boolean; expires_at: string | null; changed_at: string | null; changed_by: string;
 }
 export interface AccessData {

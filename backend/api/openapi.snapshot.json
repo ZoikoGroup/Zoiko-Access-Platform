@@ -10769,6 +10769,94 @@
     "summary": "Which partner connector confirms this clinic's bookings (\"\" = the clinic confirms by hand)."
    }
   },
+  "/staff/business-hours": {
+   "get": {
+    "operationId": "get_staff_business_hours",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the clinic's working days and opening times (or null when not set). POST     {\"business_hours\": {...} | null}: set or clear them (the clinic administrator only). Deadlines     of journeys that st"
+   },
+   "post": {
+    "operationId": "post_staff_business_hours",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: the clinic's working days and opening times (or null when not set). POST     {\"business_hours\": {...} | null}: set or clear them (the clinic administrator only). Deadlines     of journeys that st"
+   }
+  },
   "/staff/compliance": {
    "get": {
     "operationId": "get_staff_compliance",
@@ -13673,6 +13761,70 @@
      }
     ],
     "summary": "Everyone waiting for this organization's services, in queue order, with their place."
+   }
+  },
+  "/staff/waitlist/{entry_id}/priority": {
+   "post": {
+    "operationId": "post_staff_waitlist_priority",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "entry_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Clinic staff set how soon someone should be offered a time: {\"priority\": 0|1|2, \"reason\"}.     Staff only: a patient or guardian cannot rank themselves."
    }
   },
   "/staff/work": {

@@ -376,6 +376,40 @@ def tenant_public_id(tenant_id: Any) -> str:
 MAX_RESPONSE_TARGET_HOURS = 168       # a week
 
 
+def business_hours_of(organization_public_id: str) -> dict[str, Any] | None:
+    """This clinic's working days and opening times, or None when it has not set any (then
+    deadlines count every hour). Plain data: see foundation/business_time.py."""
+    ctx = require_context()
+    own = Organization.objects.filter(
+        public_id=organization_public_id, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id
+    ).values_list("business_hours", flat=True).first()
+    return dict(own) if own else None
+
+
+def set_business_hours(
+    organization_public_id: str, spec: Any, *, by: str
+) -> dict[str, Any] | None:
+    """Set this clinic's working days and opening times, or None to go back to counting every
+    hour. The days, times and holidays are checked and stored in their plain form. A journey
+    that is already running keeps the hours it started with. Returns what is now in force."""
+    from foundation.business_time import BusinessHours, BusinessHoursError
+
+    clean: dict[str, Any] | None = None
+    if spec is not None:
+        try:
+            clean = BusinessHours.from_spec(spec).spec
+        except BusinessHoursError as problem:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=[str(problem)]) from None
+    with transaction.atomic():
+        org = _own(Organization, organization_public_id)
+        org.business_hours = clean
+        org.entity_version += 1
+        org.save(update_fields=["business_hours", "entity_version", "updated_at"])
+        _audit(by, "organization.set_business_hours", "organization", org.public_id,
+               set=int(clean is not None))
+    return business_hours_of(organization_public_id)
+
+
 def response_target_hours(organization_public_id: str) -> int:
     """How many hours this clinic aims to answer within: its own choice, or the service default."""
     ctx = require_context()

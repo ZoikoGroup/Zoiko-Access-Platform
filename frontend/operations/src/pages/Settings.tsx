@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { changePassword, clearDisplayName, getBookingSystem, getDisplayName, getEmailStatus, getSettings, resendVerification, saveDisplayName, setBookingSystem, setEmail, setResponseTarget, type Staff } from "../api";
+import { changePassword, clearDisplayName, getBookingSystem, getBusinessHours, getDisplayName, getEmailStatus, getSettings, resendVerification, saveDisplayName, setBookingSystem, setBusinessHours, setEmail, setResponseTarget, setWaitlistOfferHours, setWeeklyReport, type Staff } from "../api";
 import { ChangePassword } from "../ChangePassword";
 import { EmailCard } from "../EmailCard";
 import { NameCard } from "../NameCard";
@@ -35,6 +35,122 @@ function Target({ hours, standard, canSet, onSaved }: { hours: number; standard:
       {error && <div className="error" role="alert">{error}</div>}
       {note && <div className="success" role="status">{note}</div>}
     </Card>
+  );
+}
+
+/** How long a person has to use a time they were offered from the waiting list. */
+function OfferWindow({ hours, standard, canSet, onSaved }: { hours: number; standard: number; canSet: boolean; onSaved: () => void }) {
+  const [text, setText] = useState(String(hours));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  async function save(value: number | null) {
+    setBusy(true); setError(""); setNote("");
+    try { await setWaitlistOfferHours(value); setNote(value === null ? "Back to the standard window." : "Saved."); onSaved(); }
+    catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(false); }
+  }
+  const n = Number(text);
+  return (
+    <Card title="Waiting-list offers" sub="How long someone has to use a time they were offered before it goes to the next person.">
+      <p>Your window is <b>{hours} hours</b>{hours === standard ? " (the standard)" : ` (the standard is ${standard})`}.</p>
+      {canSet ? (
+        <div className="form-row">
+          <label>Hours (1 to 168)
+            <input type="number" min={1} max={168} value={text} onChange={(e) => setText(e.target.value)} aria-label="Offer window in hours" style={{ maxWidth: 110 }} />
+          </label>{" "}
+          <button className="btn" disabled={busy || !Number.isInteger(n) || n < 1 || n > 168} onClick={() => void save(n)}>Save</button>{" "}
+          <button className="btn ghost" disabled={busy} onClick={() => void save(null)}>Use the standard</button>
+        </div>
+      ) : <small>Only your clinic administrator can change this.</small>}
+      {error && <div className="error" role="alert">{error}</div>}
+      {note && <div className="success" role="status">{note}</div>}
+    </Card>
+  );
+}
+
+/** The weekly summary email (counts only) to the clinic's administrators. Off until switched on. */
+function WeeklyReport({ on, canSet, onSaved }: { on: boolean; canSet: boolean; onSaved: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function save(value: boolean) {
+    setBusy(true); setError("");
+    try { await setWeeklyReport(value); onSaved(); }
+    catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Card title="Weekly summary email" sub="Once a week the clinic's administrators get the main numbers for the last seven days: bookings, missed visits, how full the clinic was and the waiting list. Counts only, never a patient's name.">
+      <p>{on ? <Pill kind="ok">On</Pill> : <Pill kind="info">Off</Pill>}</p>
+      {canSet
+        ? <button className="btn" disabled={busy} onClick={() => void save(!on)}>{on ? "Turn it off" : "Turn it on"}</button>
+        : <small>Only your clinic administrator can change this.</small>}
+      {error && <div className="error" role="alert">{error}</div>}
+    </Card>
+  );
+}
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** Working days and opening times. With these set, response deadlines count only open time. */
+function OpeningHours() {
+  const [version, setVersion] = useState(0);
+  const result = useLoad(getBusinessHours, 60_000, version);
+  const [days, setDays] = useState<number[] | null>(null);
+  const [opens, setOpens] = useState<string | null>(null);
+  const [closes, setCloses] = useState<string | null>(null);
+  const [holidays, setHolidays] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  async function save(clear: boolean, d: number[], o: string, c: string, h: string) {
+    setBusy(true); setError(""); setNote("");
+    try {
+      await setBusinessHours(clear ? null : {
+        days: d, opens: o, closes: c, holidays: h.split(/[\s,]+/).filter(Boolean),
+      });
+      setNote(clear ? "Cleared: deadlines count every hour." : "Saved. It applies to journeys that start from now on.");
+      setDays(null); setOpens(null); setCloses(null); setHolidays(null); setVersion((v) => v + 1);
+    } catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Gate result={result}>
+      {(b) => {
+        const cur = b.business_hours;
+        const d = days ?? cur?.days ?? [0, 1, 2, 3, 4];
+        const o = opens ?? cur?.opens ?? "09:00";
+        const c = closes ?? cur?.closes ?? "17:00";
+        const h = holidays ?? (cur?.holidays ?? []).join(", ");
+        return (
+          <Card title="Opening hours" sub={`Working days and opening times on your clinic's clock (${b.zone}). When set, response deadlines count only the hours you are open.`}>
+            <p>{cur ? <>Today: <b>{cur.days.map((n) => WEEKDAYS[n]).join(", ")}</b>, {cur.opens} to {cur.closes}{cur.holidays.length ? `, ${cur.holidays.length} holiday(s)` : ""}.</>
+              : <>Not set: deadlines count every hour of the day.</>}</p>
+            {b.can_set ? (
+              <div className="form-row">
+                <div role="group" aria-label="Working days">
+                  {WEEKDAYS.map((name, n) => (
+                    <label key={name} style={{ marginRight: 8 }}>
+                      <input type="checkbox" checked={d.includes(n)}
+                        onChange={() => setDays(d.includes(n) ? d.filter((x) => x !== n) : [...d, n].sort())} /> {name}
+                    </label>
+                  ))}
+                </div>
+                <label>Opens <input type="time" value={o} onChange={(e) => setOpens(e.target.value)} aria-label="Opening time" /></label>{" "}
+                <label>Closes <input type="time" value={c} onChange={(e) => setCloses(e.target.value)} aria-label="Closing time" /></label>
+                <label style={{ display: "block" }}>Holidays (dates like 2026-12-25, separated by commas)
+                  <input value={h} onChange={(e) => setHolidays(e.target.value)} aria-label="Holidays" style={{ width: "100%" }} />
+                </label>
+                <button className="btn" disabled={busy || d.length === 0 || o >= c} onClick={() => void save(false, d, o, c, h)}>Save</button>{" "}
+                <button className="btn ghost" disabled={busy || !cur} onClick={() => void save(true, d, o, c, h)}>Count every hour</button>
+              </div>
+            ) : <small>Only your clinic administrator can change this.</small>}
+            {error && <div className="error" role="alert">{error}</div>}
+            {note && <div className="success" role="status">{note}</div>}
+          </Card>
+        );
+      }}
+    </Gate>
   );
 }
 
@@ -94,6 +210,10 @@ export function Settings({ staff }: { staff: Staff | null }) {
           <div className="grid">
             <Target hours={s.response_target_hours} standard={s.response_target_default ?? s.response_target_hours}
               canSet={s.can_set_target ?? false} onSaved={() => setVersion((v) => v + 1)} />
+            <OfferWindow hours={s.waitlist_offer_hours} standard={s.waitlist_offer_default ?? s.waitlist_offer_hours}
+              canSet={s.can_set_target ?? false} onSaved={() => setVersion((v) => v + 1)} />
+            <WeeklyReport on={s.weekly_report ?? false} canSet={s.can_set_target ?? false} onSaved={() => setVersion((v) => v + 1)} />
+            <OpeningHours />
             <BookingSystemCard />
             <Card title="Timing rules">
               <Table headers={["Rule", "Value", "What it does"]} empty=""

@@ -14,6 +14,7 @@ from typing import Any
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 
+from foundation.business_time import BusinessHours, BusinessHoursError, add_business_minutes
 from foundation.cell_context import require_context
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.outbox import emit
@@ -63,9 +64,25 @@ def referral_dict(r: Referral) -> dict[str, Any]:
         "acknowledged_by_ref": r.acknowledged_by_ref,
         "acknowledged_at": r.acknowledged_at.isoformat() if r.acknowledged_at else None,
         "responsible_ref": r.responsible_ref or r.referrer_ref,
-        "escalated": r.state in OPEN_STATES and utc_now() - r.created_at > dt.timedelta(
-            hours=trust.response_target_hours(r.destination_organization_ref)),
+        "escalated": r.state in OPEN_STATES and _past_target(r),
     }
+
+
+def _past_target(r: Referral) -> bool:
+    """Has this referral waited longer than the receiving clinic's own response target? Counts only
+    the hours the clinic is open when it has said when that is (otherwise every hour)."""
+    org = r.destination_organization_ref
+    minutes = trust.response_target_hours(org) * 60
+    spec = trust.business_hours_of(org)
+    if spec:
+        try:
+            due = add_business_minutes(
+                r.created_at, minutes, BusinessHours.from_spec(spec),
+                catalog.organization_zone(org)["zone"])
+            return utc_now() > due
+        except BusinessHoursError:
+            pass                                    # unusable hours: fall back to every hour
+    return utc_now() - r.created_at > dt.timedelta(minutes=minutes)
 
 
 def _event(event_type: str, r: Referral, *, actor_ref: str = "") -> None:

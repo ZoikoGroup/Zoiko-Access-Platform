@@ -18,6 +18,7 @@ from foundation.outbox import PublishedEvent
 from foundation.texts import queue_text
 from foundation.timeutil import utc_now
 from modules.catalog import api as catalog
+from modules.consent import api as consent
 from modules.messaging import api as messaging
 from modules.referral import api as referral
 from modules.scheduling import api as scheduling
@@ -114,6 +115,38 @@ def _email_the_patient(person_ref: str, kind: str) -> None:
     _text_the_patient(person_ref, actor_ref, kind)
 
 
+# Only appointment changes are worth an email to a guardian, and the email says nothing about
+# which service, when or where: just that there is an update to look at.
+_GUARDIAN_KINDS = frozenset(
+    {"booking_confirmed", "booking_cancelled", "booking_rescheduled", "booking_reminder"})
+GUARDIAN_PURPOSE = "guardian_email"
+
+
+def _email_the_guardians(person_ref: str, kind: str) -> int:
+    """If the PATIENT agreed (their own yes in the consent register), tell each parent or guardian
+    who may see appointments and has confirmed an address and turned emails on that there is an
+    update. Returns how many emails were queued."""
+    if kind not in _GUARDIAN_KINDS or _deceased(person_ref):
+        return 0
+    if not consent.is_granted(person_ref, GUARDIAN_PURPOSE):
+        return 0
+    queued = 0
+    for actor_ref, address in trust.guardian_email_targets(person_ref):
+        if not email_notices_enabled(actor_ref):
+            continue                              # the guardian has not asked for emails either
+        mail = queue_email(
+            kind="guardian_update", to_address=address, subject="An update on Zoiko Access",
+            body=("Hello,\n\nThere is an update about an appointment for someone you act for.\n\n"
+                  f"Sign in to see the details: {settings.PATIENT_APP_URL}/?page=notifications\n\n"
+                  "You are getting this because they agreed to it and you turned on email "
+                  "updates. You can turn them off on the Notifications page.\n\nZoiko Access\n"))
+        if kind in _ROUTINE:
+            mail.next_attempt_at = next_allowed_send(actor_ref, utc_now())
+            mail.save(update_fields=["next_attempt_at"])
+        queued += 1
+    return queued
+
+
 def _text_the_patient(person_ref: str, actor_ref: str, kind: str) -> None:
     """If this patient also asked for texts and their own phone number is in international form,
     queue the generic "there is an update" text: never a care detail (DEV-194)."""
@@ -189,6 +222,7 @@ def on_booking_event(event: PublishedEvent) -> None:
         person_ref=booking["person_ref"], kind=kind, title=title, body=body[:300],
         booking_ref=booking["public_id"], source_event_id=event.event_id)
     _email_the_patient(booking["person_ref"], kind)
+    _email_the_guardians(booking["person_ref"], kind)
 
 
 REFERRAL_CONSUMER = "comms.referral_notifier"

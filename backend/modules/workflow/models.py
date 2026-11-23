@@ -134,6 +134,11 @@ class WorkflowInstance(CellScopedModel):
         max_length=10, choices=InstanceStatus.choices, default=InstanceStatus.RUNNING)
     owner_ref = models.CharField(max_length=64)          # the accountable party for this journey
     zone = models.CharField(max_length=64, default="UTC")   # the IANA zone deadlines are read in
+    # Timer lengths this journey uses instead of the definition's ({"acknowledge_by": 1440}, in
+    # minutes), and the clinic's opening hours when deadlines count only open time. Both are copied
+    # here when the journey starts, so changing the clinic's settings later never moves a deadline.
+    timer_minutes = models.JSONField(default=dict, blank=True)
+    business_hours = models.JSONField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):

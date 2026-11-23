@@ -183,6 +183,38 @@ def verified_login_email_of_person(person_public_id: str) -> tuple[str, str] | N
     return (cred.actor.public_id, cred.email) if cred else None
 
 
+GUARDIAN_EMAIL_RELATIONSHIPS = ("parent", "guardian")
+GUARDIAN_EMAIL_SCOPE = "appointments"
+
+
+def guardian_email_targets(
+    person_public_id: str, *, at: dt.datetime | None = None
+) -> list[tuple[str, str]]:
+    """(login public id, confirmed email address) of each parent or guardian who may be told about
+    this patient's appointments: an active, approved grant that is in date, still includes the
+    "appointments" scope (the patient can narrow it), and a login with a confirmed address. A grant
+    that is suspended, ended, waiting for an age review, or for any other kind of carer is never
+    used. The caller has checked the patient's own consent."""
+    when = utc_now() if at is None else _aware(at, "at")
+    ctx = require_context()
+    scope = {"cell_id": ctx.cell_id, "tenant_id": ctx.tenant_id}
+    grants = _in_window(
+        ProxyGrant.objects.select_related("delegate").filter(
+            person__public_id=person_public_id, person__status=Status.ACTIVE,
+            status=ProxyStatus.ACTIVE, delegate__status=Status.ACTIVE,
+            relationship_type__in=GUARDIAN_EMAIL_RELATIONSHIPS, review_reason="", **scope),
+        when, "valid_from", "valid_until")
+    out: list[tuple[str, str]] = []
+    for grant in grants:
+        if GUARDIAN_EMAIL_SCOPE not in (grant.rights or []):
+            continue
+        cred = Credential.objects.filter(
+            actor=grant.delegate, email__gt="", email_verified_at__isnull=False, **scope).first()
+        if cred is not None:
+            out.append((grant.delegate.public_id, cred.email))
+    return out
+
+
 def care_team_of(person_public_id: str, *, at: dt.datetime | None = None) -> list[dict[str, str]]:
     """The people treating this patient right now: active, uncontested care relationships. The
     caller has already been allowed to read this patient."""

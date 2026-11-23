@@ -252,6 +252,7 @@ FIELDS.update(dict.fromkeys((
     "started_by_ref", "updated_by_ref", "viewer_ref", "withdrawn_by_ref",
     "enrolled_by_ref", "certified_by_ref", "live_by_ref",          # DEV-230
     "merged_by_ref", "unmerged_by_ref",                            # identity merge
+    "prioritized_by_ref",                                          # waiting-list priority
     "deputy_ref",                                                  # DEV-202
     "delivered_by_ref", "replaced_by_ref",                         # DEV-325
     "death_recorded_by_ref",                                       # DEV-333

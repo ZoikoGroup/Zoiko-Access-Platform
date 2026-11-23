@@ -100,6 +100,8 @@ urlpatterns = [
     path("staff/waitlist", views.staff_waitlist),
     path("staff/reports", views.staff_reports),
     path("waitlist/<str:entry_id>/leave", views.waitlist_leave),
+    path("staff/waitlist/<str:entry_id>/priority", views.staff_waitlist_priority),
+    path("staff/business-hours", views.staff_business_hours),
     path("referrals/incoming", views.referrals_incoming),
     path("referrals/<str:referral_id>/decide", views.referral_decide),
     path("referrals/<str:referral_id>/acknowledge", views.referral_acknowledge),

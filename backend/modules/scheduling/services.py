@@ -934,7 +934,31 @@ def report(
         slot__starts_at__gte=since, slot__starts_at__lt=until, **scope)
     for starts, zone in coming.values_list("slot__starts_at", "slot__local_zone")[:5000]:
         weekdays[starts.astimezone(get_zone(zone)).weekday()] += 1
+    # How far ahead people book (days from booking to the appointment, bookings still wanted), and
+    # how full the clinic's offered times were: the share of this period's open times that someone
+    # holds. Counts and shares only.
+    lead = [
+        (starts - created).total_seconds() / 86400
+        for created, starts in made.exclude(status=BookingStatus.CANCELLED).values_list(
+            "created_at", "slot__starts_at")[:5000]
+        if starts >= created
+    ]
+    offered = Slot.objects.filter(
+        organization_ref=organization_ref, status=SlotStatus.OPEN,
+        starts_at__gte=since, starts_at__lt=until, **scope)
+    offered_count = offered.count()
+    taken_count = offered.filter(bookings__status__in=[
+        BookingStatus.REQUESTED, BookingStatus.CONFIRMED]).distinct().count()
+    total_made = sum(status.values())
+    recorded_visits = attendance.get("attended", 0) + attendance.get("no_show", 0)
     return {
+        "lead_time_days": summarize(lead),
+        "utilisation": {
+            "offered": offered_count, "taken": taken_count,
+            "rate": round(taken_count / offered_count, 3) if offered_count else None},
+        "cancel_rate": round(status.get("cancelled", 0) / total_made, 3) if total_made else None,
+        "no_show_rate": _rate(attendance.get("no_show", 0), attendance.get("attended", 0))
+        if recorded_visits else None,
         "by_weekday": weekdays,
         "by_doctor": [
             {"provider_ref": ref, **n, "no_show_rate": _rate(n["no_show"], n["attended"])}

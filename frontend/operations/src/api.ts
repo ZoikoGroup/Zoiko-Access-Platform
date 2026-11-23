@@ -7,6 +7,7 @@ import type {
   BillingData, DeveloperClient, IdentityData, MatchesData, MergeInfo, DeveloperData, ExceptionsData, JourneyHistory, JourneysData, OperationHistory,
 } from "./consoleTypes";
 import type {
+  BusinessHours, BusinessHoursData,
   Claim,
   ClinicSettings, CoverageRow, ExchangeRequest, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, RightsCase, FeeRow, InvoiceRow, Escalation, WorkflowHistory, WorkflowInstance, InboundEvent, PartnerClient, WebhookDelivery, WebhookEndpoint, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
   BookingRow, Compliance, Dashboard, Directory, Health, LocationRow, Me, PatientRow, ServiceRow,
@@ -216,6 +217,14 @@ export async function changePassword(currentPassword: string, newPassword: strin
 
 export const getSettings = () => v1<ClinicSettings>("staff/settings");
 export const setResponseTarget = (hours: number | null) => post("staff/settings", { hours });
+export const setWaitlistOfferHours = (hours: number | null) =>
+  post("staff/settings", { waitlist_offer_hours: hours });
+export const setWeeklyReport = (weekly_report: boolean) => post("staff/settings", { weekly_report });
+export const getBusinessHours = () => v1<BusinessHoursData>("staff/business-hours");
+export const setBusinessHours = (business_hours: BusinessHours | null) =>
+  post("staff/business-hours", { business_hours });
+export const setWaitlistPriority = (id: string, priority: 0 | 1 | 2, reason: string) =>
+  post(`staff/waitlist/${encodeURIComponent(id)}/priority`, { priority, reason });
 export const getProviders = async () =>
   (await v1<{ days: number; can_manage: boolean; bases: Record<string, string>; providers: ProviderRow[] }>("staff/providers"));
 export const verifyProviderName = (id: string, basis: string, note: string) =>

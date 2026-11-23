@@ -273,6 +273,14 @@
     }
    }
   },
+  "waitlist_prioritized_v1": {
+   "address": "waitlist.prioritized.v1",
+   "messages": {
+    "waitlist_prioritized_v1": {
+     "$ref": "#/components/messages/waitlist_prioritized_v1"
+    }
+   }
+  },
   "waitlist_returned_v1": {
    "address": "waitlist.returned.v1",
    "messages": {
@@ -1248,6 +1256,31 @@
     },
     "x-schema-hash": "7ab7c17908cfb1fe"
    },
+   "waitlist_prioritized_v1": {
+    "contentType": "application/json",
+    "name": "waitlist.prioritized.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "actor_ref": {
+       "type": "string"
+      },
+      "entry_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "entry_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "waitlist"
+    },
+    "x-schema-hash": "6cd364166fd1621f"
+   },
    "waitlist_returned_v1": {
     "contentType": "application/json",
     "name": "waitlist.returned.v1",
@@ -1653,6 +1686,13 @@
     "$ref": "#/channels/waitlist_offered_v1"
    },
    "summary": "Zoiko publishes waitlist.offered.v1"
+  },
+  "publish_waitlist_prioritized_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/waitlist_prioritized_v1"
+   },
+   "summary": "Zoiko publishes waitlist.prioritized.v1"
   },
   "publish_waitlist_returned_v1": {
    "action": "send",

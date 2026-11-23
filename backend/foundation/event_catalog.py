@@ -31,6 +31,7 @@ EVENTS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "slot.opened.v1": ("service", ("service_ref",), ()),
     "waitlist.offered.v1": ("waitlist", ("entry_ref", "state"), ()),
     "waitlist.joined.v1": _ENTRY,
+    "waitlist.prioritized.v1": _ENTRY,
     "waitlist.left.v1": _ENTRY,
     "waitlist.booked.v1": _ENTRY_SYSTEM,
     "waitlist.returned.v1": _ENTRY_SYSTEM,

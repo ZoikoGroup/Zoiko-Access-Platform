@@ -18,7 +18,9 @@ from __future__ import annotations
 from typing import Any
 
 from foundation.errors import ErrorCode, ZoikoError
+from modules.catalog import api as catalog
 from modules.referral import api as referral
+from modules.trust import api as trust
 
 from .engine import Evidence, engine, ensure_bundled_definitions, running_instance_for
 
@@ -33,10 +35,18 @@ def _start(referral_ref: str, organization_ref: str) -> dict[str, Any]:
     if existing is not None:
         return existing
 
+    # The deadlines follow THIS clinic: it should see a referral within its own response target
+    # and decide within three times that, counting only the hours it is open when it has said when
+    # that is. Copied onto the journey now, so later changes never move a deadline already set.
+    target_minutes = trust.response_target_hours(organization_ref) * 60
+
     def start() -> dict[str, Any]:
         return engine.start(
             definition_key=DEFINITION, subject_ref=referral_ref, owner_ref=organization_ref,
-            actor_ref=SYSTEM_ACTOR, organization_ref=organization_ref)
+            actor_ref=SYSTEM_ACTOR, organization_ref=organization_ref,
+            zone=catalog.organization_zone(organization_ref)["zone"],
+            timer_minutes={"acknowledge_by": target_minutes, "decide_by": target_minutes * 3},
+            business_hours=trust.business_hours_of(organization_ref))
 
     try:
         return start()

@@ -25,6 +25,18 @@ PURPOSES: dict[str, dict[str, str]] = {
     "insurance_details": {
         "resource": "coverage",
         "label": "Let this clinic's staff see my insurance details",
+        "yes": "Share",
+        "no": "Stop sharing",
+    },
+    # Read by the notifier (modules/comms): when appointments change, a parent or guardian who has
+    # their own confirmed email address and has turned emails on is told that there is an update.
+    # Never the service, the time or the clinic. Only the patient can say yes: a guardian cannot
+    # consent to being emailed about someone else.
+    "guardian_email": {
+        "resource": "person",
+        "label": "Let the clinic email my parent or guardian when my appointments change",
+        "yes": "Allow emails",
+        "no": "Stop the emails",
     },
 }
 AUDIENCES = ("clinic_staff",)
@@ -137,6 +149,7 @@ def consent_dict(row: ConsentGrant, now: dt.datetime) -> dict[str, Any]:
     ran_out = row.state == ConsentState.GRANTED and not live
     return {
         "purpose": row.purpose, "audience": row.audience, "label": PURPOSES[row.purpose]["label"],
+        "yes_label": PURPOSES[row.purpose]["yes"], "no_label": PURPOSES[row.purpose]["no"],
         "state": "expired" if ran_out else row.state, "shared": live,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
         "changed_at": row.updated_at.isoformat(), "changed_by": row.changed_by_ref,
@@ -154,6 +167,7 @@ def list_for_person(person_ref: str, clock: Clock | None = None) -> list[dict[st
             out.append(consent_dict(rows[purpose], now))
         else:
             out.append({"purpose": purpose, "audience": DEFAULT_AUDIENCE, "label": meta["label"],
+                        "yes_label": meta["yes"], "no_label": meta["no"],
                         "state": ConsentState.WITHDRAWN.value, "shared": False,
                         "expires_at": None, "changed_at": None, "changed_by": ""})
     return out

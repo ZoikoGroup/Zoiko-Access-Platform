@@ -94,6 +94,12 @@ def mine(p, subject="kid"):
     return json.loads(r.content)
 
 
+def insurance(data):
+    """The insurance-sharing choice among the purposes a patient can choose about."""
+    (item,) = [c for c in data["consents"] if c["purpose"] == "insurance_details"]
+    return item
+
+
 # ------------------------------------------------------------------ the age of majority
 def test_the_age_of_majority_defaults_to_eighteen_and_a_country_can_differ(settings):
     assert age_review.majority_age("") == 18 and age_review.majority_age("GB") == 18
@@ -364,7 +370,7 @@ def test_the_overview_needs_a_login_and_the_right_method(p):
 # ------------------------------------------------------------------ the consent register
 def test_nothing_is_shared_until_the_patient_says_so(p):
     _, person = p.patient("kid")
-    (item,) = mine(p)["consents"]
+    item = insurance(mine(p))
     assert item["purpose"] == "insurance_details" and item["shared"] is False
     assert item["state"] == "withdrawn" and item["expires_at"] is None
     with tenant_transaction(p.clinic.ctx):
@@ -450,7 +456,7 @@ def test_bad_consent_requests_are_refused_and_change_nothing(p, body):
     p.patient("kid")
     good = {"purpose": "insurance_details", "grant": True}
     assert p.post("access/consent", {**good, **body}, subject="kid").status_code == 422
-    assert mine(p)["consents"][0]["shared"] is False
+    assert insurance(mine(p))["shared"] is False
 
 
 def test_consent_needs_a_login_and_the_right_method(p):
@@ -465,7 +471,7 @@ def test_one_patients_choice_never_affects_another(p):
     with tenant_transaction(p.clinic.ctx):
         assert consent.states([a, b], "insurance_details") == {a: True}      # b made no choice
         assert consent.is_granted(b, "insurance_details") is False
-    assert mine(p, "other")["consents"][0]["shared"] is False
+    assert insurance(mine(p, "other"))["shared"] is False
 
 
 def test_a_consent_change_is_audited_and_announced_without_personal_details(p):
@@ -530,7 +536,7 @@ def test_staff_see_insurance_only_while_the_consent_lasts(insured):
 def test_the_older_sharing_switch_and_the_new_consent_are_the_same_choice(insured):
     p = insured
     assert p.post("coverage/sharing", {"share": True}, subject="pat").status_code == 200
-    assert mine(p, "pat")["consents"][0]["shared"] is True
+    assert insurance(mine(p, "pat"))["shared"] is True
     assert staff_sees(p, p.person)["shared"] is True
     assert p.post("access/consent", {"purpose": "insurance_details", "grant": False},
                   subject="pat").status_code == 200

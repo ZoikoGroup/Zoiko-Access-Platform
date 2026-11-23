@@ -30,6 +30,7 @@ from typing import Any, Protocol
 from django.conf import settings
 from django.db import IntegrityError, transaction
 
+from foundation.business_time import BusinessHours, BusinessHoursError, add_business_minutes
 from foundation.cell_context import require_context
 from foundation.chain import GENESIS, chain_digest, verify_chain
 from foundation.errors import ErrorCode, ZoikoError
@@ -72,7 +73,8 @@ class WorkflowEngine(Protocol):
     def start(
         self, *, definition_key: str, subject_ref: str, owner_ref: str, actor_ref: str,
         organization_ref: str = "", zone: str = "UTC", version: int | None = None,
-        clock: Clock | None = None,
+        clock: Clock | None = None, timer_minutes: dict[str, int] | None = None,
+        business_hours: dict[str, Any] | None = None,
     ) -> dict[str, Any]: ...
 
     def submit_transition(
@@ -204,13 +206,41 @@ def _append(
         raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None
 
 
+MAX_TIMER_MINUTES = 60 * 24 * 365
+
+
+def _timer_overrides(body: dict[str, Any], given: Any) -> dict[str, int]:
+    """Lengths (in minutes) a journey asks for instead of the definition's, for timers the
+    definition has. Anything else is refused, so a typo never silently changes nothing."""
+    if given is None:
+        return {}
+    if not isinstance(given, dict):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["timer_minutes"])
+    known = body.get("timers", {})
+    for name, minutes in given.items():
+        if name not in known or isinstance(minutes, bool) or not isinstance(minutes, int) \
+                or not 1 <= minutes <= MAX_TIMER_MINUTES:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["timer_minutes"])
+    return {str(k): int(v) for k, v in given.items()}
+
+
+def _deadline(instance: WorkflowInstance, minutes: int, now: dt.datetime) -> dt.datetime:
+    """When a timer of this length runs out: counting every minute, or (when the clinic's opening
+    hours were copied onto the journey) only the minutes the clinic is open."""
+    if not instance.business_hours:
+        return now + dt.timedelta(minutes=minutes)
+    return add_business_minutes(
+        now, minutes, BusinessHours.from_spec(instance.business_hours), instance.zone)
+
+
 def _start_timers(instance: WorkflowInstance, body: dict[str, Any], state: str,
                   now: dt.datetime) -> None:
     for name, spec in body.get("timers", {}).items():
         if spec["state"] == state:
+            minutes = int((instance.timer_minutes or {}).get(name, spec["after_minutes"]))
             WorkflowTimer.objects.create(
                 instance=instance, name=name, state_name=state, zone=instance.zone,
-                deadline_at=now + dt.timedelta(minutes=spec["after_minutes"]), **_scope())
+                deadline_at=_deadline(instance, minutes, now), **_scope())
 
 
 def _cancel_timers(instance: WorkflowInstance, state: str | None = None) -> None:
@@ -254,7 +284,8 @@ class DbWorkflowEngine:
     def start(
         self, *, definition_key: str, subject_ref: str, owner_ref: str, actor_ref: str,
         organization_ref: str = "", zone: str = "UTC", version: int | None = None,
-        clock: Clock | None = None,
+        clock: Clock | None = None, timer_minutes: dict[str, int] | None = None,
+        business_hours: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         for value in (subject_ref, owner_ref, actor_ref):
             if not _REF.match(value):
@@ -266,12 +297,20 @@ class DbWorkflowEngine:
         definition = _released(definition_key, version)
         initial = definition.body["initial"]
         now = utc_now(clock)
+        overrides = _timer_overrides(definition.body, timer_minutes)
+        calendar: dict[str, Any] | None = None
+        if business_hours is not None:
+            try:
+                calendar = BusinessHours.from_spec(business_hours).spec
+            except BusinessHoursError:
+                raise ZoikoError(
+                    ErrorCode.VALIDATION_FAILED, fields=["business_hours"]) from None
         try:
             with transaction.atomic():
                 instance = WorkflowInstance.objects.create(
                     definition=definition, subject_ref=subject_ref, state=initial,
                     organization_ref=organization_ref, owner_ref=owner_ref, zone=zone,
-                    **_scope())
+                    timer_minutes=overrides, business_hours=calendar, **_scope())
                 _append(instance, "start", "", actor_ref, "system", [], now)
                 _start_timers(instance, definition.body, initial, now)
                 record(actor_ref=actor_ref, action="workflow.start",

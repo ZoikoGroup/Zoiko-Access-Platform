@@ -183,11 +183,17 @@ export interface Reports {
     hours_to_confirm: Timing;
     cancel_reasons: Record<string, number>;
     by_weekday: number[];                 // Monday first: appointments in the period, by the clinic's own day
+    /** Days from booking to the appointment, for bookings still wanted. */
+    lead_time_days?: Timing;
+    /** How full the offered times were: times someone holds, of the open times in the period. */
+    utilisation?: { offered: number; taken: number; rate: number | null };
+    cancel_rate?: number | null;          // 0 to 1; null when nothing was booked
+    no_show_rate?: number | null;         // of recorded visits; null when none were recorded
     by_doctor: { provider_ref: string; name: string; attended: number; no_show: number;
       not_recorded: number; no_show_rate: number | null }[];
   };
   referrals: { received: number; issued: number; accepted: number; needs_info: number; declined: number };
-  waiting_list: { joined: number; booked: number; left: number; waiting_now: number };
+  waiting_list: { joined: number; booked: number; left: number; waiting_now: number; hours_to_book?: Timing };
   messages: { started: number; closed: number; waiting_for_clinic: number; hours_to_first_reply: Timing };
 }
 
@@ -211,7 +217,15 @@ export interface ClinicSettings {
   can_set_target?: boolean;               // only the clinic administrator can change it
   reminder_lead_hours: number;
   waitlist_offer_hours: number;
+  waitlist_offer_default?: number;        // what it is when the clinic has not chosen
+  weekly_report?: boolean;                // the weekly summary email to the clinic's administrators
   late_email_recipients: number;
+}
+
+/** A clinic's working days and opening times (0 = Monday), or null when it has not set any. */
+export interface BusinessHours { days: number[]; opens: string; closes: string; holidays: string[] }
+export interface BusinessHoursData {
+  business_hours: BusinessHours | null; zone: string; zone_source: string; can_set: boolean;
 }
 
 export interface NameCheck {
@@ -246,6 +260,9 @@ export interface WaitingRow {
   journey?: "waiting" | "offered" | "booked" | "left" | null;
   joined_at: string;
   offered_at: string | null;
+  /** 0 routine, 1 priority, 2 urgent: set by clinic staff, never shown to the patient. */
+  priority?: 0 | 1 | 2;
+  priority_reason?: string;
   service: { id: string; name: string };
   organization: { id: string; name: string };
 }

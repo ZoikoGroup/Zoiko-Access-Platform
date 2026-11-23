@@ -120,7 +120,7 @@ def test_referrals_waiting_list_and_messages_are_counted(p):
     r = report(p)
     assert r["referrals"] == {"received": 1, "issued": 0, "accepted": 1, "needs_info": 0,
                               "declined": 0}
-    assert r["waiting_list"] == {"joined": 1, "booked": 0, "left": 0, "waiting_now": 1}
+    assert counts(r["waiting_list"]) == {"joined": 1, "booked": 0, "left": 0, "waiting_now": 1}
     assert counts(r["messages"]) == {
         "started": 1, "closed": 0, "waiting_for_clinic": 1}
     p.post(f"messages/threads/{thread}/close", subject="ops")

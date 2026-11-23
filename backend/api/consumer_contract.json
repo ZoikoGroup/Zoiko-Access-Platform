@@ -59,6 +59,7 @@
   "GET /staff/billing/invoices",
   "GET /staff/billing/invoices/{x}",
   "GET /staff/booking-system",
+  "GET /staff/business-hours",
   "GET /staff/compliance",
   "GET /staff/connector",
   "GET /staff/connector/circuits",

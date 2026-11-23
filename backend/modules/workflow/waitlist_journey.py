@@ -39,10 +39,15 @@ def _start(entry_ref: str, organization_ref: str) -> dict[str, Any]:
     if existing is not None:
         return existing
 
+    # A person is given the clinic's own window (see waitlist.set_offer_hours) to use an offered
+    # time, and the journey's "offer_by" timer follows it.
+    offer_minutes = waitlist.offer_hours_for(organization_ref) * 60
+
     def start() -> dict[str, Any]:
         return engine.start(
             definition_key=DEFINITION, subject_ref=entry_ref, owner_ref=organization_ref,
-            actor_ref=SYSTEM_ACTOR, organization_ref=organization_ref)
+            actor_ref=SYSTEM_ACTOR, organization_ref=organization_ref,
+            timer_minutes={"offer_by": offer_minutes})
 
     try:
         return start()

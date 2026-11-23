@@ -15,6 +15,9 @@ function hoursText(h: number | null): string {
   return `${Math.round(h / 24)} days`;
 }
 
+const percent = (share: number | null | undefined) =>
+  share === null || share === undefined ? "-" : `${Math.round(share * 100)}%`;
+
 const timingNote = (t: Timing, what: string) =>
   t.count === 0 ? `no ${what} yet` : `average ${hoursText(t.average)}, from ${t.count} ${what}`;
 
@@ -69,6 +72,18 @@ function View({ r, days, onDays }: { r: ReportsData; days: number; onDays: (n: n
           note={`middle value; ${timingNote(r.bookings.hours_to_confirm, "confirmations")}`} />
         <StatCard icon="bolt" label="Time to first reply" value={hoursText(r.messages.hours_to_first_reply.median)}
           note={`middle value; ${timingNote(r.messages.hours_to_first_reply, "replies")}`} />
+        {r.bookings.utilisation && (
+          <StatCard icon="appointments" label="Times taken" value={percent(r.bookings.utilisation.rate)}
+            note={r.bookings.utilisation.offered ? `${r.bookings.utilisation.taken} of ${r.bookings.utilisation.offered} open times` : "no open times in this period"} />
+        )}
+        {r.bookings.cancel_rate !== undefined && (
+          <StatCard icon="appointments" label="Cancelled" value={percent(r.bookings.cancel_rate)}
+            note={`of ${r.bookings.total} bookings; missed visits ${percent(r.bookings.no_show_rate)}`} />
+        )}
+        {r.bookings.lead_time_days && (
+          <StatCard icon="bolt" label="Booked ahead" value={r.bookings.lead_time_days.median === null ? "-" : `${r.bookings.lead_time_days.median} days`}
+            note={r.bookings.lead_time_days.count ? `middle value, from ${r.bookings.lead_time_days.count} bookings` : "no bookings yet"} />
+        )}
       </div>
 
       <div className="grid cols-2">
@@ -132,7 +147,8 @@ function View({ r, days, onDays }: { r: ReportsData; days: number; onDays: (n: n
         <Card title="Waiting lists">
           <Table headers={["", "People"]} empty=""
             rows={[["Joined in this period", r.waiting_list.joined], ["Of those, booked since", r.waiting_list.booked],
-              ["Of those, left the list", r.waiting_list.left], ["Waiting right now", r.waiting_list.waiting_now]]} />
+              ["Of those, left the list", r.waiting_list.left], ["Waiting right now", r.waiting_list.waiting_now],
+              ...(r.waiting_list.hours_to_book ? [["Wait before booking (middle value)", hoursText(r.waiting_list.hours_to_book.median)]] : [])]} />
         </Card>
         <Card title="Referrals and messages">
           <Table headers={["", "Number"]} empty=""

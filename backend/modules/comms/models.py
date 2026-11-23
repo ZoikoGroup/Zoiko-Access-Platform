@@ -11,6 +11,21 @@ from django.db import models
 from foundation.models import CellScopedModel
 
 
+class ReportSchedule(CellScopedModel):
+    """Whether a clinic's administrators get the weekly summary email (counts only). Off until the
+    clinic administrator turns it on; one row per clinic."""
+
+    organization_ref = models.CharField(max_length=22)
+    weekly = models.BooleanField(default=False)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="reportsched_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "organization_ref"], name="reportsched_one_per_clinic"),
+        ]
+
+
 class EmailPreference(CellScopedModel):
     """Whether this LOGIN wants a short email when something changes about its own care. Off until
     the person turns it on (and an email is only ever sent to an address they confirmed)."""

@@ -1973,3 +1973,35 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Temporary rules to confirm (add to docs/LEAD-NOTE.md questions):** the 14 day and 3 day deadlines are our choice and fixed in the released definition. It is on for every clinic (it only records, so there is no setting).
 - **Not built:** a per-clinic waiting deadline; showing the journey step to the patient.
 - **Checked:** new tests in `tests/test_waitlist_journey.py` (join, offer, return and re-offer, booked, left by the patient or by staff, repeats and replays, an ended journey, no journey for an old request, the system refused for a person's step, timers raising exceptions without changing the request, another customer seeing nothing, the staff list); typecheck and build of the operations app.
+
+### DEV-342: waiting-list priority and each clinic's own offer window (ADD, TEMPORARY rule, table row 6)
+
+- **What was done:** clinic staff can mark a waiting person Routine, Priority or Urgent, with a reason in words (required above routine, up to 200 characters). Times that open up are offered to the most urgent first, then to whoever joined first, one person per time. A clinic's administrator also sets how many hours a person has to use an offered time (1 to 168; empty means the service default `WAITLIST_OFFER_HOURS`), and an unused offer returns to the queue after that clinic's own window.
+- **Rules held:** a patient or guardian can never rank themselves, and never sees where the clinic ranks them (priority is on the staff screens only). Only an entry still waiting or offered can change. Every change is audited and announced as `waitlist.prioritized.v1` (entry and state only, never the reason).
+- **Temporary rules to confirm:** three levels is our own choice, not a clinical triage scale; the reason is free text; the service default stays 24 hours.
+- **Not built:** per-service queues with different rules, priority by clinical urgency from a referral, telling the patient why they were moved.
+- **Checked:** `tests/test_waitlist_rules.py` (offer order, same-level order, reasons and bad levels, patient and other-clinic denial, closed entries, repeats, the event payload, the clinic window and its default).
+
+### DEV-343: journey deadlines follow the clinic: response target, offer window and opening hours (ADD, TEMPORARY rule, table rows 7 and 11)
+
+- **What was done:** a clinic can state its working days, opening and closing times and holidays (`foundation/business_time.py`, stored on the organization). A referral's journey must be seen within the receiving clinic's own response target and decided within three times that; a waiting-list journey's offer deadline is the clinic's own offer window. When the clinic has set opening hours, those deadlines count only the open minutes, read on the clinic's own clock; otherwise every hour counts, as before. The referral "late" flag uses the same rule.
+- **Rules held:** the lengths and the opening hours are copied onto the journey when it starts, so changing a setting later never moves a deadline already running. A timer still only raises an exception for a person: it never decides anything.
+- **Temporary rules to confirm:** decide-by is three times the response target; the digest emails and counts elsewhere still count every hour; no per-service hours and no half-day holidays.
+- **Not built:** business hours for the other journeys, compensation steps, calendars shared by several clinics.
+- **Checked:** `tests/test_business_time.py` (no database: weekends, holidays, exact closing time, clock changes, other zones, bad input), `tests/test_deadlines.py` (target, three times, default, copied-at-start, opening hours, the engine refusing bad lengths, the settings screen and its denials).
+
+### DEV-344: a patient's choice to let a parent or guardian be emailed (ADD, TEMPORARY rule, table rows 2 and 30)
+
+- **What was done:** a new choice in the consent register, `guardian_email`, off until the patient says yes. When a booking is confirmed, cancelled, moved or reminded, each parent or guardian who holds an approved, in-date grant that still includes the "appointments" scope, has a confirmed email address and has turned emails on gets one short email saying only that there is an update to look at.
+- **Rules held:** only the patient can say yes (a guardian cannot consent to being emailed about someone else); any other kind of carer, a suspended grant, one waiting for an age review and one that was narrowed to leave out appointments are never emailed; the email names no service, time or clinic; the patient screen shows each choice with its own button wording.
+- **Temporary rules to confirm:** a young child with no login of their own cannot make the choice, so their parents are not emailed; "parent" and "guardian" are the only relationships emailed.
+- **Not built:** a clinic-side choice for children without a login, emailing about messages or results, per-guardian choices.
+- **Checked:** `tests/test_guardian_email.py` (default off, the email and its contents, the patient's page, withdrawing, a guardian trying to agree, unknown choices, unconfirmed address, emails off, narrowed, ended, other carers, the history chain) and the updated `tests/test_family_access.py`.
+
+### DEV-345: more report measures and a weekly summary email (ADD, TEMPORARY rule, table row 16)
+
+- **What was done:** the staff report now also shows how far ahead people book (days from booking to appointment, bookings still wanted), how full the offered times were (open times in the period that someone holds), the cancelled share of bookings made, the missed share of recorded visits, and how long people on the waiting list waited before booking. A clinic's administrator can switch on a weekly summary email, off by default: counts for the seven whole days before today on the clinic's own clock, to the administrators' confirmed addresses, once per clinic per ISO week.
+- **Rules held:** counts and shares only, never a patient, name or message; an empty measure is shown as empty, never as a made-up zero.
+- **Temporary rules to confirm:** the weekly email goes to administrators (R13) only; "full" counts every open time in the period, including times not yet in the past.
+- **Not built:** per-doctor utilisation, scheduled reports to other roles, a CSV of the new measures.
+- **Checked:** `tests/test_reports_more.py` (empty measures, lead time, cancelled share, missed share, how full, no personal data, the waiting wait, the weekly email: off by default, contents, once a week, off again, unconfirmed address, who may change it, other settings untouched, administrators only).

@@ -60,27 +60,27 @@ export function WhoCanSee() {
         </div>
       ))}
       <div className="grid">
-        <Card title="What I have chosen to share" sub="Nothing is shared unless you say so. You can stop at any time, or choose a date it ends.">
+        <Card title="What I have chosen to share" sub="Nothing is shared and no one is emailed unless you say so. You can stop at any time, or choose a date it ends.">
           {data.consents.map((c) => (
             <div key={c.purpose} className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
               <div className="info">
                 <b>{c.label}</b>{" "}
-                {c.state === "granted" && <Pill kind="ok">{c.expires_at ? `Shared until ${day(c.expires_at)}` : "Shared"}</Pill>}
-                {c.state === "expired" && <Pill kind="warn">Sharing ended {c.expires_at ? day(c.expires_at) : ""}</Pill>}
-                {c.state === "withdrawn" && <Pill kind="info">Not shared</Pill>}
+                {c.state === "granted" && <Pill kind="ok">{c.expires_at ? `Allowed until ${day(c.expires_at)}` : "Allowed"}</Pill>}
+                {c.state === "expired" && <Pill kind="warn">Ended {c.expires_at ? day(c.expires_at) : ""}</Pill>}
+                {c.state === "withdrawn" && <Pill kind="info">Not allowed</Pill>}
               </div>
               <div className="form-row">
                 {c.shared
-                  ? <button className="btn ghost" disabled={busy} onClick={() => void run(() => setConsent(c.purpose, false), "Sharing has stopped.")}>
-                      Stop sharing<span className="sr-only"> ({c.label})</span></button>
+                  ? <button className="btn ghost" disabled={busy} onClick={() => void run(() => setConsent(c.purpose, false), "That has stopped.")}>
+                      {c.no_label ?? "Stop sharing"}<span className="sr-only"> ({c.label})</span></button>
                   : <>
                       <label>For how long
                         <select value={days[c.purpose] ?? 0} onChange={(e) => setDays({ ...days, [c.purpose]: Number(e.target.value) })}>
                           {DURATIONS.map(([text, n]) => <option key={n} value={n}>{text}</option>)}
                         </select>
                       </label>
-                      <button className="btn" disabled={busy} onClick={() => void run(() => setConsent(c.purpose, true, days[c.purpose] || undefined), "Sharing has started.")}>
-                        Share<span className="sr-only"> ({c.label})</span></button>
+                      <button className="btn" disabled={busy} onClick={() => void run(() => setConsent(c.purpose, true, days[c.purpose] || undefined), "Saved.")}>
+                        {c.yes_label ?? "Share"}<span className="sr-only"> ({c.label})</span></button>
                     </>}
               </div>
             </div>
