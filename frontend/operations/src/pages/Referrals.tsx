@@ -123,6 +123,7 @@ export function Referrals() {
                 <Pill key="u" kind={r.urgency === "urgent" ? "bad" : "info"}>{r.urgency}</Pill>,
                 r.reason,
                 <span key="s"><Pill kind={STATE[r.state].kind}>{STATE[r.state].text}</Pill>
+                  {r.lifecycle && <small style={{ display: "block" }} title={(r.timeline ?? []).map((t) => t.label).join(" → ")}>{r.lifecycle.label}</small>}
                   {r.escalated && <small style={{ display: "block", color: "var(--bad)" }}>Not answered for over 24 hours: with the fallback doctor.</small>}
                   {r.state === "declined" && <small style={{ display: "block" }}>Stays with {r.responsible.name || "the sending doctor"}.</small>}
                   {r.journey && <small style={{ display: "block" }}>Journey step: {JOURNEY[r.journey]}.</small>}</span>,

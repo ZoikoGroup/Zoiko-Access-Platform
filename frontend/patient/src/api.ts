@@ -419,6 +419,15 @@ export async function endCoverage(id: string): Promise<void> {
 }
 
 export const getCareTeam = async () => (await request<{ people: CareTeamPerson[] }>("care-team")).body.people;
+/** One time information about me was sent to another organization (the disclosure log). */
+export interface DisclosureEntry {
+  id: string; kind: "referral" | "request" | "claim"; person: string; at: string;
+  to: string; what: string; state: string;
+  /** Whether that organization can see my details now (after I agreed, where I must agree). */
+  shared: boolean;
+}
+export const getDisclosures = async () => (await request<{ entries: DisclosureEntry[] }>("disclosures")).body.entries;
+
 export const getAccessLog = async () => (await request<{ entries: AccessEntry[] }>("access-log")).body.entries;
 
 export interface Invoice {

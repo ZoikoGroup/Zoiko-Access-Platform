@@ -164,7 +164,7 @@ export function Appointments({ staff }: { staff: Staff | null }) {
                   : b.status === "requested" && b.rescheduled_from ? (
                     <span key="s"><Pill kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>
                       <small style={{ display: "block" }}>A move request: confirming it releases the earlier time.</small></span>)
-                  : <span key="s"><Pill kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>{b.status === "cancelled" && b.cancel_reason && <small style={{ display: "block" }}>{reasonText(b.cancel_reason)}</small>}</span>,
+                  : <span key="s"><Pill kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>{b.lifecycle && b.lifecycle.state !== "CONFIRMED" && b.lifecycle.state !== "REQUEST_SUBMITTED" && <small style={{ display: "block" }}>{b.lifecycle.label}</small>}{b.status === "cancelled" && b.cancel_reason && <small style={{ display: "block" }}>{reasonText(b.cancel_reason)}</small>}</span>,
                 <span key="a">
                   <button className="btn ghost" onClick={() => setHistoryFor(historyFor === b.id ? "" : b.id)}>{historyFor === b.id ? "Hide history" : "History"}</button>{" "}
                   {b.status === "confirmed" && b.starts_at <= new Date().toISOString() && (

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { downloadMyData, getAccessLog, type AccessEntry } from "../api";
+import { downloadMyData, getAccessLog, getDisclosures, type AccessEntry, type DisclosureEntry } from "../api";
 import { Card, Pill } from "../ui";
 import { RightsRequests } from "./RightsRequests";
 import { WhoCanSee } from "./WhoCanSee";
@@ -33,6 +33,7 @@ function when(iso: string): string {
 
 export function Privacy() {
   const [entries, setEntries] = useState<AccessEntry[] | null>(null);
+  const [sent, setSent] = useState<DisclosureEntry[] | null>(null);
   const [error, setError] = useState("");
   const [preparing, setPreparing] = useState(false);
 
@@ -45,6 +46,7 @@ export function Privacy() {
 
   useEffect(() => {
     getAccessLog().then(setEntries).catch((e) => setError(e instanceof Error ? e.message : "Could not load"));
+    getDisclosures().then(setSent).catch((e) => setError(e instanceof Error ? e.message : "Could not load"));
   }, []);
 
   return (
@@ -76,8 +78,20 @@ export function Privacy() {
             </div>
           ))}
         </Card>
-        <Card title="Consent choices">
-          <div className="empty">Consent settings (choosing who may see what) are not built yet. Today, access follows the roles people hold and the care relationships they have with you.</div>
+        <Card title={`Where my information was sent${sent ? ` (${sent.length})` : ""}`}
+          sub="Each time your information went to another organization: a referral to another service, a request to a partner, a claim to an insurer. It shows who received it and what it was for, never the details themselves.">
+          {sent === null ? <div className="empty">Loading…</div> : sent.length === 0 ? (
+            <div className="empty">Nothing has been sent to another organization.</div>
+          ) : sent.map((d) => (
+            <div className="appt" key={`${d.kind}-${d.id}`}>
+              <div className="info">
+                <b>{d.to || "Another organization"}</b>
+                <small>{d.what}</small>
+                <small>{when(d.at)}</small>
+              </div>
+              <Pill kind={d.shared ? "ok" : "info"}>{d.shared ? "They can see the details" : "Details not shared"}</Pill>
+            </div>
+          ))}
         </Card>
       </div>
     </>

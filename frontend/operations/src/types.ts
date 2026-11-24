@@ -92,8 +92,13 @@ export interface Me {
 }
 
 // ---- /api/v1 shapes (staff screens) ----
+/** Where a booking or referral stands in the standard lifecycle (GHE-14), and what may follow. */
+export interface Lifecycle { state: string; label: string; final: boolean; next: string[] }
+export interface TimelineStep { state: string; label: string; at: string | null }
+
 export interface BookingRow {
   id: string;
+  lifecycle?: Lifecycle;
   status: "requested" | "confirmed" | "cancelled";
   person: string;
   service: { id: string; name: string; mode: string };
@@ -447,6 +452,8 @@ export interface RightsCase {
 
 export interface IncomingReferral {
   id: string;
+  lifecycle?: Lifecycle;
+  timeline?: TimelineStep[];
   patient: string;                       // an id: names are not stored yet
   state: "issued" | "accepted" | "needs_info" | "declined";
   urgency: "routine" | "urgent";

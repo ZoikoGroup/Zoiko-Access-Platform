@@ -22,6 +22,7 @@ from foundation.cell_context import tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.idempotency import IdempotentOutcome
 from foundation.idempotency import run as run_once
+from foundation.lifecycles import booking_lifecycle, referral_lifecycle, referral_timeline
 from foundation.mail import mail_stats
 from foundation.outbox import backlog_stats
 from foundation.timeutil import get_zone, utc_now
@@ -158,6 +159,12 @@ def _booking_json(
         "pending_change": booking.get("pending_change") or None,
         "late": _waiting_too_long(booking),
         "provider_stage": booking.get("provider_stage"),
+        # The standard lifecycle (GHE-14): the one vocabulary for where a booking stands.
+        "lifecycle": booking_lifecycle(
+            status=booking["status"], attendance=booking.get("attendance") or None,
+            pending_change=booking.get("pending_change") or None,
+            rescheduled_from=booking.get("rescheduled_from_ref") or None,
+            provider_stage=booking.get("provider_stage")),
     }
 
 
@@ -708,6 +715,35 @@ def booking_history(
     """Every step of an appointment, oldest first, and whether the record still checks out.
     Bookings made before the history was kept have none."""
     return JsonResponse(_history_payload(auth, booking_id))
+
+
+@endpoint("GET")
+def booking_intent(
+    request: HttpRequest, auth: trust.Authenticated, booking_id: str
+) -> HttpResponse:
+    """The booking intent (GHE-14 section 06): where a booking request stands in the standard
+    lifecycle and, once the clinic (or its booking system) has answered, who confirmed it. Gated
+    like the booking itself (the person, a guardian, or the clinic's staff). A request nobody has
+    answered shows `source_confirmation` null: it is never worded as confirmed until then."""
+    from modules.bookingflow import api as bookingflow
+
+    with tenant_transaction():
+        booking = scheduling.get_booking(booking_id)
+    org = booking["slot"]["organization_ref"]
+    _authorize(auth, "read:booking", organization_public_id=org, subject_ref=booking["person_ref"])
+    with tenant_transaction():
+        stage = bookingflow.stages([booking_id]).get(booking_id)
+    life = booking_lifecycle(
+        status=booking["status"], attendance=booking.get("attendance") or None,
+        pending_change=booking.get("pending_change") or None,
+        rescheduled_from=booking.get("rescheduled_from_ref") or None, provider_stage=stage)
+    confirmed = life["state"] in ("CONFIRMED", "SOURCE_CONFIRMED_NEW", "ATTENDED", "MISSED")
+    return JsonResponse({
+        "intent_id": booking["public_id"], "status": life["state"], "label": life["label"],
+        "final": life["final"], "next": life["next"],
+        "source_confirmation": (
+            {"by": "booking_system" if stage is not None else "clinic"} if confirmed else None),
+    })
 
 
 @endpoint("GET")
@@ -5036,6 +5072,13 @@ def _referral_json(
         "created_at": r["created_at"],
         "acknowledged_at": r["acknowledged_at"],
         "escalated": r["escalated"],
+        # The standard lifecycle (GHE-14 WF-17) and the steps this referral has been through.
+        "lifecycle": referral_lifecycle(
+            state=r["state"], acknowledged=bool(r["acknowledged_at"]),
+            escalated=bool(r["escalated"])),
+        "timeline": referral_timeline(
+            state=r["state"], created_at=r["created_at"], acknowledged_at=r["acknowledged_at"],
+            decided_at=r["decided_at"], escalated=bool(r["escalated"])),
         "owner": (
             {"id": r["owner_ref"], "name": labels.get(r["owner_ref"], "")}
             if r["owner_ref"]

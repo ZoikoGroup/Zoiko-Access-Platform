@@ -1639,6 +1639,49 @@
     "summary": "Every step of an appointment, oldest first, and whether the record still checks out.     Bookings made before the history was kept have none."
    }
   },
+  "/bookings/{booking_id}/intent": {
+   "get": {
+    "operationId": "get_booking_intent",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "booking_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The booking intent (GHE-14 section 06): where a booking request stands in the standard     lifecycle and, once the clinic (or its booking system) has answered, who confirmed it. Gated     like the boo"
+   }
+  },
   "/bookings/{booking_id}/provider-stage": {
    "get": {
     "operationId": "get_booking_provider_stage",
@@ -3098,6 +3141,40 @@
      }
     ],
     "summary": "coverage end"
+   }
+  },
+  "/disclosures": {
+   "get": {
+    "operationId": "get_my_disclosures",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The disclosure log: who my information was sent to, what for, and whether they hold the     details now. Only for the people this login may read; names of other organizations only."
    }
   },
   "/exchange/incoming": {

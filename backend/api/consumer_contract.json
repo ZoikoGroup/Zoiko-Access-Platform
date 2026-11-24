@@ -151,6 +151,7 @@
   "GET /claims/mine",
   "GET /coverage",
   "GET /coverage/sharing",
+  "GET /disclosures",
   "GET /exchange/mine",
   "GET /exchange/mine/{x}/values",
   "GET /family",
