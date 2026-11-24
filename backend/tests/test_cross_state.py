@@ -195,7 +195,7 @@ def booking_snapshot(w):
 def test_the_booking_table_covers_every_state_and_step():
     assert set(BOOKING_STATUS.values()) == set(BookingStatus.values)
     assert set(BOOKING_STATUS) == set(BOOKING_ALLOWED)
-    read_only = {"history", "calendar", "provider-stage"}
+    read_only = {"history", "calendar", "provider-stage", "intent"}
     assert routes("bookings/<str:booking_id>/") - read_only == set(BOOKING_ACTIONS)
     check_table(BOOKING_ALLOWED, BOOKING_ACTIONS)
 
