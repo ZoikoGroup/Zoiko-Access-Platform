@@ -4,10 +4,7 @@ import type { PageId } from "../App";
 import { dateBlock, timeLabel, whenLabel } from "../format";
 import { Card, Icon, Pill, type PillKind } from "../ui";
 
-const SOON = [
-  { title: "My Health Overview", note: "Vitals and health records need the clinical record service (a later phase)." },
-  { title: "Bills & Payments", note: "A later commercial phase." },
-];
+const HEALTH_OVERVIEW_NOTE = "Vitals and health records need the clinical record service (a later phase).";
 
 const REFERRAL: Record<Referral["state"], { text: string; kind: PillKind }> = {
   issued: { text: "Sent, waiting for the clinic", kind: "warn" },
@@ -90,7 +87,7 @@ export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
         </Card>
 
         <Card title="My Health Overview" className="planned" action={<Pill kind="warn">not built yet</Pill>}>
-          <div className="empty">{SOON[0].note}</div>
+          <div className="empty">{HEALTH_OVERVIEW_NOTE}</div>
         </Card>
       </div>
 
@@ -129,8 +126,8 @@ export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
               </div>
             ))}
           </Card>
-          <Card className="planned" title={SOON[1].title} action={<Pill kind="warn">not built yet</Pill>}>
-            <div className="empty">{SOON[1].note}</div>
+          <Card title="Bills & Payments" action={<button className="btn ghost" onClick={() => goTo("bills")}>View bills</button>}>
+            <div className="empty">See your bills from the clinic. You cannot pay here: the clinic takes payment and marks the bill as paid.</div>
           </Card>
         </div>
       </div>
