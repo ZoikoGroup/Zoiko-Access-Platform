@@ -57,3 +57,27 @@ class InsuranceSharing(CellScopedModel):
             ),
         ]
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="coveragesharing_scope_idx")]
+
+
+class CoverCheck(CellScopedModel):
+    """One time someone asked an insurer whether a policy covers something, and what it said.
+
+    Append-only (the database refuses UPDATE and DELETE): a check is evidence of what was told.
+    It holds the answer only, never the member number. The result is indicative: not a promise
+    that a claim will be paid.
+    """
+
+    coverage_ref = models.CharField(max_length=22)
+    person_ref = models.CharField(max_length=22)
+    requested_by_ref = models.CharField(max_length=22)
+    category = models.CharField(max_length=40, blank=True, default="")   # what was asked about
+    result = models.CharField(max_length=12)                 # eligible, not_eligible, unknown
+    reason = models.CharField(max_length=24)                 # a code from insurers.REASONS
+    adapter = models.CharField(max_length=32, blank=True, default="")
+    source_ref = models.CharField(max_length=64, blank=True, default="")   # the insurer's own ref
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="covercheck_scope_idx"),
+            models.Index(fields=["coverage_ref", "created_at"], name="covercheck_policy_idx"),
+        ]

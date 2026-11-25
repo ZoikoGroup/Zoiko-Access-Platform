@@ -75,7 +75,21 @@ def release_problems(conf: Any = settings) -> list[str]:
         problems.append("DJANGO_ALLOWED_HOSTS lists only local addresses")
     if conf.ZOIKO_CELL_ID.upper().startswith(("DEV-", "TEST-")):
         problems.append("ZOIKO_CELL_ID is still a development or test id")
-    if conf.EMAIL_HOST.lower() in DEVELOPMENT_MAIL_HOSTS or conf.EMAIL_PORT == 1025:
+    provider = getattr(conf, "MAIL_PROVIDER", "smtp")
+    if provider == "console":
+        problems.append("email is set to the development console and nothing would be sent "
+                        "(ZOIKO_MAIL_PROVIDER)")
+    elif provider == "http_api":
+        if not str(getattr(conf, "MAIL_API_URL", "")).startswith("https://"):
+            problems.append("the mail provider's address must be https (ZOIKO_MAIL_API_URL)")
+        if _placeholder(getattr(conf, "MAIL_API_KEY", "")):
+            problems.append("the mail provider's key is not set (ZOIKO_MAIL_API_KEY)")
+        if _placeholder(getattr(conf, "MAIL_WEBHOOK_SECRET", "")):
+            problems.append("delivery receipts cannot be checked: no signing secret is set "
+                            "(ZOIKO_MAIL_WEBHOOK_SECRET)")
+    elif provider != "smtp":
+        problems.append("ZOIKO_MAIL_PROVIDER is not smtp, http_api or console")
+    elif conf.EMAIL_HOST.lower() in DEVELOPMENT_MAIL_HOSTS or conf.EMAIL_PORT == 1025:
         problems.append("email still goes to a development inbox (EMAIL_HOST, EMAIL_PORT)")
     if getattr(conf, "ZOIKO_BUILD", "").strip().lower() in ("", "dev"):
         problems.append("ZOIKO_BUILD is still 'dev' (every audit row records which build wrote it)")
@@ -85,6 +99,8 @@ def release_problems(conf: Any = settings) -> list[str]:
     ):
         if getattr(conf, name, False):
             problems.append(label)
+    if getattr(conf, "COVER_SIMULATOR", False):
+        problems.append("the pretend insurer (COVER_SIMULATOR) is on")
     # DEV-227: pretend partners and payments see synthetic data only; never on a real server.
     if getattr(conf, "CONNECTOR_SIMULATOR", False):
         problems.append("the pretend partner (CONNECTOR_SIMULATOR) is on")

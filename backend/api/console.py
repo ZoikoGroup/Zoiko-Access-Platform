@@ -238,6 +238,42 @@ def staff_developer_client_revoke(
 
 
 @endpoint("POST")
+def staff_developer_client_rotate(
+    request: HttpRequest, auth: trust.Authenticated, client_id: str
+) -> HttpResponse:
+    """Replace an API client's key. The new key is in this answer and nowhere else, ever. The old
+    key keeps working for `grace_hours` (default 24, up to 168; 0 stops it at once)."""
+    org = _org(auth)
+    _authorize(auth, "write:partner", organization_public_id=org)
+    body = json_body(request)
+    with tenant_transaction():
+        tenant = trust.tenant_public_id(auth.context.tenant_id)
+        client, key = developer.rotate_key(
+            client_id, tenant_public_id=tenant, actor_ref=auth.actor_public_id,
+            organization_ref=org,
+            grace_hours=body.get("grace_hours", developer.DEFAULT_GRACE_HOURS))
+    response = JsonResponse({"client": client, "key": key})
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@endpoint("POST")
+def staff_developer_client_expiry(
+    request: HttpRequest, auth: trust.Authenticated, client_id: str
+) -> HttpResponse:
+    """Make a client's key run out in `days` days (1 to 730), or never (`days` null)."""
+    org = _org(auth)
+    _authorize(auth, "write:partner", organization_public_id=org)
+    body = json_body(request)
+    if "days" not in body:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["days"])
+    with tenant_transaction():
+        done = developer.set_expiry(
+            client_id, actor_ref=auth.actor_public_id, organization_ref=org, days=body["days"])
+    return JsonResponse({"client": done})
+
+
+@endpoint("POST")
 def staff_developer_webhook_test(
     request: HttpRequest, auth: trust.Authenticated, client_id: str, webhook_id: str
 ) -> HttpResponse:

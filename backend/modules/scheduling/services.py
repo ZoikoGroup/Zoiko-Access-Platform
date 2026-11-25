@@ -257,6 +257,22 @@ def _open_slots(service_ref: str, now: dt.datetime) -> QuerySet[Slot]:
     )
 
 
+def open_slots_with_doctor(
+    *, limit: int = 1000, clock: Clock | None = None
+) -> list[dict[str, Any]]:
+    """Every free future time that has a named doctor, soonest first, across all services (for the
+    provider directory). Times without a doctor are not listed: they name nobody to find."""
+    taken = Booking.objects.filter(slot=OuterRef("pk"), status__in=ACTIVE_BOOKING)
+    rows = (
+        Slot.objects.filter(status=SlotStatus.OPEN, starts_at__gt=utc_now(clock), **_scope())
+        .exclude(provider_ref="")
+        .annotate(is_taken=Exists(taken))
+        .filter(is_taken=False)
+        .order_by("starts_at")
+    )
+    return [slot_dict(s) for s in rows[: max(1, min(limit, 5000))]]
+
+
 def list_open_slots(
     service_ref: str, *, until: dt.datetime | None = None, limit: int = 60,
     clock: Clock | None = None,

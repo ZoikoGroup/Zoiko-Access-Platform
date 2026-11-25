@@ -170,6 +170,14 @@ EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env("EMAIL_USE_TLS", "") == "1"
 EMAIL_TIMEOUT = 10
+# Which provider delivers queued mail (foundation/mail_providers.py): "smtp" (the default, the
+# server above), "http_api" (a vendor's web API) or "console" (development: nothing is sent).
+MAIL_PROVIDER = env("ZOIKO_MAIL_PROVIDER", "smtp")
+MAIL_API_URL = env("ZOIKO_MAIL_API_URL", "")
+MAIL_API_KEY = env("ZOIKO_MAIL_API_KEY", "")
+MAIL_API_ALLOW_INSECURE = False             # development only: allow a plain-http API address
+# The shared secret a provider signs its delivery receipts with (HMAC-SHA256 over the body).
+MAIL_WEBHOOK_SECRET = env("ZOIKO_MAIL_WEBHOOK_SECRET", "")
 DEFAULT_FROM_EMAIL = env("EMAIL_FROM", "Zoiko Access <no-reply@zoiko.example>")
 # Where the links in emails point (the patient web app).
 # Field-level encryption (foundation/crypto.py). "id:base64(32 bytes),id:base64(...)". No default:
@@ -228,6 +236,12 @@ PACKS_ENFORCED = env("ZOIKO_PACKS_ENFORCED", "") == "1"
 # Trusted public keys for signed country packs: "id:base64(32 bytes),id:base64(...)". Empty means no
 # pack is trusted, so every capability stays off (fail closed). Private halves never enter a cell.
 PACK_PUBLIC_KEYS = env("ZOIKO_PACK_PUBLIC_KEYS", "")
+# Whether this deployment may erase data past an approved retention period (DEV-351). Off by
+# default: with it off the product only counts. Erasing cannot be undone.
+RETENTION_DELETION_ENABLED = env("ZOIKO_RETENTION_DELETION", "") == "1"
+# The pretend insurer that answers cover checks from the end of the member number (development
+# only; the release check refuses it). A real insurer is reached through an adapter instead.
+COVER_SIMULATOR = False
 # The pretend partner for building and testing connectors. Development only (release_check).
 CONNECTOR_SIMULATOR = False
 # Webhook addresses must be public https. Development may allow plain http and private addresses.

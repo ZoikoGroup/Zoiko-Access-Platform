@@ -28,6 +28,7 @@ from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
 
+from . import attachments as files
 from .models import Message, MessageView, Side, Thread, ThreadStatus
 
 WRITE_COMMS = "write:comms"
@@ -94,16 +95,21 @@ def thread_dict(t: Thread) -> dict[str, Any]:
         "public_id": t.public_id, "person_ref": t.person_ref,
         "organization_ref": t.organization_ref, "status": t.status,
         "subject": _open(t.subject_enc, "thread", t.public_id, "subject"),
+        "erased": not t.subject_enc,          # its content was erased (DEV-351)
         "patient_unread": t.patient_unread, "staff_unread": t.staff_unread,
         "last_message_at": t.last_message_at.isoformat(), "created_at": t.created_at.isoformat(),
     }
 
 
-def _message_dict(m: Message, seen_at: dt.datetime | None = None) -> dict[str, Any]:
+def _message_dict(
+    m: Message, seen_at: dt.datetime | None = None,
+    attached: dict[Any, list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
     return {"public_id": m.public_id, "side": m.side, "author_ref": m.author_ref,
             "body": _open(m.body_enc, "message", m.public_id, "body"),
             "at": m.created_at.isoformat(),
-            "seen_at": seen_at.isoformat() if seen_at else None}
+            "seen_at": seen_at.isoformat() if seen_at else None,
+            "attachments": (attached or {}).get(m.pk, [])}
 
 
 def _event(thread: Thread, side: str, actor_ref: str = "") -> None:
@@ -118,7 +124,7 @@ def _event(thread: Thread, side: str, actor_ref: str = "") -> None:
 
 def start_thread(
     *, person_ref: str, organization_ref: str, subject: str, body: str, actor_public_id: str,
-    decision: policy.Decision, clock: Clock | None = None,
+    decision: policy.Decision, attachments: Any = None, clock: Clock | None = None,
 ) -> dict[str, Any]:
     """A patient (or guardian) writes to their clinic."""
     now = utc_now(clock)
@@ -128,6 +134,7 @@ def start_thread(
     if _side(decision) != Side.PATIENT:
         raise ZoikoError(ErrorCode.POLICY_DENIED)         # the clinic answers; it does not start
     subject, body = _text(subject, "subject", MAX_SUBJECT), _text(body, "body", MAX_BODY)
+    prepared = files.prepare(attachments)                  # refused here, before anything is stored
     with transaction.atomic():
         if _too_fast(actor_public_id, now):
             raise ZoikoError(ErrorCode.RATE_LIMITED)
@@ -137,7 +144,8 @@ def start_thread(
             staff_unread=1, **_scope())
         thread.subject_enc = _seal(subject, "thread", thread.public_id, "subject")
         thread.save()
-        _add(thread, actor_public_id, Side.PATIENT, body)
+        first = _add(thread, actor_public_id, Side.PATIENT, body)
+        files.store(first, prepared, actor_public_id)
         trust.link_person_to_site(person_ref, organization_ref, "message")
         _audit(actor_public_id, "message.start", thread.public_id)
         _event(thread, Side.PATIENT, actor_public_id)
@@ -153,10 +161,12 @@ def _add(thread: Thread, author_ref: str, side: str, body: str) -> Message:
 
 def reply(
     *, thread_ref: str, body: str, actor_public_id: str, decision: policy.Decision,
-    organization_public_id: str | None = None, clock: Clock | None = None,
+    organization_public_id: str | None = None, attachments: Any = None,
+    clock: Clock | None = None,
 ) -> dict[str, Any]:
     now = utc_now(clock)
     body = _text(body, "body", MAX_BODY)
+    prepared = files.prepare(attachments)
     with transaction.atomic():
         thread = _own(thread_ref)
         policy.check_receipt(
@@ -169,7 +179,7 @@ def reply(
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)  # closed: start a new one
         if _too_fast(actor_public_id, now):
             raise ZoikoError(ErrorCode.RATE_LIMITED)
-        _add(thread, actor_public_id, side, body)
+        files.store(_add(thread, actor_public_id, side, body), prepared, actor_public_id)
         thread.last_message_at = now
         if side == Side.STAFF:
             thread.patient_unread = F("patient_unread") + 1
@@ -218,16 +228,18 @@ def open_thread(thread_ref: str, *, side: str, viewer_ref: str = "") -> dict[str
                 current = first_seen.get(view.message_id)
                 if current is None or view.created_at < current:
                     first_seen[view.message_id] = view.created_at
+        attached = files.for_messages([m.pk for m in rows])
         return {"thread": thread_dict(thread),
-                "messages": [_message_dict(m, first_seen.get(m.pk)) for m in rows]}
+                "messages": [_message_dict(m, first_seen.get(m.pk), attached) for m in rows]}
 
 
 def read_messages(thread_ref: str) -> list[dict[str, Any]]:
     """The messages of a thread, oldest first, WITHOUT marking anything read. For a patient's
     data export; the caller has been allowed to read this thread."""
     thread = _own(thread_ref)
-    rows = Message.objects.filter(thread=thread, **_scope()).order_by("created_at")
-    return [_message_dict(m) for m in rows]
+    rows = list(Message.objects.filter(thread=thread, **_scope()).order_by("created_at"))
+    attached = files.for_messages([m.pk for m in rows])
+    return [_message_dict(m, None, attached) for m in rows]
 
 
 def close_thread(

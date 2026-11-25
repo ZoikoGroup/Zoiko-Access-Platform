@@ -23,10 +23,11 @@ import { MyProgramme } from "./pages/MyProgramme";
 import { MyRequests } from "./pages/MyRequests";
 import { SignIn } from "./pages/SignIn";
 import { QuickSearch } from "./QuickSearch";
+import { Doctors } from "./pages/Doctors";
 import { Icon, Logo } from "./ui";
 
 export type PageId =
-  | "dashboard" | "find" | "appointments" | "referrals" | "records" | "careteam" | "family"
+  | "dashboard" | "find" | "doctors" | "appointments" | "referrals" | "records" | "careteam" | "family"
   | "bills" | "insurance" | "messages" | "notifications" | "privacy" | "profile" | "help" | "requests" | "notes" | "claims" | "programme";
 
 interface NavItem { id: PageId; label: string; icon: string; waitsFor?: string }
@@ -34,6 +35,7 @@ interface NavItem { id: PageId; label: string; icon: string; waitsFor?: string }
 const NAV: NavItem[] = [
   { id: "dashboard", label: "Home", icon: "dashboard" },
   { id: "find", label: "Find Healthcare", icon: "search" },
+  { id: "doctors", label: "Find a Doctor", icon: "providers" },
   { id: "appointments", label: "Appointments", icon: "appointments" },
   { id: "referrals", label: "My Referrals", icon: "referrals" },
   { id: "requests", label: "My Tests & Requests", icon: "services" },
@@ -51,7 +53,7 @@ const NAV: NavItem[] = [
   { id: "profile", label: "My Profile", icon: "settings" },
   { id: "help", label: "Help & Support", icon: "integrations" },
 ];
-const LIVE: PageId[] = ["dashboard", "find", "appointments", "referrals", "notifications", "profile", "insurance", "careteam", "privacy", "family", "messages", "help", "bills", "requests", "notes", "claims", "programme"];
+const LIVE: PageId[] = ["dashboard", "find", "doctors", "appointments", "referrals", "notifications", "profile", "insurance", "careteam", "privacy", "family", "messages", "help", "bills", "requests", "notes", "claims", "programme"];
 
 function startPage(): PageId {
   const wanted = new URLSearchParams(window.location.search).get("page");
@@ -135,6 +137,7 @@ export default function App() {
   if (!me) body = <div className="notice">Loading…</div>;
   else if (!LIVE.includes(page)) body = <Planned title={item.label} waitsFor={item.waitsFor ?? ""} />;
   else if (page === "find") body = <FindCare key={findQuery} initialQuery={findQuery} me={me} waiting={waiting} profiles={profiles} onBooked={refresh} goTo={setPage} />;
+  else if (page === "doctors") body = <Doctors onFind={(q) => { setFindQuery(q); setPage("find"); }} />;
   else if (page === "appointments") body = <Appointments bookings={bookings} waiting={waiting} onChanged={refresh} />;
   else if (page === "messages") body = <Messages onChanged={refresh} />;
   else if (page === "help") body = <Help bookings={bookings} goTo={setPage} />;

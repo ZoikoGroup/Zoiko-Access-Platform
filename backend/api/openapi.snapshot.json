@@ -3079,6 +3079,113 @@
     "summary": "GET: for each patient this login may manage, whether staff may see their insurance.     POST {person?, share, days?}: the patient (or someone acting for them) chooses, for good or for     a number of "
    }
   },
+  "/coverage/{coverage_id}/check": {
+   "post": {
+    "operationId": "post_coverage_check",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "coverage_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Ask the policy's insurer whether it covers something today: {\"category\"?}. The answer is what     the insurer said at that moment (eligible, not eligible or unknown, with a reason in words), not     a"
+   }
+  },
+  "/coverage/{coverage_id}/checks": {
+   "get": {
+    "operationId": "get_coverage_checks",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "coverage_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "What the insurer said each time this policy was checked, newest first."
+   }
+  },
   "/coverage/{coverage_id}/end": {
    "post": {
     "operationId": "post_coverage_end",
@@ -3141,6 +3248,40 @@
      }
     ],
     "summary": "coverage end"
+   }
+  },
+  "/directory/doctors": {
+   "get": {
+    "operationId": "get_directory_doctors",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The provider directory: the doctors patients can book with, with what is known about each."
    }
   },
   "/disclosures": {
@@ -4100,6 +4241,49 @@
      }
     ],
     "summary": "me"
+   }
+  },
+  "/messages/attachments/{attachment_id}": {
+   "get": {
+    "operationId": "get_message_attachment",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "attachment_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Download one attached file. Only people who may read the conversation may open it. It is     always a download, never shown inside a page: the kind was read from the file itself when it     was attach"
    }
   },
   "/messages/threads": {
@@ -11467,6 +11651,70 @@
     "summary": "staff developer delivery redrive"
    }
   },
+  "/staff/developer/clients/{client_id}/expiry": {
+   "post": {
+    "operationId": "post_staff_developer_client_expiry",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Make a client's key run out in `days` days (1 to 730), or never (`days` null)."
+   }
+  },
   "/staff/developer/clients/{client_id}/revoke": {
    "post": {
     "operationId": "post_staff_developer_client_revoke",
@@ -11529,6 +11777,70 @@
      }
     ],
     "summary": "staff developer client revoke"
+   }
+  },
+  "/staff/developer/clients/{client_id}/rotate": {
+   "post": {
+    "operationId": "post_staff_developer_client_rotate",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "client_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Replace an API client's key. The new key is in this answer and nowhere else, ever. The old     key keeps working for `grace_hours` (default 24, up to 168; 0 stops it at once)."
    }
   },
   "/staff/developer/clients/{client_id}/webhooks/{webhook_id}/test": {
@@ -11635,6 +11947,40 @@
      }
     ],
     "summary": "staff directory"
+   }
+  },
+  "/staff/disclosures": {
+   "get": {
+    "operationId": "get_staff_disclosures",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET ?person=: what was sent about one patient to other organizations, as written down at the     time, and who sent it. The clinic administrator only; each look is itself audited."
    }
   },
   "/staff/exceptions": {
@@ -13540,6 +13886,111 @@
     "summary": "How long this clinic keeps each kind of data, and how many records are past it. Counts only:     the product deletes nothing. POST proposes a rule (period_days null means no limit)."
    }
   },
+  "/staff/retention-erasure/{data_class}": {
+   "get": {
+    "operationId": "get_staff_retention_erasure",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "data_class",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: how many records of this kind erasing would remove now, and whether erasing is     switched on. POST {\"confirm\": n}: erase them, only if switched on and `n` is exactly that     number. It cannot "
+   },
+   "post": {
+    "operationId": "post_staff_retention_erasure",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "data_class",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: how many records of this kind erasing would remove now, and whether erasing is     switched on. POST {\"confirm\": n}: erase them, only if switched on and `n` is exactly that     number. It cannot "
+   }
+  },
   "/staff/retention/{rule_id}/{step}": {
    "post": {
     "operationId": "post_staff_retention_step",
@@ -14864,6 +15315,58 @@
      }
     ],
     "summary": "waitlist leave"
+   }
+  },
+  "/webhooks/mail/status": {
+   "post": {
+    "operationId": "post_mail_status",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "A mail provider's delivery receipt for an email. No sign-in: the HMAC signature over the     exact body IS the credential, checked before anything in the body is read."
    }
   },
   "/webhooks/twilio/status": {

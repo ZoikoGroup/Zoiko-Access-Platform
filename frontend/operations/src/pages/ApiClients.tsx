@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createApiClient, getDeveloper, redriveClientDelivery, revokeApiClient, testWebhook } from "../api";
+import { createApiClient, getDeveloper, redriveClientDelivery, revokeApiClient, rotateApiClientKey, setApiClientExpiry, testWebhook } from "../api";
 import type { DeveloperClient, DeveloperData, DeveloperDelivery, DeveloperWebhook } from "../consoleTypes";
 import { Gate, useLoad } from "../useLoad";
 import { Card, Pill, type PillKind } from "../ui";
@@ -50,6 +50,17 @@ function View({ data, onChanged }: { data: DeveloperData; onChanged: () => void 
       const made = await createApiClient({ name: form.name, environment: form.environment, scopes: form.scopes, rate_limit: Number(form.rate) });
       setFresh({ name: made.client.name, key: made.key });
       setForm({ name: "", environment: "sandbox", scopes: ["catalog:read"], rate: String(data.default_rate_limit) });
+      onChanged();
+    } catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(""); }
+  }
+
+  async function rotate(c: DeveloperClient, graceHours: number) {
+    setBusy(c.public_id); setError(""); setNote(""); setFresh(null);
+    try {
+      const made = await rotateApiClientKey(c.public_id, graceHours);
+      setFresh({ name: made.client.name, key: made.key });
+      setNote(graceHours === 0 ? `The old key for ${c.name} stopped working.` : `The old key for ${c.name} keeps working for ${graceHours} hours.`);
       onChanged();
     } catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
     finally { setBusy(""); }
@@ -111,7 +122,7 @@ function View({ data, onChanged }: { data: DeveloperData; onChanged: () => void 
         )}
         <Card title={`API clients (${data.clients.length})`} sub={`Events a partner can hear about: ${data.event_families.map((f) => f.replace(/\.$/, "")).join(", ")}.`}>
           {data.clients.length === 0 ? <div className="empty">No partner is connected.</div> : data.clients.map((c) => (
-            <Client key={c.public_id} c={c} canManage={data.can_manage} busy={busy} run={run} />
+            <Client key={c.public_id} c={c} canManage={data.can_manage} busy={busy} run={run} onRotate={rotate} />
           ))}
         </Card>
       </div>
@@ -119,11 +130,14 @@ function View({ data, onChanged }: { data: DeveloperData; onChanged: () => void 
   );
 }
 
-function Client({ c, canManage, busy, run }: {
+function Client({ c, canManage, busy, run, onRotate }: {
   c: DeveloperClient; canManage: boolean; busy: string;
   run: (key: string, work: () => Promise<unknown>, success: string) => Promise<void>;
+  onRotate: (c: DeveloperClient, graceHours: number) => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [grace, setGrace] = useState(24);
+  const [days, setDays] = useState("90");
   return (
     <div className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
       <div className="info">
@@ -134,7 +148,41 @@ function Client({ c, canManage, busy, run }: {
         <small>May: {c.scopes.map((s) => SCOPE[s] ?? s).join("; ")}.</small>
         <small>Limit: {c.rate_limit_per_minute} requests a minute; over that it is told to wait (HTTP 429).</small>
         <small>Created {when(c.created_at)}. {c.last_used_at ? `Last used ${when(c.last_used_at)}.` : "Never used."}</small>
+        <small>
+          {c.expires_at
+            ? <>Key {c.expired ? "ran out" : "runs out"} {when(c.expires_at)}. {c.expired && <Pill kind="bad">Expired</Pill>}{c.expiring_soon && <Pill kind="warn">Runs out soon</Pill>}</>
+            : "The key does not run out."}
+          {c.rotated_at ? ` Replaced ${when(c.rotated_at)}.` : ""}
+          {c.previous_key_valid_until ? ` The old key still works until ${when(c.previous_key_valid_until)}.` : ""}
+        </small>
       </div>
+      {canManage && c.status === "active" && (
+        <div className="form-row">
+          <label>Keep the old key working for
+            <select value={grace} onChange={(e) => setGrace(Number(e.target.value))} aria-label={`How long the old key of ${c.name} keeps working`}>
+              <option value={0}>no time (stop it now)</option>
+              <option value={1}>1 hour</option>
+              <option value={24}>24 hours</option>
+              <option value={72}>3 days</option>
+              <option value={168}>7 days</option>
+            </select>
+          </label>{" "}
+          <button className="btn" disabled={busy === c.public_id} onClick={() => void onRotate(c, grace)}>Replace the key<span className="sr-only"> of {c.name}</span></button>
+          {" "}
+          <label>Key runs out in
+            <select value={days} onChange={(e) => setDays(e.target.value)} aria-label={`When the key of ${c.name} runs out`}>
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+              <option value="180">180 days</option>
+              <option value="365">1 year</option>
+              <option value="never">never</option>
+            </select>
+          </label>{" "}
+          <button className="btn ghost" disabled={busy === c.public_id}
+            onClick={() => void run(c.public_id, () => setApiClientExpiry(c.public_id, days === "never" ? null : Number(days)), `The key of ${c.name} ${days === "never" ? "no longer runs out" : `now runs out in ${days} days`}.`)}>
+            Set<span className="sr-only"> the expiry of {c.name}</span></button>
+        </div>
+      )}
       {canManage && c.status === "active" && (
         <div className="form-row">
           {!confirming

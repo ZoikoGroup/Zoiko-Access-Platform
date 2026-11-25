@@ -1,11 +1,11 @@
-"""Key rotation for message subjects and bodies."""
+"""Key rotation for message subjects, bodies and attached files."""
 from __future__ import annotations
 
 from foundation.cell_context import tenant_transaction
 from foundation.rotation import RotationResult, rotate_model
 from modules.trust import api as trust
 
-from .models import Message, Thread
+from .models import Message, MessageAttachment, Thread
 
 
 def rotate(batch: int, dry_run: bool) -> RotationResult:
@@ -19,5 +19,9 @@ def rotate(batch: int, dry_run: bool) -> RotationResult:
                 tenant_id=ctx.tenant_id, scope=scope, batch=batch, dry_run=dry_run)
             total += rotate_model(
                 Message, fields={"body_enc": lambda r: f"message:{r.public_id}:body"},
+                tenant_id=ctx.tenant_id, scope=scope, batch=batch, dry_run=dry_run)
+            total += rotate_model(
+                MessageAttachment,
+                fields={"content_enc": lambda r: f"attachment:{r.public_id}:content"},
                 tenant_id=ctx.tenant_id, scope=scope, batch=batch, dry_run=dry_run)
     return total

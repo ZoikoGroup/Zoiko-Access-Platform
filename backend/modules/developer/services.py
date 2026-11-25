@@ -90,14 +90,32 @@ def _scope() -> dict[str, Any]:
     return {"cell_id": ctx.cell_id, "tenant_id": ctx.tenant_id}
 
 
-def client_dict(c: ApiClient) -> dict[str, Any]:
+DEFAULT_GRACE_HOURS = 24         # how long the old key keeps working after a rotation
+MAX_GRACE_HOURS = 168
+MAX_EXPIRY_DAYS = 730
+EXPIRING_SOON = dt.timedelta(days=14)
+
+
+def client_dict(c: ApiClient, now: dt.datetime | None = None) -> dict[str, Any]:
+    now = now or utc_now()
+    live_old_key = bool(
+        c.previous_key_hash and c.previous_valid_until and c.previous_valid_until > now)
+    expired = c.expires_at is not None and c.expires_at <= now
     return {
         "public_id": c.public_id, "name": c.name, "environment": c.environment,
         "organization_ref": c.organization_ref, "scopes": list(c.scopes), "status": c.status,
         "rate_limit_per_minute": c.rate_limit_per_minute,
         "created_at": c.created_at.isoformat(),
         "expires_at": c.expires_at.isoformat() if c.expires_at else None,
+        "expired": expired,
+        "expiring_soon": (
+            c.expires_at is not None and not expired and c.expires_at - now <= EXPIRING_SOON),
         "last_used_at": c.last_used_at.isoformat() if c.last_used_at else None,
+        "rotated_at": c.rotated_at.isoformat() if c.rotated_at else None,
+        # While this is set, the key from before the last rotation still works.
+        "previous_key_valid_until": (
+            c.previous_valid_until.isoformat() if live_old_key and c.previous_valid_until
+            else None),
     }
 
 
@@ -190,6 +208,70 @@ def revoke_client(
         return client_dict(client)
 
 
+def _own_client(client_ref: str, organization_ref: str) -> ApiClient:
+    found = ApiClient.objects.select_for_update().filter(public_id=client_ref, **_scope())
+    if organization_ref:
+        found = found.filter(organization_ref=organization_ref)
+    client = found.first()
+    if client is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if client.status != ClientStatus.ACTIVE:
+        raise ZoikoError(ErrorCode.CONFLICT_VERSION)         # a revoked client cannot be changed
+    return client
+
+
+def rotate_key(
+    client_ref: str, *, tenant_public_id: str, actor_ref: str, organization_ref: str = "",
+    grace_hours: Any = DEFAULT_GRACE_HOURS, clock: Clock | None = None,
+) -> tuple[dict[str, Any], str]:
+    """Replace a client's key. The NEW key is returned once (only its hash is kept). The old key
+    keeps working for `grace_hours` (0 to 168; 0 stops it at once) so the partner can swap keys
+    without an outage; after that only the new key works. Rotating again while the old key is
+    still in its grace period ends that older key immediately: at most two keys ever work."""
+    if (isinstance(grace_hours, bool) or not isinstance(grace_hours, int)
+            or not 0 <= grace_hours <= MAX_GRACE_HOURS):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["grace_hours"])
+    now = utc_now(clock)
+    with transaction.atomic():
+        client = _own_client(client_ref, organization_ref)
+        secret = secrets.token_urlsafe(32)
+        client.previous_key_hash = client.key_hash if grace_hours else ""
+        client.previous_valid_until = now + dt.timedelta(hours=grace_hours) if grace_hours else None
+        client.key_hash = _hash_secret(secret)
+        client.rotated_at = now
+        client.entity_version += 1
+        client.save(update_fields=[
+            "previous_key_hash", "previous_valid_until", "key_hash", "rotated_at",
+            "entity_version", "updated_at"])
+        record(actor_ref=actor_ref, action="developer.client_key_rotated",
+               object_type="api_client", object_ref=client.public_id,
+               outcome=AuditOutcome.ALLOWED, reason_code=f"grace_{grace_hours}h")
+        key = f"{KEY_VERSION}.{tenant_public_id}.{client.public_id}.{secret}"
+        return client_dict(client, now), key
+
+
+def set_expiry(
+    client_ref: str, *, actor_ref: str, organization_ref: str = "", days: Any = None,
+    clock: Clock | None = None,
+) -> dict[str, Any]:
+    """Make a client's key run out `days` from now (1 to 730), or never (None). Setting it again
+    moves the date; a date in the past is not possible."""
+    if days is not None and (
+            isinstance(days, bool) or not isinstance(days, int)
+            or not 1 <= days <= MAX_EXPIRY_DAYS):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["days"])
+    now = utc_now(clock)
+    with transaction.atomic():
+        client = _own_client(client_ref, organization_ref)
+        client.expires_at = now + dt.timedelta(days=days) if days is not None else None
+        client.entity_version += 1
+        client.save(update_fields=["expires_at", "entity_version", "updated_at"])
+        record(actor_ref=actor_ref, action="developer.client_expiry_set",
+               object_type="api_client", object_ref=client.public_id,
+               outcome=AuditOutcome.ALLOWED, reason_code=f"days_{days}")
+        return client_dict(client, now)
+
+
 def authenticate_key(header: str | None, *, clock: Clock | None = None) -> AuthenticatedClient:
     """Check `Authorization: Bearer zk1.<tenant>.<client>.<secret>`. Every failure is the same
     UNAUTHENTICATED answer, so a caller learns nothing about which part was wrong."""
@@ -208,9 +290,15 @@ def authenticate_key(header: str | None, *, clock: Clock | None = None) -> Authe
     with tenant_transaction(ctx):
         client = ApiClient.objects.filter(public_id=client_ref, **_scope()).first()
         if (client is None or client.status != ClientStatus.ACTIVE
-                or not hmac.compare_digest(client.key_hash, _hash_secret(secret))
                 or (client.expires_at is not None and client.expires_at <= now)):
             raise fail
+        digest = _hash_secret(secret)
+        if not hmac.compare_digest(client.key_hash, digest):
+            # The key from before the last rotation still works, but only until its grace ends.
+            old = client.previous_key_hash
+            if not (old and client.previous_valid_until and client.previous_valid_until > now
+                    and hmac.compare_digest(old, digest)):
+                raise fail
         client.last_used_at = now
         client.save(update_fields=["last_used_at", "updated_at"])
         return AuthenticatedClient(

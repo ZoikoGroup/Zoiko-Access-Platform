@@ -71,3 +71,23 @@ class MessageView(CellScopedModel):
             models.UniqueConstraint(
                 fields=["tenant_id", "message", "viewer_ref"], name="message_view_once"),
         ]
+
+
+class MessageAttachment(CellScopedModel):
+    """A small file attached to a message (modules/messaging/attachments.py). The content is kept
+    encrypted for this customer; `digest` is the fingerprint of the original bytes, so a damaged or
+    swapped file is never served. The kind is read from the bytes, not the name."""
+
+    message = models.ForeignKey(Message, on_delete=models.PROTECT, related_name="attachments")
+    name = models.CharField(max_length=100)
+    content_type = models.CharField(max_length=40)
+    size = models.PositiveIntegerField()
+    digest = models.CharField(max_length=64)
+    content_enc = models.TextField()
+    uploaded_by_ref = models.CharField(max_length=22)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="msgattach_scope_idx"),
+            models.Index(fields=["message"], name="msgattach_message_idx"),
+        ]

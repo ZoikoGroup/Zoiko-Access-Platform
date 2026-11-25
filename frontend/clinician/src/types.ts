@@ -63,6 +63,7 @@ export interface Thread {
   patient: string;                       // the patient's id
   patient_name?: string | null;
   last_message_at: string;
+  erased?: boolean;                     // its content was erased after the retention period
   unread: number;
   unread_for_me?: number;                // what THIS login has not opened
 }

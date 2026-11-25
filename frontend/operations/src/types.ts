@@ -1,3 +1,4 @@
+import type { AttachmentRef } from "@shared/Attachments";
 // Shapes returned by the backend's /api/v1 staff endpoints.
 
 export type Health = "ok" | "down" | "checking";
@@ -154,12 +155,13 @@ export interface MessageThread {
   patient: string;
   patient_name?: string | null;
   last_message_at: string;
+  erased?: boolean;                     // its content was erased after the retention period
   unread: number;
   unread_for_me?: number;                // what THIS login has not opened (others' openings do not count)
 }
 
 export interface ThreadView extends MessageThread {
-  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; from: string; seen_at?: string | null }[];
+  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; from: string; seen_at?: string | null; attachments?: AttachmentRef[] }[];
 }
 
 export interface Timing {

@@ -1,6 +1,44 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, addCoverage, endCoverage, getSharing, setSharing, type CoverageRow, type SharingChoice } from "../api";
+import { ApiError, addCoverage, checkCover, endCoverage, getCoverChecks, getSharing, setSharing, type CoverCheck, type CoverageRow, type SharingChoice } from "../api";
 import { Card, Pill } from "../ui";
+
+const RESULT: Record<CoverCheck["result"], { text: string; kind: "ok" | "bad" | "warn" }> = {
+  eligible: { text: "Covered", kind: "ok" },
+  not_eligible: { text: "Not covered", kind: "bad" },
+  unknown: { text: "Could not be confirmed", kind: "warn" },
+};
+
+/** Ask the insurer whether this policy covers a visit. The answer is what the insurer said, not a promise to pay. */
+function CoverCheckPanel({ c }: { c: CoverageRow }) {
+  const [checks, setChecks] = useState<CoverCheck[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { getCoverChecks(c.id).then(setChecks).catch(() => setChecks([])); }, [c.id]);
+  async function ask() {
+    setBusy(true); setError("");
+    try { const made = await checkCover(c.id); setChecks([made, ...checks]); }
+    catch (e) {
+      setError(e instanceof ApiError && e.status === 429 ? "You have checked a lot in the last hour. Please wait a little."
+        : e instanceof Error ? e.message : "Could not check");
+    } finally { setBusy(false); }
+  }
+  const latest = checks[0];
+  return (
+    <div className="info">
+      <button className="btn ghost" disabled={busy} onClick={() => void ask()}>
+        {busy ? "Asking the insurer…" : "Check my cover"}<span className="sr-only"> with {c.insurer}</span>
+      </button>
+      {latest && (
+        <small>
+          <Pill kind={RESULT[latest.result].kind}>{RESULT[latest.result].text}</Pill> {latest.reason_text}
+          {" "}Checked {new Date(latest.checked_at).toLocaleString()}{latest.fresh ? "" : " (an old answer: check again)"}.
+          {" "}{latest.disclaimer}
+        </small>
+      )}
+      {error && <small className="error" role="alert">{error}</small>}
+    </div>
+  );
+}
 
 function Row({ c, onChanged }: { c: CoverageRow; onChanged: () => Promise<void> }) {
   const [asking, setAsking] = useState(false);
@@ -20,6 +58,7 @@ function Row({ c, onChanged }: { c: CoverageRow; onChanged: () => Promise<void> 
         </small>
       </div>
       <Pill kind={c.in_force ? "info" : "warn"}>{c.in_force ? "Dates current" : "Expired"}</Pill>
+      {c.in_force && <CoverCheckPanel c={c} />}
       {!asking && <button className="btn ghost" onClick={() => setAsking(true)}>Remove</button>}
       {asking && (
         <span>
@@ -119,7 +158,7 @@ export function Insurance({ coverage, hasPatient, onChanged }: {
     <>
       <div className="hero"><div>
         <h1>Insurance &amp; Claims</h1>
-        <p>Keep your insurance on file, and choose whether the clinic's staff may see it. Your member number is stored encrypted and shown only as its last four characters. "Dates current" only means the end date you typed has not passed: we do not check with your insurer.</p>
+        <p>Keep your insurance on file, and choose whether the clinic's staff may see it. Your member number is stored encrypted and shown only as its last four characters. "Dates current" only means the end date you typed has not passed. "Check my cover" asks your insurer, where a connection to that insurer exists.</p>
       </div></div>
       {!hasPatient && <div className="notice">Your login is not linked to a patient record yet, so you cannot add insurance.</div>}
       <div className="grid">
@@ -130,9 +169,6 @@ export function Insurance({ coverage, hasPatient, onChanged }: {
         </Card>
         {hasPatient && <SharingCard />}
         {hasPatient && <Card title="Add insurance"><AddForm onAdded={onChanged} /></Card>}
-        <Card title="Claims">
-          <div className="empty">Claims are not built yet. Today this page only records which insurance you have; it does not check whether a policy is valid with the insurer, and it does not submit or track claims.</div>
-        </Card>
       </div>
     </>
   );

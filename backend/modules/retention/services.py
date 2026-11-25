@@ -2,14 +2,17 @@
 
 Who may act is checked by the caller (a clinic administrator, R13). Here: a rule needs a second,
 different administrator before it counts; the data class must be one a module has registered; and
-the report only COUNTS. There is no deletion anywhere in the product: when a period is in force the
-report says how many records are past it, and a person decides what to do (decision 5 is open).
+the report only counts. Erasing (DEV-351) happens only when the deployment switches it on
+(RETENTION_DELETION_ENABLED), only for a kind that has an eraser, only for this clinic, only under
+an approved period, never for a patient on lawful hold, and only when the person asking confirms
+the exact number about to be erased.
 """
 from __future__ import annotations
 
 import datetime as dt
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 
 from foundation import retention as registry
@@ -128,5 +131,52 @@ def report(organization_ref: str, clock: Clock | None = None) -> dict[str, Any]:
             "rule": rule_dict(in_force) if in_force else None,
             "proposal": rule_dict(proposal) if proposal else None,
             "past_period": kind.count(now - dt.timedelta(days=days), held) if days else None,
+            "erasable": kind.eraser is not None,
         })
-    return {"classes": rows, "patients_on_hold": len(held), "deletes_anything": False}
+    return {"classes": rows, "patients_on_hold": len(held),
+            "deletes_anything": bool(settings.RETENTION_DELETION_ENABLED)}
+
+
+def _erasable(organization_ref: str, data_class: str, clock: Clock | None) -> tuple[Any, Any]:
+    """The kind and the cut-off for erasing it, or an error saying why it cannot be erased."""
+    kind = next((c for c in registry.data_classes() if c.key == data_class), None)
+    if kind is None or kind.eraser is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    rule = RetentionRule.objects.filter(
+        organization_ref=organization_ref, data_class=data_class, status=RuleStatus.APPROVED,
+        **_scope()).first()
+    if rule is None or not rule.period_days:
+        raise ZoikoError(ErrorCode.CONFLICT_VERSION)          # no approved period: nothing is due
+    return kind, utc_now(clock) - dt.timedelta(days=rule.period_days)
+
+
+def erasure_preview(
+    organization_ref: str, data_class: str, clock: Clock | None = None
+) -> dict[str, Any]:
+    """What erasing would remove right now, and whether erasing is switched on. Changes nothing."""
+    kind, cutoff = _erasable(organization_ref, data_class, clock)
+    return {"data_class": data_class, "enabled": bool(settings.RETENTION_DELETION_ENABLED),
+            "due": kind.eraser.due(cutoff, registry.persons_on_hold(), organization_ref),
+            "older_than": cutoff.isoformat()}
+
+
+def erase(
+    *, organization_ref: str, data_class: str, confirm: Any, by: str, clock: Clock | None = None
+) -> dict[str, Any]:
+    """Erase what is past the approved period. `confirm` must be the number the preview showed: if
+    anything changed in between, nothing is erased. Cannot be undone."""
+    if not settings.RETENTION_DELETION_ENABLED:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)             # erasing is switched off here
+    if isinstance(confirm, bool) or not isinstance(confirm, int) or confirm < 0:
+        raise _bad("confirm")
+    with transaction.atomic():
+        kind, cutoff = _erasable(organization_ref, data_class, clock)
+        held = registry.persons_on_hold()
+        due = kind.eraser.due(cutoff, held, organization_ref)
+        if confirm != due:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        erased = kind.eraser.erase(cutoff, held, organization_ref) if due else 0
+        record(actor_ref=by, action="retention.erased", object_type="retention_erasure",
+               object_ref=organization_ref, outcome=AuditOutcome.ALLOWED,
+               reason_code=data_class, details={"erased": erased})
+        return {"data_class": data_class, "erased": erased}

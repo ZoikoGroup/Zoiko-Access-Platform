@@ -1,6 +1,43 @@
 import { useEffect, useState } from "react";
-import { getProfile, saveProfile } from "../api";
+import { ApiError, getDisclosures, getProfile, saveProfile, type DisclosureLine } from "../api";
 import { Card } from "../ui";
+
+const KIND = { referral: "Referral", request: "Request to a partner", claim: "Claim to a payer" };
+const STAGE = { sent: "sent", released: "details released, the patient agreed", withdrawn: "agreement taken back" };
+
+/** What left this clinic about the patient, as written down at the time (DEV-352). Loaded only when
+ * asked, because each look is recorded. Clinic administrators only. */
+function SentElsewhere({ person }: { person: string }) {
+  const [lines, setLines] = useState<DisclosureLine[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { setLines(null); setError(""); }, [person]);
+  async function look() {
+    setBusy(true); setError("");
+    try { setLines(await getDisclosures(person)); }
+    catch (e) {
+      setError(e instanceof ApiError && e.code === "POLICY_DENIED"
+        ? "Only your clinic administrators can see this."
+        : e instanceof Error ? e.message : "Could not load");
+    } finally { setBusy(false); }
+  }
+  return (
+    <div style={{ marginTop: 16 }}>
+      <button type="button" className="btn ghost" disabled={busy} onClick={() => void look()}>Show what was sent to other organizations</button>
+      {error && <div className="error" role="alert">{error}</div>}
+      {lines !== null && (lines.length === 0 ? <p>Nothing has been recorded as sent.</p> : (
+        <ul>
+          {lines.map((l) => (
+            <li key={l.id}>
+              <b>{KIND[l.kind]}</b> to {l.to || "another organization"}: {STAGE[l.stage]}
+              <small> · {new Date(l.at).toLocaleString()}{l.by ? ` · by ${l.by}` : ""}</small>
+            </li>
+          ))}
+        </ul>
+      ))}
+    </div>
+  );
+}
 
 /** Staff enter or correct a patient's name, birth date and phone. The details are stored encrypted. */
 export function PatientDetails({ person, onClose, onSaved }: {
@@ -51,6 +88,7 @@ export function PatientDetails({ person, onClose, onSaved }: {
           <button className="btn ghost" type="button" onClick={onClose}>Close</button>
         </div>
       </form>
+      <SentElsewhere person={person} />
     </Card>
   );
 }

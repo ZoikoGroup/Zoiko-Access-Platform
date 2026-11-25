@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { closeMessageThread, getMessageThread, listMessageThreads, replyMessageThread, type Staff } from "../api";
+import { closeMessageThread, downloadMessageAttachment, getMessageThread, listMessageThreads, replyMessageThread, type Staff } from "../api";
+import { AttachPicker, AttachmentLinks, toPayloads } from "@shared/Attachments";
 import type { MessageThread, ThreadView } from "../types";
 import { Card, Patient, Pill } from "../ui";
 import { NoStaff } from "./Appointments";
@@ -11,6 +12,7 @@ function when(iso: string): string {
 function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<void> }) {
   const [view, setView] = useState<ThreadView | null>(null);
   const [text, setText] = useState("");
+  const [picked, setPicked] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,20 +24,21 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
 
   async function run(work: () => Promise<unknown>) {
     setBusy(true); setError("");
-    try { await work(); setText(""); await load(); }
+    try { await work(); setText(""); setPicked([]); await load(); }
     catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
     finally { setBusy(false); }
   }
 
   if (!view) return <Card title="Conversation">{error ? <div className="error">{error}</div> : <div className="empty">Loading…</div>}</Card>;
   return (
-    <Card title={view.subject} sub={view.status === "closed" ? "Closed" : "Open"}
+    <Card title={view.erased ? "Erased conversation" : view.subject} sub={view.status === "closed" ? "Closed" : "Open"}
       action={view.status === "open" ? <button className="btn ghost" disabled={busy} onClick={() => void run(() => closeMessageThread(id))}>Close conversation</button> : undefined}>
       {view.messages.map((m) => (
         <div key={m.id} className="appt" style={{ alignItems: "flex-start" }}>
           <div className="info">
             <b>{m.side === "staff" ? (m.mine ? "You" : m.from || "Clinic staff") : <Patient name={view.patient_name} id={view.patient} />}</b>
-            <div style={{ whiteSpace: "pre-wrap" }}>{m.body || "(this message cannot be shown)"}</div>
+            <div style={{ whiteSpace: "pre-wrap" }}>{m.body || (view.erased ? "(erased after the retention period)" : "(this message cannot be shown)")}</div>
+            <AttachmentLinks items={m.attachments} onOpen={downloadMessageAttachment} />
             <small>{when(m.at)}</small>
             {m.side === "staff" && (
               <small>{m.seen_at ? `Opened by the patient ${when(m.seen_at)}.` : "Sent. The patient has not opened it yet."}</small>
@@ -44,9 +47,10 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
         </div>
       ))}
       {view.status === "open" && (
-        <form className="add-form" style={{ marginTop: 12 }} onSubmit={(e) => { e.preventDefault(); void run(() => replyMessageThread(id, text)); }}>
+        <form className="add-form" style={{ marginTop: 12 }} onSubmit={(e) => { e.preventDefault(); void run(async () => replyMessageThread(id, text, await toPayloads(picked))); }}>
           <textarea value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} aria-label="Your reply"
             placeholder="Write a reply" style={{ minHeight: 80, padding: "9px 12px", border: "1px solid var(--line)", borderRadius: 10, background: "var(--bg)" }} />
+          <AttachPicker files={picked} onChange={setPicked} disabled={busy} />
           {error && <div className="error" role="alert">{error}</div>}
           <div><button className="btn" type="submit" disabled={busy || !text.trim()}>{busy ? "Sending…" : "Send reply"}</button></div>
         </form>
@@ -93,7 +97,7 @@ export function Messages({ staff }: { staff: Staff | null }) {
             : threads.map((t) => (
               <div className="appt" key={t.id}>
                 <div className="info">
-                  <b>{t.subject || "(no subject)"}</b>
+                  <b>{t.erased ? "Erased conversation" : t.subject || "(no subject)"}</b>
                   <small><Patient name={t.patient_name} id={t.patient} /> - last activity {when(t.last_message_at)}</small>
                 </div>
                 {(t.unread_for_me ?? t.unread) > 0 && <Pill kind="warn">{t.unread_for_me ?? t.unread} new</Pill>}

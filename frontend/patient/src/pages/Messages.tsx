@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, getThread, getThreads, replyToThread, startThread, type MessageThread, type ThreadView } from "../api";
+import { ApiError, downloadAttachment, getThread, getThreads, replyToThread, startThread, type MessageThread, type ThreadView } from "../api";
+import { AttachPicker, AttachmentLinks, toPayloads } from "@shared/Attachments";
 import { Card, Pill } from "../ui";
 
 function when(iso: string): string {
@@ -13,6 +14,7 @@ const newKey = () => crypto.randomUUID().replace(/-/g, "") + "k";
 function NewMessage({ onSent }: { onSent: (id: string) => Promise<void> }) {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [picked, setPicked] = useState<File[]>([]);
   const keyRef = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -21,10 +23,10 @@ function NewMessage({ onSent }: { onSent: (id: string) => Promise<void> }) {
     e.preventDefault();
     setBusy(true); setError("");
     keyRef.current ??= newKey();
-    try { const id = await startThread({ subject, body }, keyRef.current); keyRef.current = null; setSubject(""); setBody(""); await onSent(id); }
+    try { const id = await startThread({ subject, body, attachments: await toPayloads(picked) }, keyRef.current); keyRef.current = null; setSubject(""); setBody(""); setPicked([]); await onSent(id); }
     catch (err) {
       setError(err instanceof ApiError && err.status === 429 ? "You have sent a lot of messages in the last hour. Please wait a little."
-        : err instanceof ApiError && err.status === 422 ? "A subject and a message are needed (the message can be up to 2000 characters)."
+        : err instanceof ApiError && err.status === 422 ? "A subject and a message are needed (the message can be up to 2000 characters). Files must be a PDF, PNG, JPEG or text file."
         : err instanceof Error ? err.message : "Could not send");
     } finally { setBusy(false); }
   }
@@ -38,6 +40,7 @@ function NewMessage({ onSent }: { onSent: (id: string) => Promise<void> }) {
         <textarea value={body} maxLength={2000} onChange={(e) => { keyRef.current = null; setBody(e.target.value); }} required
           style={{ minHeight: 110, padding: "9px 12px", border: "1px solid var(--line)", borderRadius: 10, background: "var(--bg)" }} />
       </label>
+      <AttachPicker files={picked} onChange={(f) => { keyRef.current = null; setPicked(f); }} disabled={busy} />
       {error && <div className="error" role="alert">{error}</div>}
       <div><button className="btn" type="submit" disabled={busy || !subject.trim() || !body.trim()}>{busy ? "Sending…" : "Send to the clinic"}</button></div>
     </form>
@@ -47,6 +50,7 @@ function NewMessage({ onSent }: { onSent: (id: string) => Promise<void> }) {
 function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<void> }) {
   const [view, setView] = useState<ThreadView | null>(null);
   const [text, setText] = useState("");
+  const [picked, setPicked] = useState<File[]>([]);
   const replyKey = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -61,7 +65,7 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
     e.preventDefault();
     setBusy(true); setError("");
     replyKey.current ??= newKey();
-    try { await replyToThread(id, text, replyKey.current); replyKey.current = null; setText(""); await load(); }
+    try { await replyToThread(id, text, replyKey.current, await toPayloads(picked)); replyKey.current = null; setText(""); setPicked([]); await load(); }
     catch (err) {
       setError(err instanceof ApiError && err.status === 409 ? "The clinic has closed this conversation. Start a new message."
         : err instanceof ApiError && err.status === 429 ? "Please wait a little before sending more."
@@ -71,12 +75,13 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
 
   if (!view) return <Card title="Conversation">{error ? <div className="error">{error}</div> : <div className="empty">Loading…</div>}</Card>;
   return (
-    <Card title={view.subject} sub={view.status === "closed" ? "Closed by the clinic" : "Open"}>
+    <Card title={view.erased ? "Erased conversation" : view.subject} sub={view.status === "closed" ? "Closed by the clinic" : "Open"}>
       {view.messages.map((m) => (
         <div key={m.id} className="appt" style={{ alignItems: "flex-start" }}>
           <div className="info">
             <b>{m.mine ? "You" : m.side === "staff" ? "The clinic" : "Someone you act for"}</b>
-            <div style={{ whiteSpace: "pre-wrap" }}>{m.body || "(this message cannot be shown)"}</div>
+            <div style={{ whiteSpace: "pre-wrap" }}>{m.body || (view.erased ? "(erased after the retention period)" : "(this message cannot be shown)")}</div>
+            <AttachmentLinks items={m.attachments} onOpen={downloadAttachment} />
             <small>{when(m.at)}</small>
             {m.side === "patient" && (
               <small>{m.seen_at ? `Opened by the clinic ${when(m.seen_at)}. That means a person opened it, not that it has been answered.` : "Sent. The clinic has not opened it yet."}</small>
@@ -88,6 +93,7 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
         <form className="profile-form" onSubmit={(e) => void send(e)} style={{ marginTop: 12 }}>
           <textarea value={text} maxLength={2000} onChange={(e) => { replyKey.current = null; setText(e.target.value); }} aria-label="Your reply"
             placeholder="Write a reply" style={{ minHeight: 80, padding: "9px 12px", border: "1px solid var(--line)", borderRadius: 10, background: "var(--bg)" }} />
+          <AttachPicker files={picked} onChange={(f) => { replyKey.current = null; setPicked(f); }} disabled={busy} />
           {error && <div className="error" role="alert">{error}</div>}
           <div><button className="btn" type="submit" disabled={busy || !text.trim()}>{busy ? "Sending…" : "Reply"}</button></div>
         </form>
@@ -128,7 +134,7 @@ export function Messages({ onChanged }: { onChanged: () => Promise<void> }) {
             : threads.map((t) => (
               <div className="appt" key={t.id}>
                 <div className="info">
-                  <b>{t.subject || "(no subject)"}</b>
+                  <b>{t.erased ? "Erased conversation" : t.subject || "(no subject)"}</b>
                   <small>Last activity {when(t.last_message_at)}</small>
                 </div>
                 {(t.unread_for_me ?? t.unread) > 0 && <Pill kind="warn">{t.unread_for_me ?? t.unread} new</Pill>}

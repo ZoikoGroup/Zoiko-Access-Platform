@@ -11,3 +11,4 @@ WEBHOOK_ALLOW_PRIVATE = True
 # Clinical notes are on in development (DEV-324); production keeps them off until the clinical
 # safety review signs them off. Set ZOIKO_CLINICAL_NOTES=false to see the app with them off.
 CLINICAL_NOTES_ENABLED = env("ZOIKO_CLINICAL_NOTES", "true").lower() == "true"  # noqa: F405
+COVER_SIMULATOR = True

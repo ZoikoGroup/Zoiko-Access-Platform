@@ -1,5 +1,6 @@
 // The only file that talks to the backend. Pages call these functions, never fetch().
 import type { BookingHistoryData } from "@shared/BookingHistory";
+import type { AttachmentPayload, AttachmentRef } from "@shared/Attachments";
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
@@ -156,6 +157,12 @@ export const listWaitlist = async () => (await v1<{ entries: WaitingRow[] }>("st
 export const removeFromWaitlist = (id: string) => post(`waitlist/${encodeURIComponent(id)}/leave`);
 export const getProfile = async (person: string) =>
   (await v1<{ profile: Profile }>(`people/${encodeURIComponent(person)}/profile`)).profile;
+export interface DisclosureLine {
+  id: string; kind: "referral" | "request" | "claim"; stage: "sent" | "released" | "withdrawn";
+  record: string; to: string; by: string; at: string;
+}
+export const getDisclosures = async (person: string) =>
+  (await v1<{ entries: DisclosureLine[] }>(`staff/disclosures?person=${encodeURIComponent(person)}`)).entries;
 export const saveProfile = (person: string, body: { name: string; birth_date: string; phone: string }) =>
   post(`people/${encodeURIComponent(person)}/profile`, body);
 export const listPatientCoverage = async (person: string) =>
@@ -174,8 +181,20 @@ export const rejectFamily = (id: string) => post(`staff/family-requests/${encode
 export const listMessageThreads = async () => (await v1<{ threads: MessageThread[] }>("messages/threads")).threads;
 export const getMessageThread = async (id: string) =>
   (await v1<{ thread: ThreadView }>(`messages/threads/${encodeURIComponent(id)}`)).thread;
-export const replyMessageThread = (id: string, body: string) =>
-  post(`messages/threads/${encodeURIComponent(id)}/reply`, { body });
+export const replyMessageThread = (id: string, body: string, attachments?: AttachmentPayload[]) =>
+  post(`messages/threads/${encodeURIComponent(id)}/reply`, { body, attachments });
+/** Save one attached file. The browser cannot send the login with a plain link, so it is fetched here. */
+export async function downloadMessageAttachment(a: AttachmentRef): Promise<void> {
+  if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
+  const res = await fetch(`/api/v1/messages/attachments/${encodeURIComponent(a.id)}`, { headers: { Authorization: `Bearer ${current.token}` } });
+  if (!res.ok) throw new ApiError("Could not download the file");
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = a.name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 export const closeMessageThread = (id: string) => post(`messages/threads/${encodeURIComponent(id)}/close`);
 export const CLOSED_DAYS = 14;                       // how far back "recently closed" looks
 export const listWork = (filter: "" | "mine" | "unassigned" | "closed") =>
@@ -431,6 +450,10 @@ export const getDeveloper = () => v1<DeveloperData>("staff/developer");
 export const createApiClient = (body: { name: string; environment: string; scopes: string[]; rate_limit?: number }) =>
   post<{ client: DeveloperClient; key: string }>("staff/developer/clients", body);
 export const revokeApiClient = (id: string) => post(`staff/developer/clients/${enc(id)}/revoke`);
+export const rotateApiClientKey = (id: string, grace_hours: number) =>
+  post<{ client: DeveloperClient; key: string }>(`staff/developer/clients/${enc(id)}/rotate`, { grace_hours });
+export const setApiClientExpiry = (id: string, days: number | null) =>
+  post<{ client: DeveloperClient }>(`staff/developer/clients/${enc(id)}/expiry`, { days });
 export const testWebhook = (client: string, hook: string) =>
   post(`staff/developer/clients/${enc(client)}/webhooks/${enc(hook)}/test`);
 export const redriveClientDelivery = (client: string, delivery: string) =>
@@ -460,15 +483,21 @@ export interface RetentionRule {
 export interface RetentionClass {
   data_class: string; label: string; age_from: string;
   rule: RetentionRule | null; proposal: RetentionRule | null; past_period: number | null;
+  erasable: boolean;                                    // the product can erase this kind
 }
 export interface RetentionReport {
-  classes: RetentionClass[]; patients_on_hold: number; deletes_anything: false; can_set: boolean;
+  classes: RetentionClass[]; patients_on_hold: number; deletes_anything: boolean; can_set: boolean;
 }
 export const getRetention = () => v1<RetentionReport>("staff/retention");
 export const proposeRetention = (data_class: string, period_days: number | null, basis: string) =>
   post<RetentionReport>("staff/retention", { data_class, period_days, basis });
 export const decideRetention = (rule: string, step: "approve" | "withdraw") =>
   post<{ rule: RetentionRule }>(`staff/retention/${rule}/${step}`);
+export interface ErasurePreview { data_class: string; enabled: boolean; due: number; older_than: string }
+export const previewErasure = (data_class: string) =>
+  v1<ErasurePreview>(`staff/retention-erasure/${encodeURIComponent(data_class)}`);
+export const eraseRecords = (data_class: string, confirm: number) =>
+  post<{ data_class: string; erased: number }>(`staff/retention-erasure/${encodeURIComponent(data_class)}`, { confirm });
 
 // ------------------------------------------------------------------ partner systems (DEV-217)
 export interface BookingSystem {

@@ -35,6 +35,11 @@ class ApiClient(CellScopedModel):
     expires_at = models.DateTimeField(null=True, blank=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
     created_by_ref = models.CharField(max_length=64)
+    # Key rotation: when the key is replaced, the old one keeps working until `previous_valid_until`
+    # so the partner can swap it in without an outage. Only a hash is kept, like the current key.
+    previous_key_hash = models.CharField(max_length=64, blank=True, default="")
+    previous_valid_until = models.DateTimeField(null=True, blank=True)
+    rotated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="apiclient_scope_idx")]

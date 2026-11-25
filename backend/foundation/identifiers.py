@@ -126,6 +126,10 @@ IDENTIFIERS: dict[str, Kind] = {
     "consent_ref": _ref(
         "a consent a person gave or withdrew (consent ConsentGrant)", in_models=False),
     "client_ref": _ref("an API client (developer ApiClient)", leaves=False),
+    "coverage_ref": _ref("an insurance policy (coverage Coverage)", leaves=False),
+    "recipient_ref": _ref(
+        "who information about a patient was sent to: a clinic organization or another "
+        "customer (evidence Disclosure)", leaves=False),
     # ---------------------------------------------------------------- numbers people read out
     "ref_no": Kind(
         names="a case number staff and patients can read out (DSR-, XCH-, M-0007, hazard codes)",
@@ -236,6 +240,8 @@ FIELDS: dict[str, str] = {
     "connector_key": "connector_key", "operation_ref": "operation_ref",
     "proof_ref": "proof_ref", "external_id": "clinical_record_id",
     "member_ref": "member_ref", "member_id": "member_ref", "member_ref_enc": "member_ref",
+    "coverage_ref": "coverage_ref", "source_ref": "external_ref",
+    "record_ref": "object_ref", "recipient_ref": "recipient_ref",
 }
 # Every name for a login: who did, approved, checked, owns or watches something.
 FIELDS.update(dict.fromkeys((
@@ -253,6 +259,7 @@ FIELDS.update(dict.fromkeys((
     "enrolled_by_ref", "certified_by_ref", "live_by_ref",          # DEV-230
     "merged_by_ref", "unmerged_by_ref",                            # identity merge
     "prioritized_by_ref",                                          # waiting-list priority
+    "uploaded_by_ref",                                             # message attachments
     "deputy_ref",                                                  # DEV-202
     "delivered_by_ref", "replaced_by_ref",                         # DEV-325
     "death_recorded_by_ref",                                       # DEV-333

@@ -39,12 +39,12 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => void }) 
 
   if (!view) return <Card title="Conversation">{error ? <div className="error" role="alert">{error}</div> : <div className="empty">Loading…</div>}</Card>;
   return (
-    <Card title={view.subject} sub={`${view.patient_name || view.patient} · ${view.status === "closed" ? "Closed" : "Open"}`}>
+    <Card title={view.erased ? "Erased conversation" : view.subject} sub={`${view.patient_name || view.patient} · ${view.status === "closed" ? "Closed" : "Open"}`}>
       {view.messages.map((m) => (
         <div key={m.id} className="appt" style={{ alignItems: "flex-start" }}>
           <div className="info">
             <b>{m.mine ? "You" : m.side === "staff" ? (m.from || "The clinic") : view.patient_name || "The patient"}</b>
-            <div style={{ whiteSpace: "pre-wrap" }}>{m.body || "(this message cannot be shown)"}</div>
+            <div style={{ whiteSpace: "pre-wrap" }}>{m.body || (view.erased ? "(erased after the retention period)" : "(this message cannot be shown)")}</div>
             <small>{when(m.at)}</small>
           </div>
         </div>
@@ -72,7 +72,7 @@ function List({ threads, open, onOpen }: { threads: Thread[]; open: string; onOp
         return (
           <div className="appt" key={t.id}>
             <div className="info">
-              <b>{t.subject || "(no subject)"}</b>
+              <b>{t.erased ? "Erased conversation" : t.subject || "(no subject)"}</b>
               <small>{t.patient_name || t.patient} · last activity {when(t.last_message_at)}</small>
             </div>
             {unread > 0 && <Pill kind="warn">{unread} new</Pill>}

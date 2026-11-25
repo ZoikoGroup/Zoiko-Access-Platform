@@ -25,6 +25,7 @@ from django.apps import apps
 # "append-only" trigger in their migration (tests/test_db_grants.py checks that both agree).
 APPEND_ONLY = frozenset({
     "evidence_auditevent",
+    "evidence_disclosure",
     "policy_accessdecision",
     "scheduling_bookingevent",
     "trust_incidentevent",
@@ -39,6 +40,7 @@ APPEND_ONLY = frozenset({
     "connector_operationevent",
     "trust_matchdecision",
     "consent_consentevent",
+    "coverage_covercheck",
     "foundation_emailattempt",
     "orchestration_transition",
     "readiness_evidence",

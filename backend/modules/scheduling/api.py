@@ -21,6 +21,7 @@ from .services import (
     list_open_slots,
     mark_attendance,
     monthly_activity,
+    open_slots_with_doctor,
     overdue_requests,
     provider_load,
     report,
@@ -38,7 +39,7 @@ __all__ = [
     "create_slots", "decline_from_provider",
     "forecast_week", "get_booking", "get_slot",
     "list_bookings", "list_bookings_for_provider", "list_open_slots", "mark_attendance",
-    "monthly_activity",
+    "open_slots_with_doctor", "monthly_activity",
     "overdue_requests", "provider_load", "report", "reschedule", "today_counts",
     "usual_confirmation_hours", "waiting_requests", "withdraw_slot", "withdraw_slots",
 ]

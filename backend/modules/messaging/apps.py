@@ -23,7 +23,8 @@ class MessagingConfig(AppConfig):
         person_refs.register("messaging.Thread", Thread)
         from foundation import retention
 
-        from .retention import count_older
+        from .retention import count_older, due_for_erasure, erase_older
 
-        retention.register("message_threads", "Closed message conversations",
-                           "the last message", count_older)
+        retention.register(
+            "message_threads", "Closed message conversations", "the last message", count_older,
+            retention.Eraser(due=due_for_erasure, erase=erase_older))

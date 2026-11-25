@@ -1,4 +1,5 @@
 import type { BookingHistoryData } from "@shared/BookingHistory";
+import type { AttachmentPayload, AttachmentRef } from "@shared/Attachments";
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
 // The only file that talks to the backend. Pages call these functions, never fetch().
@@ -102,6 +103,18 @@ export interface CoverageRow {
   in_force: boolean;
 }
 
+/** What an insurer said when a policy was checked. Indicative: not a promise that a claim is paid. */
+export interface CoverCheck {
+  id: string; coverage_ref: string; category: string;
+  result: "eligible" | "not_eligible" | "unknown";
+  reason: string; reason_text: string; checked_at: string; fresh: boolean; disclaimer: string;
+}
+export const checkCover = async (coverageId: string, category = "") =>
+  (await request<{ check: CoverCheck }>(`coverage/${encodeURIComponent(coverageId)}/check`, {
+    method: "POST", body: JSON.stringify({ category }) })).body.check;
+export const getCoverChecks = async (coverageId: string) =>
+  (await request<{ checks: CoverCheck[] }>(`coverage/${encodeURIComponent(coverageId)}/checks`)).body.checks;
+
 export interface CareTeamPerson {
   person: string;
   team: { clinician: string; basis: string; since: string; until: string | null }[];
@@ -134,12 +147,13 @@ export interface MessageThread {
   subject: string;
   status: "open" | "closed";
   last_message_at: string;
+  erased?: boolean;                     // its content was erased after the retention period
   unread: number;
   unread_for_me?: number;               // what THIS login has not opened
 }
 
 export interface ThreadView extends MessageThread {
-  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; seen_at?: string | null }[];
+  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; seen_at?: string | null; attachments?: AttachmentRef[] }[];
 }
 
 export interface WaitEntry {
@@ -419,6 +433,24 @@ export async function endCoverage(id: string): Promise<void> {
 }
 
 export const getCareTeam = async () => (await request<{ people: CareTeamPerson[] }>("care-team")).body.people;
+/** One doctor in the provider directory, with where each claim comes from and when. */
+export interface DirectoryDoctor {
+  id: string; name: string; verified: boolean;
+  name_check: { state: "none" } | { state: "verified"; basis: string; checked_on: string };
+  organization: { id: string; name: string };
+  services: { id: string; name: string }[];
+  places: { id: string; name: string; address: string; phone: string }[];
+  free_times: number;
+  next_free: { local_start: string; zone: string; service: string } | null;
+  booking_method: "clinic" | "booking_system";
+}
+export interface Directory {
+  doctors: DirectoryDoctor[]; disclaimer: string;
+  availability: { as_of: string; source: string };
+}
+export const getDirectory = async (q = "") =>
+  (await request<Directory>(q ? "directory/doctors?q=" + encodeURIComponent(q) : "directory/doctors")).body;
+
 /** One time information about me was sent to another organization (the disclosure log). */
 export interface DisclosureEntry {
   id: string; kind: "referral" | "request" | "claim"; person: string; at: string;
@@ -476,16 +508,28 @@ export const getThreads = async () => (await request<{ threads: MessageThread[] 
 export const getThread = async (id: string) =>
   (await request<{ thread: ThreadView }>(`messages/threads/${encodeURIComponent(id)}`)).body.thread;
 
-export async function startThread(body: { subject: string; body: string }, key?: string): Promise<string> {
+export async function startThread(body: { subject: string; body: string; attachments?: AttachmentPayload[] }, key?: string): Promise<string> {
   const { body: made } = await request<{ thread: { id: string } }>("messages/threads", {
     method: "POST", body: JSON.stringify(body), headers: key ? { "Idempotency-Key": key } : {},
   });
   return made.thread.id;
 }
 
-export async function replyToThread(id: string, body: string, key?: string): Promise<void> {
+export async function replyToThread(id: string, body: string, key?: string, attachments?: AttachmentPayload[]): Promise<void> {
   await request(`messages/threads/${encodeURIComponent(id)}/reply`, {
-    method: "POST", body: JSON.stringify({ body }), headers: key ? { "Idempotency-Key": key } : {} });
+    method: "POST", body: JSON.stringify({ body, attachments }), headers: key ? { "Idempotency-Key": key } : {} });
+}
+
+/** Save one attached file. The browser cannot send the login with a plain link, so it is fetched here. */
+export async function downloadAttachment(a: AttachmentRef): Promise<void> {
+  const res = await fetch(`/api/v1/messages/attachments/${encodeURIComponent(a.id)}`, { headers: { ...authHeader() } });
+  if (!res.ok) throw new ApiError("Could not download the file", "ERROR", res.status);
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = a.name;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export const getWaitlist = async () => (await request<{ entries: WaitEntry[] }>("waitlist")).body.entries;

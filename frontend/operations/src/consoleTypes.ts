@@ -122,6 +122,11 @@ export interface DeveloperClient {
   rate_limit_per_minute: number;
   status: "active" | "revoked";
   expires_at: string | null;
+  expired?: boolean;
+  expiring_soon?: boolean;
+  /** When the key was last replaced, and until when the old key still works (null once it has ended). */
+  rotated_at?: string | null;
+  previous_key_valid_until?: string | null;
   last_used_at: string | null;
   created_at: string;
   webhooks: DeveloperWebhook[];

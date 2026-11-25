@@ -15,7 +15,7 @@ from typing import Any
 from django.db import transaction
 
 from foundation.cell_context import require_context
-from foundation.crypto import encrypt
+from foundation.crypto import decrypt, encrypt
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.timeutil import Clock, utc_now
 from modules.consent import api as consent
@@ -23,11 +23,19 @@ from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
 
-from .models import Coverage, CoverageStatus, InsuranceSharing
+from . import insurers
+from .models import Coverage, CoverageStatus, CoverCheck, InsuranceSharing
 
 WRITE_COVERAGE = "write:coverage"
 INSURANCE_PURPOSE = "insurance_details"      # the patient's choice, kept by the consent module
 MAX_ACTIVE_PER_PERSON = 5
+CHECKS_PER_HOUR = 10               # per policy: do not hammer an insurer
+CHECK_FRESH_HOURS = 24             # how long an answer is still worth showing as current
+COVER_DISCLAIMER = (
+    "This is what the insurer said at the time shown. It is not a promise that a claim will be "
+    "paid."
+)
+_CATEGORY = re.compile(r"^[a-z][a-z0-9_]{1,39}$")
 _MEMBER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 \-/]{2,39}$")
 
 
@@ -248,3 +256,84 @@ def set_sharing(
             person_ref=person_ref, purpose=INSURANCE_PURPOSE, grant=share,
             actor_ref=actor_public_id, days=days)
     return {"person": person_ref, "share_with_staff": share, "until": done["expires_at"]}
+
+
+# ------------------------------------------------------------------ asking the insurer
+def check_dict(c: CoverCheck, clock: Clock | None = None) -> dict[str, Any]:
+    now = utc_now(clock)
+    return {
+        "id": c.public_id, "coverage_ref": c.coverage_ref, "category": c.category,
+        "result": c.result, "reason": c.reason,
+        "reason_text": insurers.REASONS.get(c.reason, ""),
+        "checked_at": c.created_at.isoformat(),
+        "fresh": now - c.created_at <= dt.timedelta(hours=CHECK_FRESH_HOURS),
+        "disclaimer": COVER_DISCLAIMER,
+    }
+
+
+def check_cover(
+    *,
+    coverage_ref: str,
+    category: str = "",
+    actor_public_id: str,
+    decision: policy.Decision,
+    organization_public_id: str | None = None,
+    clock: Clock | None = None,
+) -> dict[str, Any]:
+    """Ask the policy's insurer whether it covers `category` today, and record the answer.
+
+    The caller has checked that this login may see this patient's insurance (the patient, or clinic
+    staff only while the patient shares it). Needs the same receipt as recording insurance. A policy
+    that is ended is refused; one that has run out is answered "expired" without asking anyone; an
+    insurer with no adapter, or one that does not answer, gives "unknown" with the reason, never a
+    guess. At most ten checks an hour for one policy."""
+    ctx = require_context()
+    now = utc_now(clock)
+    category = (category or "").strip()
+    if category and not _CATEGORY.match(category):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["category"])
+    with transaction.atomic():
+        row = _own(coverage_ref)
+        policy.check_receipt(
+            decision, actor_public_id=actor_public_id, operation=WRITE_COVERAGE,
+            organization_public_id=organization_public_id, subject_ref=row.person_ref)
+        if row.status != CoverageStatus.ACTIVE:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)    # an ended policy is not asked about
+        recent = CoverCheck.objects.filter(
+            coverage_ref=row.public_id, created_at__gte=now - dt.timedelta(hours=1), **_scope())
+        if recent.count() >= CHECKS_PER_HOUR:
+            raise ZoikoError(ErrorCode.RATE_LIMITED)
+        today = now.date()
+        answer = insurers.Answer(insurers.UNKNOWN, "no_connection")
+        adapter_name = ""
+        not_started = row.valid_from is not None and today < row.valid_from
+        ran_out = row.valid_until is not None and today > row.valid_until
+        if not_started or ran_out:
+            answer = insurers.Answer(insurers.NOT_ELIGIBLE, "expired")
+        else:
+            adapter = insurers.adapter_for(row.insurer_name)
+            if adapter is not None:
+                adapter_name = adapter.name
+                member = decrypt(
+                    row.member_ref_enc, tenant_id=ctx.tenant_id,
+                    context=f"coverage:{row.public_id}:member_ref")
+                try:
+                    answer = adapter.check(member_id=member, category=category, on=today)
+                except Exception:  # noqa: BLE001 - any failure of an outside insurer is "unknown"
+                    answer = insurers.Answer(insurers.UNKNOWN, "unavailable")
+                if answer.result not in insurers.RESULTS or answer.reason not in insurers.REASONS:
+                    answer = insurers.Answer(insurers.UNKNOWN, "unclear")   # never trust the shape
+        made = CoverCheck.objects.create(
+            coverage_ref=row.public_id, person_ref=row.person_ref, requested_by_ref=actor_public_id,
+            category=category, result=answer.result, reason=answer.reason, adapter=adapter_name,
+            source_ref=answer.source_ref[:64], **_scope())
+        _audit(actor_public_id, "coverage.check", made.public_id)
+        return check_dict(made, clock)
+
+
+def list_checks(
+    coverage_ref: str, *, limit: int = 20, clock: Clock | None = None
+) -> list[dict[str, Any]]:
+    """The answers recorded for one policy, newest first. The caller has authorized the read."""
+    rows = CoverCheck.objects.filter(coverage_ref=coverage_ref, **_scope())
+    return [check_dict(c, clock) for c in rows.order_by("-created_at")[: max(1, min(limit, 50))]]

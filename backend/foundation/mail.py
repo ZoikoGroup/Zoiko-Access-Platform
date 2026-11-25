@@ -25,10 +25,10 @@ import re
 from dataclasses import dataclass
 
 from django.conf import settings
-from django.core.mail import EmailMessage
 from django.db import IntegrityError, connection, transaction
 
 from .errors import ErrorCode, ZoikoError
+from .mail_providers import MailMessage, MailProvider, get_provider
 from .models import EmailAttempt, MailState, QueuedEmail
 from .timeutil import Clock, utc_now
 
@@ -116,10 +116,13 @@ def send_due(*, limit: int = 20, clock: Clock | None = None) -> SendResult:
                    for row in rows]
 
     sent = retrying = failed = 0
+    provider: MailProvider | None = None
     for pk, ref, address, subject, body, attempts in claimed:
         try:
-            EmailMessage(subject=subject, body=body, to=[address],
-                         from_email=settings.DEFAULT_FROM_EMAIL).send(fail_silently=False)
+            provider = provider or get_provider()
+            made = provider.send(MailMessage(
+                to=address, subject=subject, body=body, from_email=settings.DEFAULT_FROM_EMAIL,
+                reference=ref))
         except Exception as exc:  # noqa: BLE001 - any failure means "try again later"
             error = type(exc).__name__[:64]
             _record_attempt(ref, attempts, "failed", error)
@@ -137,7 +140,9 @@ def send_due(*, limit: int = 20, clock: Clock | None = None) -> SendResult:
             # Wipe the body (it may hold a one-time link) and keep only a masked address.
             QueuedEmail.objects.filter(pk=pk).update(
                 state=MailState.SENT, sent_at=now, body="", to_address=mask_address(address),
-                last_error="", locked_until=None)
+                last_error="", locked_until=None, provider=provider.name,
+                provider_ref=made.provider_ref, delivery_status="accepted",
+                delivery_updated_at=now)
             sent += 1
     return SendResult(sent, retrying, failed)
 
@@ -163,4 +168,10 @@ def mail_stats(clock: Clock | None = None) -> dict[str, int]:
         "failed": rows.filter(state=MailState.FAILED).count(),
         "failed_attempts_24h": tries.filter(outcome="failed").count(),
         "accepted_attempts_24h": tries.filter(outcome="accepted").count(),
+        # What providers said happened to mail we handed them, in the last day.
+        "delivered_24h": rows.filter(
+            delivery_status="delivered", delivery_updated_at__gte=since).count(),
+        "bounced_24h": rows.filter(
+            delivery_status__in=["bounced", "complained"],
+            delivery_updated_at__gte=since).count(),
     }

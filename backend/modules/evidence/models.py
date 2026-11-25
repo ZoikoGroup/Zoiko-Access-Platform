@@ -61,3 +61,44 @@ class AuditEvent(CellScopedModel):
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         raise PermissionError("audit events are append-only")
+
+
+class DisclosureKind(models.TextChoices):
+    REFERRAL = "referral", "A referral"
+    REQUEST = "request", "A request to a partner"
+    CLAIM = "claim", "A claim to a payer"
+
+
+class DisclosureStage(models.TextChoices):
+    SENT = "sent", "Sent"
+    RELEASED = "released", "Details released with the patient’s agreement"
+    WITHDRAWN = "withdrawn", "Agreement taken back"
+
+
+class Disclosure(CellScopedModel):
+    """One line of the disclosure log (DEV-352): information about a patient went to another
+    organization. Append-only. Who, to whom and which record: never what was said."""
+
+    person_ref = models.CharField(max_length=22)
+    kind = models.CharField(max_length=12, choices=DisclosureKind.choices)
+    stage = models.CharField(max_length=12, choices=DisclosureStage.choices)
+    record_ref = models.CharField(max_length=22)          # the referral, request or claim
+    organization_ref = models.CharField(max_length=22, blank=True, default="")   # the sender
+    recipient_ref = models.CharField(max_length=22, blank=True, default="")
+    recipient_name = models.CharField(max_length=200, blank=True, default="")
+    actor_ref = models.CharField(max_length=64)           # who did it
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="disclosure_scope_idx"),
+            models.Index(fields=["person_ref", "created_at"], name="disclosure_person_idx"),
+            models.Index(fields=["record_ref", "created_at"], name="disclosure_record_idx"),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self._state.adding:
+            raise PermissionError("the disclosure log is append-only")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        raise PermissionError("the disclosure log is append-only")

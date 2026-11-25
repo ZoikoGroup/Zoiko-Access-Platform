@@ -138,11 +138,19 @@ class QueuedEmail(CellScopedModel):
     # SHA-256 of "subject, a line break, body" as queued. It stays after the body is wiped, so there
     # is evidence of exactly what was sent without keeping a one-time link (GHE-16, DEV-113).
     content_digest = models.CharField(max_length=64, blank=True, default="")
+    # Which provider took it, that provider's own id for it, and how far it got by the provider's
+    # delivery receipts (accepted, deferred, delivered, bounced, complained). "Sent" means a server
+    # accepted it; only a receipt says more than that (GHE-16).
+    provider = models.CharField(max_length=16, blank=True, default="")
+    provider_ref = models.CharField(max_length=64, blank=True, default="")
+    delivery_status = models.CharField(max_length=16, blank=True, default="")
+    delivery_updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [
             models.Index(fields=["cell_id", "tenant_id"], name="mail_scope_idx"),
             models.Index(fields=["state", "next_attempt_at"], name="mail_due_idx"),
+            models.Index(fields=["provider_ref"], name="mail_provider_idx"),
         ]
 
 
