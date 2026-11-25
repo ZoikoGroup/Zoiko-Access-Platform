@@ -52,6 +52,9 @@ class ClinicalNote(CellScopedModel):
     # The visit's coded diagnoses (DEV-344, LEAD DECISION): SNOMED CT code, words and status, as
     # JSON, ENCRYPTED like the text. Changed only while a draft; signed with the note.
     diagnoses_enc = models.TextField(blank=True, default="")
+    # The visit's structured medications (DEV-375): SNOMED CT / dm+d concept, name, dose and status,
+    # as JSON, ENCRYPTED like the text. Changed only while a draft; signed with the note.
+    medications_enc = models.TextField(blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [

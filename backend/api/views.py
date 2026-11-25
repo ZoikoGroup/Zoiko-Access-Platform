@@ -161,9 +161,8 @@ def _waiting_too_long(booking: dict[str, Any]) -> bool:
     """A booking still waiting for confirmation after the clinic's response target."""
     if booking["status"] != "requested":
         return False
-    waited = utc_now() - dt.datetime.fromisoformat(booking["created_at"])
-    target = trust.response_target_hours(booking["slot"]["organization_ref"])
-    return waited > dt.timedelta(hours=target)
+    return catalog.is_late(          # counting only the clinic's opening hours when set (DEV-367)
+        booking["slot"]["organization_ref"], dt.datetime.fromisoformat(booking["created_at"]))
 
 
 @endpoint("GET")
@@ -959,11 +958,16 @@ def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
             else {"confirmed": 0, "waiting": 0, "still_to_come": 0}
         )
         target = trust.response_target_hours(org) if org else settings.RESPONSE_TARGET_HOURS
+        # The clinic's own "late" line, counting only its opening hours when set (DEV-367).
+        cutoff = catalog.late_cutoff(org) if org else None
         late = {
             "hours": target,
-            "bookings": scheduling.overdue_requests(target),
-            "messages": 0 if org is None else messaging.overdue_threads_for_staff(org, target),
-            "data_requests": 0 if org is None else rights.overdue_count(org, target),
+            "bookings": scheduling.overdue_requests(target, organization_ref=org or "",
+                                                    cutoff=cutoff),
+            "messages": 0 if org is None else messaging.overdue_threads_for_staff(
+                org, target, cutoff=cutoff),
+            "data_requests": 0 if org is None else rights.overdue_count(
+                org, target, cutoff=cutoff),
         }
     return JsonResponse(
         {
@@ -1186,22 +1190,56 @@ def staff_settings(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
         if "R13" not in auth.roles:
             raise ZoikoError(ErrorCode.POLICY_DENIED)
         _authorize(auth, "write:staff", organization_public_id=org)
-        hours = json_body(request).get("hours")
+        sent = json_body(request)
         with tenant_transaction():
-            trust.set_response_target(org, hours, by=auth.actor_public_id)
+            # The clinic's own waiting-list offer window (DEV-366), and/or its response target.
+            if "waitlist_offer_hours" in sent:
+                waitlist.set_offer_hours(
+                    org, sent["waitlist_offer_hours"], by=auth.actor_public_id)
+            if "hours" in sent or "waitlist_offer_hours" not in sent:
+                trust.set_response_target(org, sent.get("hours"), by=auth.actor_public_id)
     with tenant_transaction():
         recipients = len(trust.verified_emails_for_role(org, "R04"))
         target = trust.response_target_hours(org)
+        offer_hours = waitlist.offer_hours_for(org)
     return JsonResponse(
         {
             "response_target_hours": target,
             "response_target_default": settings.RESPONSE_TARGET_HOURS,
             "can_set_target": "R13" in auth.roles,
             "reminder_lead_hours": settings.REMINDER_LEAD_HOURS,
-            "waitlist_offer_hours": settings.WAITLIST_OFFER_HOURS,
+            "waitlist_offer_hours": offer_hours,
+            "waitlist_offer_default": settings.WAITLIST_OFFER_HOURS,
             "late_email_recipients": recipients,
         }
     )
+
+
+@endpoint("GET", "POST")
+def staff_business_hours(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: the clinic's working days and opening times (or null when not set), and the clock they
+    are read on. POST {"business_hours": {...} | null}: set or clear them (the clinic administrator
+    only). Every late flag, work-queue deadline and late count then counts only open hours
+    (DEV-367, from the maruthi branch)."""
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "read:analytics", organization_public_id=org)
+    if request.method == "POST":
+        if "R13" not in auth.roles:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        _authorize(auth, "write:staff", organization_public_id=org)
+        body = json_body(request)
+        if "business_hours" not in body:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["business_hours"])
+        with tenant_transaction():
+            trust.set_business_hours(org, body["business_hours"], by=auth.actor_public_id)
+    with tenant_transaction():
+        current = trust.business_hours_of(org)
+        zone = catalog.organization_zone(org)
+    return JsonResponse({
+        "business_hours": current, "zone": zone["zone"], "zone_source": zone["source"],
+        "can_set": "R13" in auth.roles})
 
 
 @endpoint("GET")
@@ -2906,9 +2944,17 @@ def exchange_request_step(
         organization_public_id=org,
         subject_ref=person,
     )
+    version: int | None = None
+    if step == "review":
+        # The version of the result the doctor read (DEV-373): a review of anything else is refused.
+        sent = json_body(request).get("version")
+        if isinstance(sent, bool) or not isinstance(sent, int) or sent < 1:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["version"])
+        version = sent
     with tenant_transaction(_platform_context()):
         done = exchange.clinic_step(
-            request_ref=request_id, tenant_ref=mine, step=step, actor_ref=auth.actor_public_id
+            request_ref=request_id, tenant_ref=mine, step=step, actor_ref=auth.actor_public_id,
+            version=version,
         )
     changed = done.pop("changed", False)
     with tenant_transaction():
@@ -2991,6 +3037,42 @@ def exchange_mine_values(
             actor_ref=auth.actor_public_id,
         )
     return JsonResponse({"result": got})
+
+
+@endpoint("GET")
+def exchange_mine_trend(
+    request: HttpRequest, auth: trust.Authenticated, request_id: str
+) -> HttpResponse:
+    """The historical trend of one measured value across this patient's reviewed results, a day
+    after a doctor reviewed them (DEV-372). Only the patient themselves (or an authorized guardian
+    with records access)."""
+    mine = _my_customer(auth)
+    with tenant_transaction():
+        reachable = trust.reachable_persons(auth.actor_public_id)
+    with tenant_transaction(_platform_context()):
+        rows = exchange.list_for_patients(tenant_ref=mine, person_refs=reachable)
+    found = next((r for r in rows if r["id"] == request_id), None)
+    if found is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if not is_allowed(auth, _EXCHANGE_READ[found["kind"]], subject_ref=found["person"]):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if not found["values_ready"]:
+        # Asked from a result the patient may not see yet (as for its own values): not found.
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    key = request.GET.get("key")
+    with tenant_transaction(_platform_context()):
+        points = exchange.patient_value_trend(
+            person_ref=found["person"], tenant_ref=mine, key=key,
+            actor_ref=auth.actor_public_id,
+        )
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id, action="exchange.patient_trend_read",
+            object_type="exchange_request", object_ref=request_id,
+            outcome=evidence.AuditOutcome.ALLOWED,
+        )
+    return JsonResponse({"points": points})
+
 
 
 @endpoint("POST")
@@ -4961,7 +5043,10 @@ def coverage_end(request: HttpRequest, auth: trust.Authenticated, coverage_id: s
 
 
 # ------------------------------------------------------------------ waiting list
-def _waitlist_json(rows: list[dict[str, Any]], auth: trust.Authenticated) -> list[dict[str, Any]]:
+def _waitlist_json(
+    rows: list[dict[str, Any]], auth: trust.Authenticated, *, staff: bool = False
+) -> list[dict[str, Any]]:
+    """A patient never sees where the clinic ranks them: priority is for staff screens only."""
     with tenant_transaction():
         orgs = trust.organization_names()
         cache: dict[str, Any] = {}
@@ -4980,6 +5065,11 @@ def _waitlist_json(rows: list[dict[str, Any]], auth: trust.Authenticated) -> lis
                         "id": e["organization_ref"],
                         "name": orgs.get(e["organization_ref"], ""),
                     },
+                    **(
+                        {"priority": e["priority"], "priority_reason": e["priority_reason"]}
+                        if staff
+                        else {}
+                    ),
                 }
             )
     return _add_names(auth, out, "patient")
@@ -5032,13 +5122,35 @@ def staff_waitlist(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
         if is_allowed(auth, "read:booking", organization_public_id=org):
             with tenant_transaction():
                 rows += waitlist.list_entries(organization_ref=org)
-    rows.sort(key=lambda e: e["created_at"])  # longest waiting first
+    # The order times are offered in (DEV-366): most urgent first, then longest waiting.
+    rows.sort(key=lambda e: (-e["priority"], e["created_at"]))
     place: dict[str, int] = {}
-    entries = _waitlist_json(rows, auth)
+    entries = _waitlist_json(rows, auth, staff=True)
     for item in entries:
         place[item["service"]["id"]] = place.get(item["service"]["id"], 0) + 1
         item["place"] = place[item["service"]["id"]]
     return JsonResponse({"entries": entries})
+
+
+@endpoint("POST")
+def staff_waitlist_priority(
+    request: HttpRequest, auth: trust.Authenticated, entry_id: str
+) -> HttpResponse:
+    """Clinic staff set how soon someone is offered a time (DEV-366):
+    {"priority": 0|1|2, "reason": a PriorityReason code, needed above 0}. Staff only: a patient or
+    guardian cannot rank themselves."""
+    _staff_only(auth)
+    body = json_body(request)
+    with tenant_transaction():
+        entry = waitlist.get_entry(entry_id)
+    decision = _authorize(
+        auth, "write:booking", organization_public_id=entry["organization_ref"],
+        subject_ref=entry["person_ref"])
+    with tenant_transaction():
+        done = waitlist.set_priority(
+            entry_ref=entry_id, priority=body.get("priority"), reason=body.get("reason", ""),
+            actor_public_id=auth.actor_public_id, decision=decision)
+    return JsonResponse({"entry": _waitlist_json([done], auth, staff=True)[0]})
 
 
 @endpoint("POST")
@@ -6525,6 +6637,7 @@ def clinician_notes(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
                 by=auth.actor_public_id,
                 decision=decision,
                 diagnoses=body.get("diagnoses"),
+                medications=body.get("medications"),
             )
             names = trust.actor_labels()
         out = _note_json(made, names)
@@ -6612,6 +6725,7 @@ def clinician_note_step(
             done = notes.edit_draft(
                 note_ref=note_id, body=body.get("body"), by=auth.actor_public_id,
                 decision=decision, diagnoses=body.get("diagnoses"),
+                medications=body.get("medications"),
             )
         elif step == "addendum":
             done = notes.add_addendum(

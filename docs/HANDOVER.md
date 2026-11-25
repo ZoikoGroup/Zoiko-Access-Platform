@@ -42,9 +42,9 @@ Turn notes on only where the legal and clinical-safety reviews are done.
 
 ## What is not built
 
-- **Clinical:** result values for the patient and trends across results (the doctor sees values, DEV-330), diagnosis and medicine fields, attachments, the NHS "8 years after death" retention rule.
+- **Clinical:** attachments, the NHS "8 years after death" retention rule (result values and trends across results for patients are built, DEV-330, DEV-372; structured diagnoses and active medications are built, DEV-344, DEV-375).
 - **Interoperability:** HL7 v2, imaging, a real adapter for a named lab (only the pretend one exists), re-running held messages once a code mapping is approved.
-- **Money and cover:** employer counts by kind of service (declined for now); claim attachments and remittance advice.
+- **Money and cover:** employer counts by kind of service (declined for now); claim attachments and remittance advice (patient online bill payment and checkout built, DEV-374).
 - **Partners:** a pretend clinic for end-to-end sandbox orders; separate sandbox keys (the synthetic-patient sandbox is built, DEV-329).
 - **Channels:** text messages and push (email alerts for critical results and escalations are built, DEV-310).
 - **Operations:** more than one region; paging on lists other than the two request lists. (Regional support's view of delivery attempts is built, DEV-328.)

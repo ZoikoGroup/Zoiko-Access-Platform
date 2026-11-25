@@ -23,6 +23,7 @@ export interface Note {
   supersedes: string | null; superseded_by: string | null; amend_reason: string | null;
   guardian_hidden?: boolean; erased?: boolean;
   diagnoses?: Diagnosis[]; has_diagnoses?: boolean;
+  medications?: Medication[]; has_medications?: boolean;
   signed_at: string | null; created_at: string; body?: string;
   addenda?: { id: string; author: string; added_at: string; body: string }[];
 }
@@ -79,15 +80,21 @@ export interface PartnerRequest {
   state: "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
   decision_note: string; result_ref: string; result_flag?: "" | "normal" | "abnormal" | "critical"; has_summary?: boolean;
   result_version?: number; result_correction?: string | null; has_values?: boolean;
+  /** The lab says this result is not final yet: it cannot be marked reviewed (DEV-370). */
+  result_preliminary?: boolean;
   created_at: string; result_at: string | null; reviewed_at: string | null;
 }
 
 export interface ResultValue { name: string; code?: string; value: number | string; unit?: string; low?: number | null; high?: number | null; flag?: string }
-export interface ResultVersion { version: number; flag: string; summary: string; values?: ResultValue[]; result_ref: string; correction: string | null; delivered_at: string | null; reviewed: boolean; replaced_at: string }
+export interface ResultVersion { version: number; flag: string; summary: string; values?: ResultValue[]; result_ref: string; correction: string | null; delivered_at: string | null; reviewed: boolean; replaced_at: string; preliminary?: boolean }
 export interface ResultSummary {
   id: string; flag: string; summary: string; result_ref: string; delivered_at: string | null;
   version?: number; correction?: string | null; earlier?: ResultVersion[]; values?: ResultValue[];
+  preliminary?: boolean;
 }
 
 /** A coded diagnosis on a visit note (DEV-344): a SNOMED CT concept, its words and a status. */
 export interface Diagnosis { code: string; text: string; status: "confirmed" | "provisional" | "ruled_out" }
+
+/** A structured active medication on a visit note (DEV-375): a dm+d / SNOMED CT concept, name, dose and status. */
+export interface Medication { code: string; name: string; dose?: string; status: "active" | "suspended" | "stopped" }

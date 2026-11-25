@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, addNoteAddendum, amendNote, createNote, editNote, getNote, getNotes, getPatients, setNoteGuardianHidden, signNote } from "../api";
-import type { Diagnosis, Note, PatientRow } from "../types";
+import type { Diagnosis, Medication, Note, PatientRow } from "../types";
 import { Card, Pill } from "../ui";
 
 const STATE: Record<Note["state"], { text: string; kind: "ok" | "warn" | "info" }> = {
@@ -17,12 +17,13 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
   const [note, setNote] = useState<Note | null>(null);
   const [text, setText] = useState("");
   const [dx, setDx] = useState<Diagnosis[]>([]);
+  const [meds, setMeds] = useState<Medication[]>([]);
   const [reason, setReason] = useState("clarification");
   const [addendum, setAddendum] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    getNote(id).then((n) => { setNote(n); setText(n.body ?? ""); setDx(n.diagnoses ?? []); }).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not open"));
+    getNote(id).then((n) => { setNote(n); setText(n.body ?? ""); setDx(n.diagnoses ?? []); setMeds(n.medications ?? []); }).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not open"));
   }, [id]);
   async function run(action: () => Promise<Note>, then?: (n: Note) => void) {
     setBusy(true); setError("");
@@ -48,9 +49,10 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
             <textarea className="field" rows={8} value={text} onChange={(e) => setText(e.target.value)} style={{ width: "100%" }} />
           </label>
           <DiagnosesEditor rows={dx} onChange={setDx} />
+          <MedicationsEditor rows={meds} onChange={setMeds} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className="btn ghost" disabled={busy || !text.trim()} onClick={() => void run(() => editNote(id, text, dx))}>Save draft</button>
-            <button className="btn" disabled={busy || !text.trim()} onClick={() => void run(async () => { await editNote(id, text, dx); return signNote(id); })}>Sign this note</button>
+            <button className="btn ghost" disabled={busy || !text.trim()} onClick={() => void run(() => editNote(id, text, dx, meds))}>Save draft</button>
+            <button className="btn" disabled={busy || !text.trim()} onClick={() => void run(async () => { await editNote(id, text, dx, meds); return signNote(id); })}>Sign this note</button>
           </div>
           <small>Once signed it cannot be changed. A correction is a new version.</small>
         </>
@@ -58,6 +60,7 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
         <>
           <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }} aria-label="Note text">{note.body}</pre>
           <DiagnosesList items={note.diagnoses} />
+          <MedicationsList items={note.medications} />
         </>
       )}
       {note.state === "signed" && note.mine && (
@@ -217,6 +220,47 @@ function DiagnosesEditor({ rows, onChange }: { rows: Diagnosis[]; onChange: (row
         </div>
       ))}
       {rows.length < 10 && <div><button className="btn ghost" onClick={() => onChange([...rows, { code: "", text: "", status: "confirmed" }])}>Add a diagnosis</button></div>}
+    </div>
+  );
+}
+
+const MED_STATUS: Record<Medication["status"], string> = { active: "Active", suspended: "Suspended", stopped: "Stopped" };
+
+/** The visit's structured active medications, as signed (DEV-375). */
+export function MedicationsList({ items }: { items?: Medication[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div role="region" aria-label="Medications" style={{ marginTop: 6 }}>
+      <b>Active Medications &amp; Dosages</b>
+      <ul style={{ margin: "4px 0" }}>
+        {items.map((m, idx) => (
+          <li key={m.code || idx}>
+            <strong>{m.name}</strong>{m.dose ? ` — ${m.dose}` : ""} <small>({MED_STATUS[m.status]}, dm+d/SNOMED CT {m.code})</small>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Up to 10 structured active medications on a draft: dm+d / SNOMED CT concept id, name, dose, and status. */
+function MedicationsEditor({ rows, onChange }: { rows: Medication[]; onChange: (rows: Medication[]) => void }) {
+  const set = (i: number, m: Partial<Medication>) => onChange(rows.map((r, n) => (n === i ? { ...r, ...m } : r)));
+  return (
+    <div role="group" aria-label="Medications" style={{ marginTop: 8 }}>
+      <b>Active Medications &amp; Dosages (coded, optional)</b>
+      {rows.map((m, i) => (
+        <div key={i} style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+          <input className="field" aria-label={`Medication code ${i + 1}`} placeholder="dm+d/SNOMED CT, e.g. 318538006" value={m.code} maxLength={18} onChange={(e) => set(i, { code: e.target.value.trim() })} style={{ width: 170 }} />
+          <input className="field" aria-label={`Medication name ${i + 1}`} placeholder="Amoxicillin 500mg capsules" value={m.name} maxLength={120} onChange={(e) => set(i, { name: e.target.value })} style={{ flex: 1, minWidth: 160 }} />
+          <input className="field" aria-label={`Medication dose ${i + 1}`} placeholder="Dose (e.g. 500mg TDS for 7 days)" value={m.dose ?? ""} maxLength={120} onChange={(e) => set(i, { dose: e.target.value })} style={{ width: 200 }} />
+          <select aria-label={`Medication status ${i + 1}`} value={m.status} onChange={(e) => set(i, { status: e.target.value as Medication["status"] })}>
+            <option value="active">Active</option><option value="suspended">Suspended</option><option value="stopped">Stopped</option>
+          </select>
+          <button className="btn ghost" aria-label={`Remove medication ${i + 1}`} onClick={() => onChange(rows.filter((_, n) => n !== i))}>×</button>
+        </div>
+      ))}
+      {rows.length < 10 && <div><button className="btn ghost" onClick={() => onChange([...rows, { code: "", name: "", dose: "", status: "active" }])}>Add a medication</button></div>}
     </div>
   );
 }

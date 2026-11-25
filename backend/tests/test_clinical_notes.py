@@ -519,11 +519,11 @@ def test_retention_erases_the_text_and_keeps_the_rows(clinic):
     assert erase_expired_all_tenants() == 1  # 2010 + 8 years has passed
     with tenant_transaction(clinic.clinic.ctx):
         row = ClinicalNote.objects.get(public_id=old)
-        assert row.body_enc == "" and row.erased_at is not None
+        assert row.body_enc == "" and row.medications_enc == "" and row.erased_at is not None
         assert NoteAddendum.objects.get(note=row).body_enc == ""
         assert AuditEvent.objects.filter(action="clinicalnote.erased_retention").count() == 1
     read = body(clinic.get(f"clinician/notes/{old}", subject="doc"))["note"]
-    assert read["body"] == "" and read["erased"] is True
+    assert read["body"] == "" and read["medications"] == [] and read["erased"] is True
     assert erase_expired_all_tenants() == 0  # nothing left to erase
 
 
@@ -577,6 +577,70 @@ def test_diagnoses_are_stored_encrypted_and_bad_ones_refused(clinic):
         cur.execute("select diagnoses_enc from clinicalnote_clinicalnote")
         stored = " ".join(row[0] for row in cur.fetchall())
     assert stored and "Hypertension" not in stored and "38341003" not in stored
+
+
+
+# ------------------------------------------------ structured medications (DEV-375)
+MEDS = [
+    {
+        "code": "38341003",
+        "name": "Amoxicillin 500mg capsules",
+        "dose": "500mg TDS for 7 days",
+        "status": "active",
+    },
+    {
+        "code": "73211009",
+        "name": "Paracetamol 500mg tablets",
+        "dose": "1g QDS PRN",
+        "status": "suspended",
+    },
+]
+
+
+def test_a_draft_carries_structured_medications_signed_with_the_note_and_shown_to_the_patient(clinic):
+    r = clinic.post("clinician/notes", {"patient": clinic.person, "note_date": "2026-11-16",
+                                        "body": TEXT, "medications": MEDS}, subject="doc")
+    assert r.status_code == 201, r.content
+    note = body(r)["note"]["id"]
+    got = body(clinic.get(f"clinician/notes/{note}", subject="doc"))["note"]
+    assert got["medications"] == MEDS and got["has_medications"] is True
+    assert "Amoxicillin" not in listing(clinic).content.decode()  # never in the list
+    step(clinic, note, "edit", body=TEXT2)  # no medications given: they stay
+    assert body(clinic.get(f"clinician/notes/{note}", subject="doc"))["note"]["medications"] == MEDS
+    step(clinic, note, "edit", body=TEXT2, medications=[MEDS[0]])
+    assert body(clinic.get(f"clinician/notes/{note}", subject="doc"))["note"]["medications"] == [MEDS[0]]
+    step(clinic, note, "sign")
+    assert step(clinic, note, "edit", body=TEXT, medications=[]).status_code == 409  # signed
+    new = body(step(clinic, note, "amend", reason="clarification"))["note"]["id"]
+    assert body(clinic.get(f"clinician/notes/{new}", subject="doc"))["note"]["medications"] == [MEDS[0]]
+    # embargo: patient cannot read before 24h
+    assert clinic.get(f"my/notes/{note}", subject="pat").status_code == 404
+    backdate(clinic, note, 25)
+    pat_note = body(clinic.get(f"my/notes/{note}", subject="pat"))["note"]
+    assert pat_note["medications"] == [MEDS[0]]
+
+
+def test_medications_are_stored_encrypted_and_bad_ones_refused(clinic):
+    from django.db import connection
+
+    for bad in (
+        [{"code": "38341004", "name": "Amoxicillin", "status": "active"}],  # bad check digit
+        [{"code": "38341003", "name": "", "status": "active"}],  # empty name
+        [{"code": "38341003", "name": "x", "status": "unknown"}],  # bad status
+        [{"code": "38341003", "name": "x", "status": "active", "route": "oral"}],  # extra field
+        [MEDS[0], MEDS[0]],  # duplicate code
+        [MEDS[0]] * 11,  # more than 10
+        "Amoxicillin 500mg",  # not a list
+    ):
+        r = clinic.post("clinician/notes", {"patient": clinic.person, "note_date": "2026-11-16",
+                                            "body": TEXT, "medications": bad}, subject="doc")
+        assert r.status_code == 422, bad
+    clinic.post("clinician/notes", {"patient": clinic.person, "note_date": "2026-11-16",
+                                    "body": TEXT, "medications": MEDS}, subject="doc")
+    with connection.cursor() as cur:
+        cur.execute("select medications_enc from clinicalnote_clinicalnote")
+        stored = " ".join(row[0] for row in cur.fetchall())
+    assert stored and "Amoxicillin" not in stored and "38341003" not in stored and "500mg TDS" not in stored
 
 
 

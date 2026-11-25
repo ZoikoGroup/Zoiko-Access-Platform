@@ -2,7 +2,7 @@
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
-import type { Diagnosis, Appointment, Health, Note, PartnerRequest, ResultSummary, PatientRow, Referral, ServiceOption, Thread, ThreadView } from "./types";
+import type { Diagnosis, Medication, Appointment, Health, Note, PartnerRequest, ResultSummary, PatientRow, Referral, ServiceOption, Thread, ThreadView } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -131,8 +131,9 @@ export const replyToThread = (id: string, body: string, key: string) =>
   v1<unknown>(`messages/threads/${encodeURIComponent(id)}/reply`, {
     method: "POST", body: JSON.stringify({ body }), headers: { "Idempotency-Key": key } });
 export const getPartnerRequests = async () => (await v1<{ requests: PartnerRequest[] }>("exchange/requests")).requests;
-export const reviewPartnerResult = (id: string) =>
-  v1<{ request: PartnerRequest }>(`exchange/requests/${encodeURIComponent(id)}/review`, { method: "POST", body: "{}" });
+/** Mark a result reviewed, naming the version the doctor read: any other version is refused (DEV-373). */
+export const reviewPartnerResult = (id: string, version: number) =>
+  v1<{ request: PartnerRequest }>(`exchange/requests/${encodeURIComponent(id)}/review`, { method: "POST", body: JSON.stringify({ version }) });
 export const getMe = () => v1<{ cell: string; tenant: string }>("me");
 
 async function ping(path: string): Promise<Health> {
@@ -234,10 +235,26 @@ export async function clearDisplayName(): Promise<void> {
 export const getNotes = async (patient: string) =>
   (await v1<{ notes: Note[] }>(`clinician/notes?patient=${encodeURIComponent(patient)}`)).notes;
 export const getNote = async (id: string) => (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}`)).note;
-export const createNote = async (patient: string, note_date: string, body: string) =>
-  (await v1<{ note: Note }>("clinician/notes", { method: "POST", body: JSON.stringify({ patient, note_date, body }) })).note;
-export const editNote = async (id: string, body: string, diagnoses?: Diagnosis[]) =>
-  (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/edit`, { method: "POST", body: JSON.stringify(diagnoses ? { body, diagnoses } : { body }) })).note;
+export const createNote = async (patient: string, note_date: string, body: string, diagnoses?: Diagnosis[], medications?: Medication[]) =>
+  (await v1<{ note: Note }>("clinician/notes", {
+    method: "POST",
+    body: JSON.stringify({
+      patient,
+      note_date,
+      body,
+      ...(diagnoses ? { diagnoses } : {}),
+      ...(medications ? { medications } : {}),
+    }),
+  })).note;
+export const editNote = async (id: string, body: string, diagnoses?: Diagnosis[], medications?: Medication[]) =>
+  (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/edit`, {
+    method: "POST",
+    body: JSON.stringify({
+      body,
+      ...(diagnoses ? { diagnoses } : {}),
+      ...(medications ? { medications } : {}),
+    }),
+  })).note;
 export const signNote = async (id: string) =>
   (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/sign`, { method: "POST", body: "{}" })).note;
 export const addNoteAddendum = async (id: string, body: string) =>

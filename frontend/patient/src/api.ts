@@ -434,6 +434,35 @@ export interface Invoice {
 }
 export const getInvoices = async () => (await request<{ invoices: Invoice[] }>("billing/invoices")).body.invoices;
 
+export interface PaymentAttempt {
+  public_id: string;
+  invoice_ref: string;
+  invoice_number: string;
+  provider: string;
+  provider_ref: string;
+  amount_minor: number;
+  currency: string;
+  status: "pending" | "succeeded" | "failed" | "unknown";
+  attempts: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export const getInvoicePayments = async (invoiceId: string) =>
+  (await request<{ payments: PaymentAttempt[] }>(`billing/invoices/${encodeURIComponent(invoiceId)}/payments`)).body.payments;
+
+export const payInvoice = async (invoiceId: string, idempotencyKey: string) =>
+  (await request<{ payment: PaymentAttempt }>(`billing/invoices/${encodeURIComponent(invoiceId)}/payments`, {
+    method: "POST",
+    body: JSON.stringify({ idempotency_key: idempotencyKey }),
+  })).body.payment;
+
+export const refreshPayment = async (paymentId: string) =>
+  (await request<{ payment: PaymentAttempt }>(`billing/payments/${encodeURIComponent(paymentId)}/refresh`, {
+    method: "POST",
+    body: "{}",
+  })).body.payment;
+
 export interface RightsRequest {
   id: string;
   ref: string;
@@ -576,16 +605,30 @@ export interface MyRequest {
   values_ready?: boolean;
 }
 // The measured values of a reviewed result, a day after the doctor's review (DEV-332).
-export interface MyValue { name: string; value: number | string; unit?: string; low?: number | null; high?: number | null; flag?: string }
+export interface MyValue { name: string; code?: string; value: number | string; unit?: string; low?: number | null; high?: number | null; flag?: string }
 export const getMyValues = async (id: string) =>
   (await request<{ result: { id: string; label: string; reviewed_at: string | null; values: MyValue[] } }>(`exchange/mine/${encodeURIComponent(id)}/values`)).body.result;
+export interface TrendPoint {
+  request: string; label: string; at: string | null; value: number | string | null;
+  unit: string; low: number | null; high: number | null; flag: string; reviewed: boolean; version: number;
+}
+export const getMyTrend = async (id: string, key: string) =>
+  (await request<{ points: TrendPoint[] }>(`exchange/mine/${encodeURIComponent(id)}/trend?key=${encodeURIComponent(key)}`)).body.points;
 export const answerMyRequest = async (id: string, step: "agree" | "decline" | "withdraw") =>
   (await request<{ request: MyRequest }>(`exchange/mine/${encodeURIComponent(id)}/${step}`, { method: "POST", body: "{}" })).body.request;
+export interface MyMedication {
+  code: string;
+  name: string;
+  dose?: string;
+  status: "active" | "suspended" | "stopped";
+}
+
 export interface MyNote {
   id: string; note_date: string; version: number; corrected: boolean; amend_reason: string | null;
   author_name: string; signed_at: string | null; body?: string;
   for_name?: string | null; erased?: boolean;
   diagnoses?: { code: string; text: string; status: string }[];
+  medications?: MyMedication[];
   addenda?: { id: string; added_at: string; body: string }[];
 }
 export const getMyNotes = async () => (await request<{ notes: MyNote[]; enabled?: boolean }>("my/notes")).body;

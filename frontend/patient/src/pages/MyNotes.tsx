@@ -53,6 +53,18 @@ export function MyNotes() {
                 </ul>
               </div>
             )}
+            {open.medications && open.medications.length > 0 && (
+              <div role="region" aria-label="Medications" style={{ marginTop: 8 }}>
+                <b>Active medications &amp; dosages</b>
+                <ul style={{ margin: "4px 0" }}>
+                  {open.medications.map((m, idx) => (
+                    <li key={m.code || idx}>
+                      <strong>{m.name}</strong>{m.dose ? ` — ${m.dose}` : ""} <small>{m.status === "suspended" ? "(paused / on hold)" : m.status === "stopped" ? "(stopped)" : "(active)"}</small>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {open.addenda && open.addenda.length > 0 && (
               <div role="region" aria-label="Addenda" style={{ marginTop: 8 }}>
                 <b>Added later by your doctor</b>
