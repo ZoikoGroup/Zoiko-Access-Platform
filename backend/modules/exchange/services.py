@@ -1037,6 +1037,7 @@ def order_to_send(*, request_ref: str, tenant_ref: str) -> dict[str, Any] | None
         return None
     return {
         "partner": row.to_tenant_ref,
+        "sender": row.created_by_ref,          # who at the clinic sent it (not part of the payload)
         "payload": {
             "request_ref": row.public_id,
             "order_no": row.subject_token,

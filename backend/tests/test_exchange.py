@@ -1012,6 +1012,26 @@ def test_a_coded_order_goes_to_the_labs_system_once_when_the_patient_agrees(worl
     assert len(sent) == 1 and sent[0]["connector_key"] == "simulator"
 
 
+@pytest.mark.parametrize("site", ["org", "other_org"])
+def test_the_order_is_sent_whichever_of_the_labs_sites_has_the_system(world, site):
+    """A lab with two sites and the system chosen at only one of them. Whichever site it is, the
+    order goes (the sites come from the database in no fixed order)."""
+    from modules.connector import api as connector
+    from modules.connector.simulator import SimulatorAdapter
+
+    _, clinic, lab = world
+    if "simulator" not in connector.registered():
+        connector.register(SimulatorAdapter())
+    with tenant_transaction(lab.ctx):
+        trust.set_booking_system(getattr(lab, site), "simulator", by="system")
+    give_profile(clinic)
+    request_id = made(clinic, lab, consent=False, order_code="26604007")
+    assert agree(clinic, request_id).status_code == 200
+    (sent,) = _orders(clinic, request_id)
+    assert sent["connector_key"] == "simulator"
+    assert sent["organization_ref"] == clinic.clinic.org      # the sender's own clinic site
+
+
 def test_what_is_sent_is_references_only_and_names_nobody(world):
     from modules.connector.models import ExternalOperation
 

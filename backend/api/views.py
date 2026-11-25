@@ -3137,15 +3137,20 @@ def _send_order(
         if order is None:
             return
         with tenant_transaction(trust.context_for(order["partner"])):
-            orgs = list(trust.organization_names())
-            system = trust.booking_system_of(orgs[0]) if orgs else ""
+            # A partner may have several sites, which the database lists in no fixed order: take
+            # the first (by id, so always the same one) that has chosen a system.
+            system = next(
+                (chosen for ref in sorted(trust.organization_names())
+                 if (chosen := trust.booking_system_of(ref))), "")
         if not system or not connector.is_live(system):
             return
         with tenant_transaction():
-            clinic_orgs = list(trust.organization_names())
+            # The operation belongs to the clinic site of whoever sent the request.
+            sites = sorted({org for _, org in trust.active_roles(order["sender"])}) or sorted(
+                trust.organization_names())
             connector.request_operation(
                 connector_key=system, operation_type="exchange.order", subject_ref=request_id,
-                organization_ref=clinic_orgs[0] if clinic_orgs else "",
+                organization_ref=sites[0] if sites else "",
                 idempotency_key=order["key"], request=order["payload"],
                 requested_by_ref=auth.actor_public_id, decision=decision,
                 authorized_as=operation, receipt_subject_ref=person,
