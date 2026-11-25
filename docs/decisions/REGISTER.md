@@ -2197,6 +2197,38 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
   - Backend payment test suite verified: all 13 tests in `tests/test_payments.py` passed in Docker with test settings.
   - OpenAPI snapshot refreshed and verified (`pytest backend/tests/test_openapi.py`: 7 passed).
 
+### DEV-376: consultation notes: clinical document and media attachments (follows DEV-304, DEV-345)
+
+- **Why:** `docs/HANDOVER.md` under "What is not built (Clinical)" listed "attachments". Clinicians writing consultation notes need to attach relevant clinical documents (PDF referral letters, imaging summaries) and clinical media (PNG/JPEG ECG traces, wound photos) during visit consultations, sealed upon signing, encrypted at rest, virus-scanned, and made visible to patients after the 24-hour review embargo.
+- **What was done:**
+  - **Database & Model (`modules/clinicalnote/models.py`, migration `0006_noteattachment`):** Added `NoteAttachment(CellScopedModel)` with `filename`, `content_type`, `size`, `sha256`, `content_enc` (encrypted base64 ciphertext), `scan_state` (`pending`, `clean`, `infected`), `scanned_at`, and `uploaded_by_ref`.
+  - **Security, Validation & Virus Scanning (`modules/clinicalnote/services.py`):**
+    - File validation (`_detect_type`): validates file magic bytes, allowing only PDF (with `_ACTIVE_PDF` protection against active JS/launch actions), PNG, and JPEG. Size capped at 10 MB (`MAX_ATTACHMENT_BYTES`). Max 5 attachments per note (`MAX_ATTACHMENTS = 5`).
+    - Virus scanning (`_apply_scan`): automatically checks uploads using `scanner.scan(data)`. Infected files are immediately stripped of ciphertext (`content_enc = ""`) and blocked from opening.
+    - Context-bound envelope encryption: files are encrypted with context `f"note:{note.public_id}:attachment:{a.public_id}"`. Plaintext is never stored in DB or logged.
+    - Sealing upon signing: attachments can only be added or removed while the note is in `DRAFT` state. Attempting to add or delete attachments from a signed note returns 409 CONFLICT_VERSION.
+    - Preservation across note corrections (`amend`): clean attachments are automatically decrypted and re-sealed into the new correction version.
+    - Patient embargo (`patient_open_attachment`): patients and guardians can only download attachments after the 24-hour review embargo has elapsed, and only if clean.
+    - NHS retention erasure: all `content_enc` are cleared to `""` when the retention period expires.
+  - **Background Worker (`jobs.py`, `apps.py`):** Registered periodic job `clinicalnote.scan_attachments` every 60 seconds to scan any pending attachments.
+  - **API Endpoints (`backend/api/views.py`, `backend/api/urls.py`):**
+    - `POST /api/v1/clinician/notes/<note_id>/attachments`: doctor uploads attachment to draft note.
+    - `GET /api/v1/clinician/notes/<note_id>/attachments/<attachment_id>`: download attachment for clinician (clean scan only).
+    - `DELETE /api/v1/clinician/notes/<note_id>/attachments/<attachment_id>`: delete attachment from draft note.
+    - `GET /api/v1/my/notes/<note_id>/attachments/<attachment_id>`: patient/guardian downloads attachment after 24h review embargo.
+  - **Clinician Frontend (`frontend/clinician`):**
+    - `types.ts`: added `NoteAttachment` interface and `attachments?: NoteAttachment[]` on `Note`.
+    - `api.ts`: exported `uploadNoteAttachment`, `deleteNoteAttachment`, and `downloadNoteAttachment`.
+    - `pages/Notes.tsx`: added `AttachmentsEditor` for drafts (upload/remove) and `AttachmentsList` for signed/view mode (download).
+  - **Patient Frontend (`frontend/patient`):**
+    - `api.ts`: added `MyNoteAttachment` interface, `attachments?: MyNoteAttachment[]` on `MyNote`, and `downloadMyNoteAttachment`.
+    - `pages/MyNotes.tsx`: displays attached documents and media with download buttons once the 24-hour review embargo has elapsed.
+- **Checked:**
+  - 42 tests in `backend/tests/test_clinical_notes.py` passed in Docker (100% success).
+  - Both `frontend/clinician` and `frontend/patient` type-check cleanly (`npx tsc --noEmit`: 0 errors).
+  - Consumer contracts verified: clinician routes 35, patient routes 55 (`python scripts/consumer_contract.py --check` clean).
+  - OpenAPI snapshot refreshed and verified (`pytest backend/tests/test_openapi.py`: 7 passed).
+
 ### DEV-375: clinical notes: structured active medications and dosages (follows DEV-304, DEV-344)
 
 - **Why:** `docs/HANDOVER.md` under "What is not built (Clinical)" listed "diagnosis and medicine fields". Following DEV-344 (which added coded diagnoses), consultation notes needed structured active medications and dosages (`medications`) recorded by doctors during visits, sealed upon signing, encrypted at rest, and made visible to patients after the 24-hour review embargo. Prescribing/e-prescribing is strictly excluded.
@@ -2221,6 +2253,38 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
   - 40 tests in `backend/tests/test_clinical_notes.py` passed with 100% success (including validation of dm+d concept IDs, max 10, status enum, encryption at rest, amendment propagation, patient embargo, and retention erasure).
   - Both `frontend/clinician` and `frontend/patient` type-check cleanly (`npx tsc --noEmit`: 0 errors).
   - Consumer contracts verified (`python scripts/consumer_contract.py --check` clean).
+  - OpenAPI snapshot refreshed and verified (`pytest backend/tests/test_openapi.py`: 7 passed).
+
+### DEV-376: consultation notes: clinical document and media attachments (follows DEV-304, DEV-345)
+
+- **Why:** `docs/HANDOVER.md` under "What is not built (Clinical)" listed "attachments". Clinicians writing consultation notes need to attach relevant clinical documents (PDF referral letters, imaging summaries) and clinical media (PNG/JPEG ECG traces, wound photos) during visit consultations, sealed upon signing, encrypted at rest, virus-scanned, and made visible to patients after the 24-hour review embargo.
+- **What was done:**
+  - **Database & Model (`modules/clinicalnote/models.py`, migration `0006_noteattachment`):** Added `NoteAttachment(CellScopedModel)` with `filename`, `content_type`, `size`, `sha256`, `content_enc` (encrypted base64 ciphertext), `scan_state` (`pending`, `clean`, `infected`), `scanned_at`, and `uploaded_by_ref`.
+  - **Security, Validation & Virus Scanning (`modules/clinicalnote/services.py`):**
+    - File validation (`_detect_type`): validates file magic bytes, allowing only PDF (with `_ACTIVE_PDF` protection against active JS/launch actions), PNG, and JPEG. Size capped at 10 MB (`MAX_ATTACHMENT_BYTES`). Max 5 attachments per note (`MAX_ATTACHMENTS = 5`).
+    - Virus scanning (`_apply_scan`): automatically checks uploads using `scanner.scan(data)`. Infected files are immediately stripped of ciphertext (`content_enc = ""`) and blocked from opening.
+    - Context-bound envelope encryption: files are encrypted with context `f"note:{note.public_id}:attachment:{a.public_id}"`. Plaintext is never stored in DB or logged.
+    - Sealing upon signing: attachments can only be added or removed while the note is in `DRAFT` state. Attempting to add or delete attachments from a signed note returns 409 CONFLICT_VERSION.
+    - Preservation across note corrections (`amend`): clean attachments are automatically decrypted and re-sealed into the new correction version.
+    - Patient embargo (`patient_open_attachment`): patients and guardians can only download attachments after the 24-hour review embargo has elapsed, and only if clean.
+    - NHS retention erasure: all `content_enc` are cleared to `""` when the retention period expires.
+  - **Background Worker (`jobs.py`, `apps.py`):** Registered periodic job `clinicalnote.scan_attachments` every 60 seconds to scan any pending attachments.
+  - **API Endpoints (`backend/api/views.py`, `backend/api/urls.py`):**
+    - `POST /api/v1/clinician/notes/<note_id>/attachments`: doctor uploads attachment to draft note.
+    - `GET /api/v1/clinician/notes/<note_id>/attachments/<attachment_id>`: download attachment for clinician (clean scan only).
+    - `DELETE /api/v1/clinician/notes/<note_id>/attachments/<attachment_id>`: delete attachment from draft note.
+    - `GET /api/v1/my/notes/<note_id>/attachments/<attachment_id>`: patient/guardian downloads attachment after 24h review embargo.
+  - **Clinician Frontend (`frontend/clinician`):**
+    - `types.ts`: added `NoteAttachment` interface and `attachments?: NoteAttachment[]` on `Note`.
+    - `api.ts`: exported `uploadNoteAttachment`, `deleteNoteAttachment`, and `downloadNoteAttachment`.
+    - `pages/Notes.tsx`: added `AttachmentsEditor` for drafts (upload/remove) and `AttachmentsList` for signed/view mode (download).
+  - **Patient Frontend (`frontend/patient`):**
+    - `api.ts`: added `MyNoteAttachment` interface, `attachments?: MyNoteAttachment[]` on `MyNote`, and `downloadMyNoteAttachment`.
+    - `pages/MyNotes.tsx`: displays attached documents and media with download buttons once the 24-hour review embargo has elapsed.
+- **Checked:**
+  - 42 tests in `backend/tests/test_clinical_notes.py` passed in Docker (100% success).
+  - Both `frontend/clinician` and `frontend/patient` type-check cleanly (`npx tsc --noEmit`: 0 errors).
+  - Consumer contracts verified: clinician routes 35, patient routes 55 (`python scripts/consumer_contract.py --check` clean).
   - OpenAPI snapshot refreshed and verified (`pytest backend/tests/test_openapi.py`: 7 passed).
 
 ### Note: the whole backend suite, run once on 23 November

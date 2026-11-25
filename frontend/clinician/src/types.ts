@@ -24,6 +24,7 @@ export interface Note {
   guardian_hidden?: boolean; erased?: boolean;
   diagnoses?: Diagnosis[]; has_diagnoses?: boolean;
   medications?: Medication[]; has_medications?: boolean;
+  attachments?: NoteAttachment[]; has_attachments?: boolean;
   signed_at: string | null; created_at: string; body?: string;
   addenda?: { id: string; author: string; added_at: string; body: string }[];
 }
@@ -98,3 +99,6 @@ export interface Diagnosis { code: string; text: string; status: "confirmed" | "
 
 /** A structured active medication on a visit note (DEV-375): a dm+d / SNOMED CT concept, name, dose and status. */
 export interface Medication { code: string; name: string; dose?: string; status: "active" | "suspended" | "stopped" }
+
+/** A document or media file attached to a visit note (DEV-376). */
+export interface NoteAttachment { id: string; filename: string; content_type: string; size: number; scan: "pending" | "clean" | "infected"; uploaded_at: string }

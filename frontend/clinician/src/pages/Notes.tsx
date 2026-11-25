@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, addNoteAddendum, amendNote, createNote, editNote, getNote, getNotes, getPatients, setNoteGuardianHidden, signNote } from "../api";
-import type { Diagnosis, Medication, Note, PatientRow } from "../types";
+import { ApiError, addNoteAddendum, amendNote, createNote, deleteNoteAttachment, downloadNoteAttachment, editNote, getNote, getNotes, getPatients, setNoteGuardianHidden, signNote, uploadNoteAttachment } from "../api";
+import type { Diagnosis, Medication, Note, NoteAttachment, PatientRow } from "../types";
 import { Card, Pill } from "../ui";
 
 const STATE: Record<Note["state"], { text: string; kind: "ok" | "warn" | "info" }> = {
@@ -18,12 +18,19 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
   const [text, setText] = useState("");
   const [dx, setDx] = useState<Diagnosis[]>([]);
   const [meds, setMeds] = useState<Medication[]>([]);
+  const [attachments, setAttachments] = useState<NoteAttachment[]>([]);
   const [reason, setReason] = useState("clarification");
   const [addendum, setAddendum] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
-    getNote(id).then((n) => { setNote(n); setText(n.body ?? ""); setDx(n.diagnoses ?? []); setMeds(n.medications ?? []); }).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not open"));
+    getNote(id).then((n) => {
+      setNote(n);
+      setText(n.body ?? "");
+      setDx(n.diagnoses ?? []);
+      setMeds(n.medications ?? []);
+      setAttachments(n.attachments ?? []);
+    }).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not open"));
   }, [id]);
   async function run(action: () => Promise<Note>, then?: (n: Note) => void) {
     setBusy(true); setError("");
@@ -50,6 +57,7 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
           </label>
           <DiagnosesEditor rows={dx} onChange={setDx} />
           <MedicationsEditor rows={meds} onChange={setMeds} />
+          <AttachmentsEditor noteId={id} items={attachments} onChange={setAttachments} disabled={busy} />
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button className="btn ghost" disabled={busy || !text.trim()} onClick={() => void run(() => editNote(id, text, dx, meds))}>Save draft</button>
             <button className="btn" disabled={busy || !text.trim()} onClick={() => void run(async () => { await editNote(id, text, dx, meds); return signNote(id); })}>Sign this note</button>
@@ -61,6 +69,7 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
           <pre style={{ whiteSpace: "pre-wrap", margin: 0, fontFamily: "inherit" }} aria-label="Note text">{note.body}</pre>
           <DiagnosesList items={note.diagnoses} />
           <MedicationsList items={note.medications} />
+          <AttachmentsList noteId={id} items={note.attachments} />
         </>
       )}
       {note.state === "signed" && note.mine && (
@@ -261,6 +270,87 @@ function MedicationsEditor({ rows, onChange }: { rows: Medication[]; onChange: (
         </div>
       ))}
       {rows.length < 10 && <div><button className="btn ghost" onClick={() => onChange([...rows, { code: "", name: "", dose: "", status: "active" }])}>Add a medication</button></div>}
+    </div>
+  );
+}
+
+/** The visit's attached documents and images (DEV-376). */
+export function AttachmentsList({ noteId, items }: { noteId: string; items?: NoteAttachment[] }) {
+  const [err, setErr] = useState("");
+  if (!items || items.length === 0) return null;
+  return (
+    <div role="region" aria-label="Attachments" style={{ marginTop: 6 }}>
+      <b>Attachments</b>
+      {err && <div className="error" role="alert" style={{ marginTop: 4 }}>{err}</div>}
+      <ul style={{ margin: "4px 0" }}>
+        {items.map((a) => (
+          <li key={a.id} style={{ margin: "2px 0" }}>
+            {a.scan === "clean" ? (
+              <button className="btn ghost" onClick={() => void downloadNoteAttachment(noteId, a).catch((e: unknown) => setErr(e instanceof Error ? e.message : "Download failed"))}>
+                Download {a.filename}
+              </button>
+            ) : (
+              <span>{a.filename}: {a.scan === "pending" ? "waiting for the virus check" : "a virus was found; cannot be opened"}</span>
+            )}
+            <small> ({Math.ceil(a.size / 1024)} KB). Opening it is recorded.</small>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Up to 5 document or image attachments on a draft note (DEV-376). */
+function AttachmentsEditor({ noteId, items, onChange, disabled }: {
+  noteId: string;
+  items: NoteAttachment[];
+  onChange: (items: NoteAttachment[]) => void;
+  disabled?: boolean;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState("");
+  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true); setErr("");
+    try {
+      const added = await uploadNoteAttachment(noteId, file);
+      onChange([...items, added]);
+      e.target.value = "";
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+  async function onRemove(attId: string) {
+    setErr("");
+    try {
+      await deleteNoteAttachment(noteId, attId);
+      onChange(items.filter((a) => a.id !== attId));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Remove failed");
+    }
+  }
+  return (
+    <div role="group" aria-label="Attachments" style={{ marginTop: 8 }}>
+      <b>Attached Documents &amp; Media (optional, up to 5)</b>
+      {err && <div className="error" role="alert" style={{ marginTop: 4 }}>{err}</div>}
+      {items.map((a) => (
+        <div key={a.id} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+          <span>{a.filename} <small>({Math.ceil(a.size / 1024)} KB, {a.scan === "clean" ? "scanned clean" : a.scan})</small></span>
+          <button className="btn ghost" disabled={disabled} onClick={() => void onRemove(a.id)}>Remove</button>
+        </div>
+      ))}
+      {items.length < 5 && (
+        <div style={{ marginTop: 6 }}>
+          <label className="btn ghost" style={{ cursor: disabled || uploading ? "default" : "pointer" }}>
+            {uploading ? "Uploading…" : "Attach a document (PDF, PNG, JPEG)"}
+            <input type="file" accept=".pdf,image/png,image/jpeg" disabled={disabled || uploading} onChange={(e) => void onUpload(e)} style={{ display: "none" }} />
+          </label>
+          <small style={{ display: "block", marginTop: 2 }}>At most 10 MB. Scanned for viruses automatically.</small>
+        </div>
+      )}
     </div>
   );
 }

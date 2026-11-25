@@ -623,16 +623,39 @@ export interface MyMedication {
   status: "active" | "suspended" | "stopped";
 }
 
+export interface MyNoteAttachment {
+  id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  scan: "pending" | "clean" | "infected";
+  uploaded_at: string;
+}
+
 export interface MyNote {
   id: string; note_date: string; version: number; corrected: boolean; amend_reason: string | null;
   author_name: string; signed_at: string | null; body?: string;
   for_name?: string | null; erased?: boolean;
   diagnoses?: { code: string; text: string; status: string }[];
   medications?: MyMedication[];
+  attachments?: MyNoteAttachment[];
   addenda?: { id: string; added_at: string; body: string }[];
 }
 export const getMyNotes = async () => (await request<{ notes: MyNote[]; enabled?: boolean }>("my/notes")).body;
 export const getMyNote = async (id: string) => (await request<{ note: MyNote }>(`my/notes/${encodeURIComponent(id)}`)).body.note;
+
+export async function downloadMyNoteAttachment(noteId: string, a: MyNoteAttachment): Promise<void> {
+  const res = await fetch(`/api/v1/my/notes/${encodeURIComponent(noteId)}/attachments/${encodeURIComponent(a.id)}`, {
+    headers: { ...authHeader() },
+  });
+  if (!res.ok) throw new ApiError("Could not download the attachment", "ERROR", res.status);
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = a.filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
 export interface MyClaim {
   id: string; payer: string; label: string; category: string; amount_minor: number; currency: string;
   service_date: string; state: "submitted" | "approved" | "declined" | "paid" | "withdrawn";

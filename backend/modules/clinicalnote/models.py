@@ -73,3 +73,34 @@ class NoteAddendum(CellScopedModel):
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="noteaddendum_scope_idx")]
+
+
+class ScanState(models.TextChoices):
+    PENDING = "pending", "Waiting for the virus scan"
+    CLEAN = "clean", "Scanned: no virus found"
+    INFECTED = "infected", "A virus was found: it can never be opened"
+
+
+class NoteAttachment(CellScopedModel):
+    """A document or media file attached to a consultation note (DEV-376). Stored ENCRYPTED; only
+    a treating clinician caring for this patient (or the patient themselves after the 24-hour embargo)
+    may open it, and only once a virus scan found it clean. Attached while a draft; sealed when signed.
+    Amendments carry attachments forward into the new version."""
+
+    note = models.ForeignKey(ClinicalNote, on_delete=models.PROTECT, related_name="+")
+    filename = models.CharField(max_length=100)
+    content_type = models.CharField(max_length=50)
+    size = models.PositiveIntegerField()
+    sha256 = models.CharField(max_length=64)
+    content_enc = models.TextField()  # ciphertext only
+    scan_state = models.CharField(
+        max_length=10, choices=ScanState.choices, default=ScanState.PENDING
+    )
+    scanned_at = models.DateTimeField(null=True, blank=True)
+    uploaded_by_ref = models.CharField(max_length=22)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="noteattach_scope_idx"),
+            models.Index(fields=["scan_state"], name="noteattach_scan_idx"),
+        ]

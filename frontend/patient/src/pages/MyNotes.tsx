@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError, getMyNote, getMyNotes, type MyNote } from "../api";
+import { ApiError, downloadMyNoteAttachment, getMyNote, getMyNotes, type MyNote } from "../api";
 import { Card, Pill } from "../ui";
 
 export function MyNotes() {
@@ -60,6 +60,21 @@ export function MyNotes() {
                   {open.medications.map((m, idx) => (
                     <li key={m.code || idx}>
                       <strong>{m.name}</strong>{m.dose ? ` — ${m.dose}` : ""} <small>{m.status === "suspended" ? "(paused / on hold)" : m.status === "stopped" ? "(stopped)" : "(active)"}</small>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {open.attachments && open.attachments.length > 0 && (
+              <div role="region" aria-label="Attachments" style={{ marginTop: 8 }}>
+                <b>Attached documents &amp; media</b>
+                <ul style={{ margin: "4px 0" }}>
+                  {open.attachments.map((a) => (
+                    <li key={a.id} style={{ margin: "2px 0" }}>
+                      <button className="btn ghost" onClick={() => void downloadMyNoteAttachment(open.id, a).catch((e: unknown) => setError(e instanceof Error ? e.message : "Download failed"))}>
+                        Download {a.filename}
+                      </button>
+                      <small> ({Math.ceil(a.size / 1024)} KB)</small>
                     </li>
                   ))}
                 </ul>

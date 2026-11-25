@@ -1,6 +1,7 @@
 {
  "clinician": [
   "DELETE /auth/display-name",
+  "DELETE /clinician/notes/{x}/attachments/{x}",
   "GET /clinician/messages",
   "GET /clinician/notes",
   "GET /clinician/notes/{x}",
@@ -60,6 +61,7 @@
   "GET /staff/billing/invoices",
   "GET /staff/billing/invoices/{x}",
   "GET /staff/booking-system",
+  "GET /staff/business-hours",
   "GET /staff/compliance",
   "GET /staff/connector",
   "GET /staff/connector/circuits",
@@ -67,6 +69,7 @@
   "GET /staff/directory",
   "GET /staff/family-requests",
   "GET /staff/fhir/quarantine",
+  "GET /staff/insurance-status",
   "GET /staff/integrations/deliveries",
   "GET /staff/integrations/inbound",
   "GET /staff/integrations/partners",
@@ -140,6 +143,7 @@
  "patient": [
   "GET /access-log",
   "GET /billing/invoices",
+  "GET /billing/invoices/{x}/payments",
   "GET /bookings",
   "GET /bookings/{x}/history",
   "GET /care-team",
@@ -147,6 +151,7 @@
   "GET /coverage",
   "GET /coverage/sharing",
   "GET /exchange/mine",
+  "GET /exchange/mine/{x}/trend",
   "GET /exchange/mine/{x}/values",
   "GET /family",
   "GET /me",
@@ -166,6 +171,8 @@
   "POST /auth/change-password",
   "POST /auth/email",
   "POST /auth/resend-verification",
+  "POST /billing/invoices/{x}/payments",
+  "POST /billing/payments/{x}/refresh",
   "POST /bookings",
   "POST /bookings/{x}/cancel",
   "POST /bookings/{x}/reschedule",

@@ -28,3 +28,16 @@ def erase_expired_all_tenants() -> int:
             }
             total += erase_expired(births, death_dates=trust.death_dates(people))
     return total
+
+
+def scan_attachments_all_tenants() -> int:
+    """Scan note attachments still waiting for the virus check (DEV-376)."""
+    from .services import scan_pending_attachments
+
+    total = 0
+    for tenant in trust.list_tenants():
+        if tenant["status"] != "active":
+            continue
+        with tenant_transaction(trust.context_for(tenant["public_id"])):
+            total += scan_pending_attachments()
+    return total

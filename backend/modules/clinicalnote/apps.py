@@ -11,10 +11,17 @@ class ClinicalNoteConfig(AppConfig):
         # Once a day the worker erases note text past its NHS retention period (DEV-324).
         from foundation import periodic
 
-        from .jobs import RETENTION_EVERY_SECONDS, erase_expired_all_tenants
+        from .jobs import (
+            RETENTION_EVERY_SECONDS,
+            erase_expired_all_tenants,
+            scan_attachments_all_tenants,
+        )
 
         periodic.register(
             "clinicalnote.retention", RETENTION_EVERY_SECONDS, erase_expired_all_tenants
+        )
+        periodic.register(
+            "clinicalnote.scan_attachments", 60.0, scan_attachments_all_tenants
         )
 
         # A patient-record merge (DEV-365): these rows never move, they are only counted.

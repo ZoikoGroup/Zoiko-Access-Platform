@@ -9,6 +9,7 @@ note. The text is encrypted at rest and returned only by `read`, which is itself
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any
 
 from django.conf import settings
@@ -23,7 +24,7 @@ from foundation.timeutil import Clock, utc_now
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 
-from .models import AmendReason, ClinicalNote, NoteAddendum, NoteState
+from .models import AmendReason, ClinicalNote, NoteAddendum, NoteAttachment, NoteState, ScanState
 
 READ, WRITE, ATTEST = "read:note", "write:note", "attest:note"
 MAX_BODY = 20_000
@@ -100,6 +101,7 @@ def meta_dict(n: ClinicalNote) -> dict[str, Any]:
         "erased": n.erased_at is not None,
         "has_diagnoses": bool(n.diagnoses_enc),
         "has_medications": bool(n.medications_enc),
+        "has_attachments": NoteAttachment.objects.filter(note=n, **_scope()).exists(),
     }
 
 
@@ -213,6 +215,278 @@ def _open_medications(note: ClinicalNote) -> list[dict[str, str]]:
     except (CryptoError, ValueError):
         return []
     return found if isinstance(found, list) else []
+
+
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_ATTACHMENTS = 5
+_ACTIVE_PDF = re.compile(
+    rb"/(JavaScript|JS|Launch|EmbeddedFile|OpenAction|AA|RichMedia|XFA)(?![A-Za-z0-9])"
+)
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9 ._()-]")
+
+
+def _attach_context(note: ClinicalNote, a: NoteAttachment) -> str:
+    return f"note:{note.public_id}:attachment:{a.public_id}"
+
+
+def attachment_dict(a: NoteAttachment) -> dict[str, Any]:
+    return {
+        "id": a.public_id,
+        "filename": a.filename,
+        "content_type": a.content_type,
+        "size": a.size,
+        "scan": a.scan_state,
+        "uploaded_at": a.created_at.isoformat(),
+    }
+
+
+def _apply_scan(a: NoteAttachment, data: bytes, clock: Clock | None = None) -> None:
+    from foundation import scanner
+
+    verdict = scanner.scan(data)
+    if verdict == "pending":
+        return
+    a.scan_state = ScanState.CLEAN if verdict == "clean" else ScanState.INFECTED
+    a.scanned_at = utc_now(clock)
+    if a.scan_state == ScanState.INFECTED:
+        a.content_enc = ""  # never kept, never opened
+    a.entity_version += 1
+    a.save(
+        update_fields=[
+            "scan_state",
+            "scanned_at",
+            "content_enc",
+            "entity_version",
+            "updated_at",
+        ]
+    )
+    _audit("system", f"attachment_{a.scan_state}", a.note)
+
+
+def _detect_type(data: bytes, filename: str) -> tuple[str, str]:
+    if not isinstance(data, bytes) or not 1 <= len(data) <= MAX_ATTACHMENT_BYTES:
+        raise _bad("file")
+    if data.startswith(b"%PDF-") and b"%%EOF" in data[-2048:]:
+        if _ACTIVE_PDF.search(data):
+            raise _bad("file")
+        ctype = "application/pdf"
+        ext = ".pdf"
+    elif data.startswith(b"\x89PNG\r\n\x1a\n"):
+        ctype = "image/png"
+        ext = ".png"
+    elif data.startswith(b"\xff\xd8\xff"):
+        ctype = "image/jpeg"
+        ext = ".jpg"
+    else:
+        raise _bad("file")
+
+    name = (
+        _SAFE_NAME.sub("_", filename.strip())[:100]
+        if isinstance(filename, str) and filename.strip()
+        else ""
+    )
+    if not name:
+        name = f"attachment{ext}"
+    elif not name.lower().endswith(ext):
+        name = f"{name[:96]}{ext}"
+    return ctype, name
+
+
+def _attachments(note: ClinicalNote, for_patient: bool = False) -> list[dict[str, Any]]:
+    rows = NoteAttachment.objects.filter(note=note, **_scope()).order_by("created_at")
+    if for_patient:
+        return [attachment_dict(a) for a in rows if a.scan_state == ScanState.CLEAN]
+    return [attachment_dict(a) for a in rows]
+
+
+def add_attachment(
+    *,
+    note_ref: str,
+    filename: str,
+    data: bytes,
+    by: str,
+    decision: policy.Decision,
+    clock: Clock | None = None,
+) -> dict[str, Any]:
+    """Attach a PDF or image to a draft note (DEV-376). Refused once signed."""
+    _require_on()
+    import base64
+    import hashlib
+
+    ctype, name = _detect_type(data, filename)
+    with transaction.atomic():
+        note = _mine(note_ref)
+        policy.check_receipt(
+            decision,
+            actor_public_id=by,
+            operation=WRITE,
+            organization_public_id=note.organization_ref,
+            subject_ref=note.person_ref,
+        )
+        if note.author_ref != by:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        if note.state != NoteState.DRAFT:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        if NoteAttachment.objects.filter(note=note, **_scope()).count() >= MAX_ATTACHMENTS:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        a = NoteAttachment(
+            note=note,
+            filename=name,
+            content_type=ctype,
+            size=len(data),
+            sha256=hashlib.sha256(data).hexdigest(),
+            content_enc="",
+            uploaded_by_ref=by,
+            **_scope(),
+        )
+        a.content_enc = encrypt(
+            base64.b64encode(data).decode("ascii"),
+            tenant_id=require_context().tenant_id,
+            context=_attach_context(note, a),
+        )
+        a.save()
+        _audit(by, "attachment_added", note)
+        _apply_scan(a, data, clock)
+        return attachment_dict(a)
+
+
+def remove_attachment(
+    *, note_ref: str, attachment_ref: str, by: str, decision: policy.Decision
+) -> None:
+    """Remove an attachment from a draft note."""
+    _require_on()
+    with transaction.atomic():
+        note = _mine(note_ref)
+        policy.check_receipt(
+            decision,
+            actor_public_id=by,
+            operation=WRITE,
+            organization_public_id=note.organization_ref,
+            subject_ref=note.person_ref,
+        )
+        if note.author_ref != by:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        if note.state != NoteState.DRAFT:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        a = NoteAttachment.objects.filter(
+            public_id=attachment_ref, note=note, **_scope()
+        ).first()
+        if a is None:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        a.delete()
+        _audit(by, "attachment_removed", note)
+
+
+def open_attachment(
+    *, note_ref: str, attachment_ref: str, by: str, decision: policy.Decision
+) -> tuple[str, str, bytes]:
+    """Open an attachment on a note for a clinician caring for this patient."""
+    _require_on()
+    import base64
+
+    note = ClinicalNote.objects.filter(public_id=note_ref, **_scope()).first()
+    if note is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    policy.check_receipt(
+        decision,
+        actor_public_id=by,
+        operation=READ,
+        organization_public_id=note.organization_ref,
+        subject_ref=note.person_ref,
+    )
+    a = NoteAttachment.objects.filter(
+        public_id=attachment_ref, note=note, **_scope()
+    ).first()
+    if a is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if a.scan_state != ScanState.CLEAN:
+        raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+    try:
+        data = base64.b64decode(
+            decrypt(
+                a.content_enc,
+                tenant_id=require_context().tenant_id,
+                context=_attach_context(note, a),
+            )
+        )
+    except (CryptoError, ValueError):
+        raise ZoikoError(ErrorCode.NOT_FOUND) from None
+    _audit(by, "attachment_opened", note)
+    return a.filename, a.content_type, data
+
+
+def patient_open_attachment(
+    *,
+    note_ref: str,
+    attachment_ref: str,
+    person_ref: str,
+    by: str,
+    decision: policy.Decision,
+    clock: Clock | None = None,
+    as_guardian: bool = False,
+) -> tuple[str, str, bytes]:
+    """Open an attachment on a note for the patient (or guardian), after the 24-hour embargo."""
+    _require_on()
+    import base64
+
+    note = ClinicalNote.objects.filter(
+        public_id=note_ref, person_ref=person_ref, **_scope()
+    ).first()
+    if note is None or not _patient_sees(note, utc_now(clock), as_guardian):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    policy.check_receipt(
+        decision,
+        actor_public_id=by,
+        operation=READ,
+        organization_public_id=None,
+        subject_ref=person_ref,
+    )
+    a = NoteAttachment.objects.filter(
+        public_id=attachment_ref, note=note, **_scope()
+    ).first()
+    if a is None or a.scan_state != ScanState.CLEAN:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    try:
+        data = base64.b64decode(
+            decrypt(
+                a.content_enc,
+                tenant_id=require_context().tenant_id,
+                context=_attach_context(note, a),
+            )
+        )
+    except (CryptoError, ValueError):
+        raise ZoikoError(ErrorCode.NOT_FOUND) from None
+    _audit(
+        by,
+        "attachment_opened_by_guardian" if as_guardian else "attachment_opened_by_patient",
+        note,
+    )
+    return a.filename, a.content_type, data
+
+
+def scan_pending_attachments(limit: int = 20, clock: Clock | None = None) -> int:
+    import base64
+
+    done = 0
+    for a in (
+        NoteAttachment.objects.select_related("note")
+        .filter(scan_state=ScanState.PENDING, **_scope())
+        .order_by("created_at")[:limit]
+    ):
+        try:
+            data = base64.b64decode(
+                decrypt(
+                    a.content_enc,
+                    tenant_id=require_context().tenant_id,
+                    context=_attach_context(a.note, a),
+                )
+            )
+        except (CryptoError, ValueError):
+            continue
+        with transaction.atomic():
+            _apply_scan(a, data, clock)
+        done += a.scan_state != ScanState.PENDING
+    return done
 
 
 def _clean_body(value: Any) -> str:
@@ -419,6 +693,36 @@ def amend(*, note_ref: str, reason: Any, by: str, decision: policy.Decision) -> 
         new.diagnoses_enc = _seal_diagnoses(new, _open_diagnoses(old))
         new.medications_enc = _seal_medications(new, _open_medications(old))
         new.save()
+        import base64
+        for old_a in NoteAttachment.objects.filter(note=old, scan_state=ScanState.CLEAN, **_scope()):
+            try:
+                old_data = base64.b64decode(
+                    decrypt(
+                        old_a.content_enc,
+                        tenant_id=require_context().tenant_id,
+                        context=_attach_context(old, old_a),
+                    )
+                )
+            except (CryptoError, ValueError):
+                continue
+            new_a = NoteAttachment(
+                note=new,
+                filename=old_a.filename,
+                content_type=old_a.content_type,
+                size=old_a.size,
+                sha256=old_a.sha256,
+                content_enc="",
+                scan_state=ScanState.CLEAN,
+                scanned_at=old_a.scanned_at,
+                uploaded_by_ref=by,
+                **_scope(),
+            )
+            new_a.content_enc = encrypt(
+                base64.b64encode(old_data).decode("ascii"),
+                tenant_id=require_context().tenant_id,
+                context=_attach_context(new, new_a),
+            )
+            new_a.save()
         _audit(by, "amendment_started", new, reason)
         return meta_dict(new)
 
@@ -499,6 +803,7 @@ def read(*, note_ref: str, by: str, decision: policy.Decision) -> dict[str, Any]
         "addenda": _addenda(note),
         "diagnoses": _open_diagnoses(note),
         "medications": _open_medications(note),
+        "attachments": _attachments(note, for_patient=False),
     }
 
 
@@ -673,6 +978,7 @@ def erase_expired(
         with transaction.atomic():
             for note in rows.select_for_update().filter(erased_at__isnull=True):
                 NoteAddendum.objects.filter(note=note, **_scope()).update(body_enc="")
+                NoteAttachment.objects.filter(note=note, **_scope()).update(content_enc="")
                 note.body_enc, note.diagnoses_enc, note.medications_enc, note.erased_at = "", "", "", now
                 note.entity_version += 1
                 note.save(update_fields=["body_enc", "diagnoses_enc", "medications_enc", "erased_at",
@@ -752,4 +1058,5 @@ def patient_read(
         "addenda": _addenda(note, utc_now(clock)),
         "diagnoses": _open_diagnoses(note),
         "medications": _open_medications(note),
+        "attachments": _attachments(note, for_patient=True),
     }

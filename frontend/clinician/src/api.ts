@@ -2,7 +2,7 @@
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
-import type { Diagnosis, Medication, Appointment, Health, Note, PartnerRequest, ResultSummary, PatientRow, Referral, ServiceOption, Thread, ThreadView } from "./types";
+import type { Diagnosis, Medication, NoteAttachment, Appointment, Health, Note, PartnerRequest, ResultSummary, PatientRow, Referral, ServiceOption, Thread, ThreadView } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -264,6 +264,37 @@ export const setNoteGuardianHidden = async (id: string, hidden: boolean) =>
   (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/guardian`, { method: "POST", body: JSON.stringify({ hidden }) })).note;
 export const amendNote = async (id: string, reason: string) =>
   (await v1<{ note: Note }>(`clinician/notes/${encodeURIComponent(id)}/amend`, { method: "POST", body: JSON.stringify({ reason }) })).note;
+
+// Attachments on a consultation note (DEV-376). Uploaded while a draft; sealed when signed.
+export async function uploadNoteAttachment(noteId: string, file: File): Promise<NoteAttachment> {
+  if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
+  const res = await fetch(`/api/v1/clinician/notes/${encodeURIComponent(noteId)}/attachments?filename=${encodeURIComponent(file.name)}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${current.token}`, "X-Zoiko-Purpose": purpose, "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(err.title ?? `Upload failed (${res.status})`, err.code);
+  }
+  const body = (await res.json()) as { attachment: NoteAttachment };
+  return body.attachment;
+}
+
+export const deleteNoteAttachment = async (noteId: string, attachmentId: string) =>
+  v1<{ deleted: boolean }>(`clinician/notes/${encodeURIComponent(noteId)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
+
+export async function downloadNoteAttachment(noteId: string, a: NoteAttachment): Promise<void> {
+  if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
+  const res = await fetch(`/api/v1/clinician/notes/${encodeURIComponent(noteId)}/attachments/${encodeURIComponent(a.id)}`, {
+    headers: { Authorization: `Bearer ${current.token}`, "X-Zoiko-Purpose": purpose },
+  });
+  if (!res.ok) throw new ApiError(res.status === 409 ? "It has not passed the virus check." : `Download failed (${res.status})`);
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url; link.download = a.filename; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
 
 // Orders to a laboratory, pharmacy or home-care partner (the exchange; status and references only).
 export interface PartnerChoice { id: string; name: string }

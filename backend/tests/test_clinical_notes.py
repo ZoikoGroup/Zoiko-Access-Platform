@@ -644,6 +644,161 @@ def test_medications_are_stored_encrypted_and_bad_ones_refused(clinic):
 
 
 
+# ------------------------------------------------ attachments (DEV-376)
+def _pdf(extra=b""):
+    return b"%PDF-1.4\n1 0 obj<< /Type /Catalog /Font /AAAAAB+Arial >>endobj\n" + extra + b"\ntrailer<<>>\n%%EOF\n"
+
+
+_PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+_JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb"
+
+
+def upload_att(clinic, note_id, data, name="letter.pdf", content_type="application/pdf", subject="doc"):
+    return clinic.client.post(
+        f"/api/v1/clinician/notes/{note_id}/attachments?filename={name}",
+        data,
+        content_type=content_type,
+        **clinic.header(subject),
+    )
+
+
+def delete_att(clinic, note_id, att_id, subject="doc"):
+    return clinic.client.delete(
+        f"/api/v1/clinician/notes/{note_id}/attachments/{att_id}",
+        **clinic.header(subject),
+    )
+
+
+def get_att(clinic, note_id, att_id, subject="doc"):
+    return clinic.client.get(
+        f"/api/v1/clinician/notes/{note_id}/attachments/{att_id}",
+        **clinic.header(subject),
+    )
+
+
+def get_pat_att(clinic, note_id, att_id, subject="pat"):
+    return clinic.client.get(
+        f"/api/v1/my/notes/{note_id}/attachments/{att_id}",
+        **clinic.header(subject),
+    )
+
+
+def test_a_draft_accepts_attachments_and_signed_refuses_new_ones(clinic, settings):
+    settings.ATTACHMENT_SCANNER = "pretend"
+    note = draft(clinic)
+    # Upload PDF
+    r1 = upload_att(clinic, note, _pdf(), "referral letter.pdf")
+    assert r1.status_code == 201, r1.content
+    a1 = body(r1)["attachment"]
+    assert a1["scan"] == "clean" and a1["filename"] == "referral letter.pdf"
+    assert a1["content_type"] == "application/pdf"
+    # Upload PNG
+    r2 = upload_att(clinic, note, _PNG, "ecg_trace.png", content_type="image/png")
+    assert r2.status_code == 201, r2.content
+    a2 = body(r2)["attachment"]
+    assert a2["scan"] == "clean" and a2["content_type"] == "image/png"
+    # Note reading shows attachments metadata
+    got = body(clinic.get(f"clinician/notes/{note}", subject="doc"))["note"]
+    assert got["has_attachments"] is True
+    assert len(got["attachments"]) == 2
+    # Download attachment
+    downloaded = get_att(clinic, note, a1["id"])
+    assert downloaded.status_code == 200
+    assert downloaded["Content-Type"] == "application/pdf"
+    assert downloaded.content == _pdf()
+    # Delete PNG attachment
+    del_res = delete_att(clinic, note, a2["id"])
+    assert del_res.status_code == 200
+    got_after_del = body(clinic.get(f"clinician/notes/{note}", subject="doc"))["note"]
+    assert len(got_after_del["attachments"]) == 1
+    # Sign note
+    step(clinic, note, "sign")
+    # Refuse attach to signed note
+    assert upload_att(clinic, note, _pdf(), "late.pdf").status_code == 409
+    # Refuse delete from signed note
+    assert delete_att(clinic, note, a1["id"]).status_code == 409
+    # Amend note -> attachment carried forward
+    new_note = body(step(clinic, note, "amend", reason="clarification"))["note"]["id"]
+    new_got = body(clinic.get(f"clinician/notes/{new_note}", subject="doc"))["note"]
+    assert len(new_got["attachments"]) == 1
+    assert new_got["attachments"][0]["filename"] == "referral letter.pdf"
+    # Embargo: patient cannot download before 24h
+    assert get_pat_att(clinic, note, a1["id"]).status_code == 404
+    backdate(clinic, note, 25)
+    pat_res = get_pat_att(clinic, note, a1["id"])
+    assert pat_res.status_code == 200
+    assert pat_res.content == _pdf()
+    assert pat_res["Content-Type"] == "application/pdf"
+
+
+def test_attachment_validation_virus_scan_and_retention(clinic, settings):
+    from foundation.scanner import EICAR
+    from modules.clinicalnote.jobs import erase_expired_all_tenants, scan_attachments_all_tenants
+    from modules.clinicalnote.models import NoteAttachment
+
+    settings.ATTACHMENT_SCANNER = "pretend"
+    note = draft(clinic)
+    # Refuse text file
+    assert upload_att(clinic, note, b"not a valid pdf or image", "doc.txt").status_code == 422
+    # Refuse broken PDF
+    assert upload_att(clinic, note, b"%PDF-broken", "broken.pdf").status_code == 422
+    # Refuse PDF with active JS
+    assert upload_att(clinic, note, _pdf(b"/JavaScript (malicious())"), "x.pdf").status_code == 422
+    # Refuse > 10MB
+    assert upload_att(clinic, note, b"%PDF-" + b"0" * (10 * 1024 * 1024 + 1) + b"%%EOF", "huge.pdf").status_code == 422
+    # Virus check: EICAR standard test file is detected as infected
+    infected_res = upload_att(clinic, note, _pdf(EICAR), "eicar.pdf")
+    assert infected_res.status_code == 201
+    infected_id = body(infected_res)["attachment"]["id"]
+    assert body(infected_res)["attachment"]["scan"] == "infected"
+    # Cannot open infected attachment
+    assert get_att(clinic, note, infected_id).status_code == 409
+    with connection.cursor() as cur:
+        cur.execute("select content_enc from clinicalnote_noteattachment where public_id = %s", [infected_id])
+        assert cur.fetchone()[0] == ""  # wiped on infection
+    # Pending scan worker test
+    settings.ATTACHMENT_SCANNER = ""  # no scanner available: stays pending
+    pending_res = upload_att(clinic, note, _pdf(), "pending.pdf")
+    pending_id = body(pending_res)["attachment"]["id"]
+    assert body(pending_res)["attachment"]["scan"] == "pending"
+    assert get_att(clinic, note, pending_id).status_code == 409  # cannot open while pending
+    settings.ATTACHMENT_SCANNER = "pretend"
+    assert scan_attachments_all_tenants() >= 1
+    assert get_att(clinic, note, pending_id).status_code == 200  # now clean and openable
+    # Encryption at rest: ciphertext in DB
+    with connection.cursor() as cur:
+        cur.execute("select content_enc from clinicalnote_noteattachment where public_id = %s", [pending_id])
+        stored = cur.fetchone()[0]
+    assert stored and "Type /Catalog" not in stored and "AAAAAB+Arial" not in stored
+    # Max attachments: 5 per note
+    # Currently have 2 (infected, pending). Add 3 more:
+    for i in range(3):
+        assert upload_att(clinic, note, _pdf(), f"file_{i}.pdf").status_code == 201
+    # 6th is refused with 409
+    assert upload_att(clinic, note, _pdf(), "file_extra.pdf").status_code == 409
+    # Retention test: a separate patient with no recent care
+    _, old_person = clinic.patient("pat_old")
+    treat(clinic, clinic.doc)
+    with tenant_transaction(clinic.clinic.ctx):
+        trust.ensure_care_relationship(
+            actor_public_id=clinic.doc,
+            person_public_id=old_person,
+            basis=trust.CareBasis.CARE_TEAM,
+            organization_ref=clinic.clinic.org,
+            by="system",
+        )
+    _born(clinic, old_person, "1960-01-01", "Pat Old")
+    old_res = clinic.post("clinician/notes", {"patient": old_person, "note_date": "2010-01-05", "body": TEXT}, subject="doc")
+    old_note = body(old_res)["note"]["id"]
+    att = body(upload_att(clinic, old_note, _pdf(), "old.pdf"))["attachment"]
+    step(clinic, old_note, "sign")
+    assert erase_expired_all_tenants() >= 1
+    with tenant_transaction(clinic.clinic.ctx):
+        row = NoteAttachment.objects.get(public_id=att["id"])
+        assert row.content_enc == ""
+
+
+
 # ------------------------------------------------ an adult's attorney reads their notes (DEV-353)
 def _attorney_of(clinic, rights=("appointments", "notes"), relationship="lpa_attorney"):
     from modules.trust.models import ProxyGrant

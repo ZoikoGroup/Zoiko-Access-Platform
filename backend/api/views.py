@@ -6750,6 +6750,58 @@ def clinician_note_step(
     return JsonResponse({"note": out}, status=201 if step == "amend" else 200)
 
 
+@endpoint("POST")
+def clinician_note_attachments(
+    request: HttpRequest, auth: trust.Authenticated, note_id: str
+) -> HttpResponse:
+    """Attach a document or image (PDF, PNG, JPEG) to a draft note (DEV-376). At most 10 MB."""
+    notes = _notes_on()
+    _clinician_only(auth)
+    found = _note_found(notes, auth, note_id)
+    decision = _authorize(
+        auth, notes.WRITE, organization_public_id=found["organization"], subject_ref=found["person"]
+    )
+    data = request.read(10 * 1024 * 1024 + 1)
+    with tenant_transaction():
+        done = notes.add_attachment(
+            note_ref=note_id,
+            filename=request.GET.get("filename") or "",
+            data=data,
+            by=auth.actor_public_id,
+            decision=decision,
+        )
+    return JsonResponse({"attachment": done}, status=201)
+
+
+@endpoint("GET", "DELETE")
+def clinician_note_attachment_item(
+    request: HttpRequest, auth: trust.Authenticated, note_id: str, attachment_id: str
+) -> HttpResponse:
+    """Download an attachment (clean scan only) or delete it from a draft note."""
+    notes = _notes_on()
+    _clinician_only(auth)
+    found = _note_found(notes, auth, note_id)
+    if request.method == "DELETE":
+        decision = _authorize(
+            auth, notes.WRITE, organization_public_id=found["organization"], subject_ref=found["person"]
+        )
+        with tenant_transaction():
+            notes.remove_attachment(
+                note_ref=note_id, attachment_ref=attachment_id, by=auth.actor_public_id, decision=decision
+            )
+        return JsonResponse({"deleted": True})
+    decision = _authorize(
+        auth, notes.READ, organization_public_id=found["organization"], subject_ref=found["person"]
+    )
+    with tenant_transaction():
+        name, ctype, data = notes.open_attachment(
+            note_ref=note_id, attachment_ref=attachment_id, by=auth.actor_public_id, decision=decision
+        )
+    response = HttpResponse(data, content_type=ctype)
+    response["Content-Disposition"] = f'attachment; filename="{name}"'
+    return response
+
+
 def _note_people(auth: trust.Authenticated, notes: Any) -> dict[str, bool]:
     """Whose notes this login may read in the patient app: {person: as_guardian}. Their own; a
     child's only while the child is under 16 (DEV-324); an adult's they act for as attorney or
@@ -6822,6 +6874,32 @@ def my_note(request: HttpRequest, auth: trust.Authenticated, note_id: str) -> Ht
     got["author_name"] = names.get(str(got["author"]), "")
     got.pop("author", None)
     return JsonResponse({"note": got})
+
+
+@endpoint("GET")
+def my_note_attachment(
+    request: HttpRequest, auth: trust.Authenticated, note_id: str, attachment_id: str
+) -> HttpResponse:
+    """Download an attachment on a note for the patient (or guardian) after the 24h delay (DEV-376)."""
+    notes = _notes_on()
+    people = _note_people(auth, notes)
+    with tenant_transaction():
+        found = notes.get(note_id)
+    if found["person"] not in people:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    decision = _authorize(auth, notes.READ, subject_ref=found["person"])
+    with tenant_transaction():
+        name, ctype, data = notes.patient_open_attachment(
+            note_ref=note_id,
+            attachment_ref=attachment_id,
+            person_ref=found["person"],
+            by=auth.actor_public_id,
+            decision=decision,
+            as_guardian=people[found["person"]],
+        )
+    response = HttpResponse(data, content_type=ctype)
+    response["Content-Disposition"] = f'attachment; filename="{name}"'
+    return response
 
 
 @endpoint("GET")

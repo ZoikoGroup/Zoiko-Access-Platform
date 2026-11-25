@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import identity, release, views
+from . import identity, insurance, release, views
 
 urlpatterns = [
     path("auth/login", views.login),
@@ -41,7 +41,9 @@ urlpatterns = [
     path("claims/incoming/<str:claim_id>/<str:step>", views.claim_payer_step),
     path("my/notes", views.my_notes),
     path("my/notes/<str:note_id>", views.my_note),
+    path("my/notes/<str:note_id>/attachments/<str:attachment_id>", views.my_note_attachment),
     path("exchange/mine/<str:request_id>/values", views.exchange_mine_values),
+    path("exchange/mine/<str:request_id>/trend", views.exchange_mine_trend),
     path("exchange/mine/<str:request_id>/<str:step>", views.exchange_mine_step),
     path("exchange/requests", views.exchange_requests),
     path("exchange/requests/<str:request_id>/history", views.exchange_history),
@@ -72,6 +74,8 @@ urlpatterns = [
     path("clinician/messages", views.clinician_messages),
     path("clinician/notes", views.clinician_notes),
     path("clinician/notes/<str:note_id>", views.clinician_note),
+    path("clinician/notes/<str:note_id>/attachments", views.clinician_note_attachments),
+    path("clinician/notes/<str:note_id>/attachments/<str:attachment_id>", views.clinician_note_attachment_item),
     path("clinician/notes/<str:note_id>/<str:step>", views.clinician_note_step),
     path("clinician/patients", views.clinician_patients),
     path("clinician/referrals", views.clinician_referrals),
@@ -100,6 +104,8 @@ urlpatterns = [
     path("people/<str:person_id>/profile", views.person_profile),
     path("waitlist", views.waitlist_entries),
     path("staff/waitlist", views.staff_waitlist),
+    path("staff/waitlist/<str:entry_id>/priority", views.staff_waitlist_priority),
+    path("staff/business-hours", views.staff_business_hours),
     path("staff/reports", views.staff_reports),
     path("waitlist/<str:entry_id>/leave", views.waitlist_leave),
     path("referrals/incoming", views.referrals_incoming),
@@ -110,6 +116,7 @@ urlpatterns = [
     path("rights", views.rights_requests),
     path("rights/<str:case_id>/withdraw", views.rights_withdraw),
     path("staff/rights", views.staff_rights),
+    path("staff/insurance-status", insurance.staff_insurance_status),
     path("staff/billing/fees", views.staff_billing_fees),
     path("staff/billing/invoices", views.staff_billing_invoices),
     path("staff/billing/invoices/<str:invoice_id>", views.staff_billing_invoice),
