@@ -11,6 +11,7 @@ from modules.trust import api as trust
 from tests.test_clinician import Practice
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
+FAC = trust.ActorType.FACILITY_USER
 
 TEXT = "Pt reports intermittent chest tightness on exertion for two weeks. Plan: ECG, review."
 TEXT2 = "Pt reports intermittent chest tightness on exertion. ECG normal. Reassured."
@@ -535,6 +536,115 @@ def test_recent_care_keeps_older_notes_and_an_unknown_birth_date_erases_nothing(
     _born(clinic, clinic.person, "1960-01-01", "Pat Adult")
     draft(clinic, day="2026-01-05")  # recent care: the 2010 note stays too
     assert erase_expired_all_tenants() == 0
+
+
+def test_retention_erases_notes_8_years_after_death(clinic):
+    from modules.clinicalnote.jobs import erase_expired_all_tenants
+    from modules.clinicalnote.models import ClinicalNote, NoteAddendum, NoteAttachment
+
+    _, pat = clinic.patient("pat_dead_ret")
+    with tenant_transaction(clinic.clinic.ctx):
+        trust.ensure_care_relationship(
+            actor_public_id=clinic.doc,
+            person_public_id=pat,
+            basis=trust.CareBasis.CARE_TEAM,
+            organization_ref=clinic.clinic.org,
+            by="system",
+        )
+
+    clinic.person = pat
+    old = draft(clinic, day="2010-01-05")
+    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+    r_att = clinic.client.post(
+        f"/api/v1/clinician/notes/{old}/attachments?filename=scan.png",
+        png_bytes,
+        content_type="image/png",
+        **clinic.header("doc"),
+    )
+    assert r_att.status_code == 201, r_att.content
+    att = body(r_att)["attachment"]
+    step(clinic, old, "sign")
+    step(clinic, old, "addendum", body=ADD)
+
+    # Before death is recorded, birth date is unknown -> retention does NOT erase
+    assert erase_expired_all_tenants() == 0
+
+    # Clinic administrator records death on 2014-06-01 (over 8 years ago)
+    clinic.login("boss_ret", FAC, "R13")
+    r = clinic.post(f"people/{pat}/death", {"died_on": "2014-06-01", "source": "death_certificate"}, subject="boss_ret")
+    assert r.status_code == 201
+
+    # 8 years after death has elapsed -> erase_expired_all_tenants erases body, medications, attachments
+    assert erase_expired_all_tenants() == 1
+    with tenant_transaction(clinic.clinic.ctx):
+        row = ClinicalNote.objects.get(public_id=old)
+        assert row.body_enc == "" and row.medications_enc == "" and row.diagnoses_enc == "" and row.erased_at is not None
+        assert NoteAddendum.objects.get(note=row).body_enc == ""
+        assert NoteAttachment.objects.get(public_id=att["id"]).content_enc == ""
+        assert AuditEvent.objects.filter(action="clinicalnote.erased_retention").count() >= 1
+
+    read = body(clinic.get(f"clinician/notes/{old}", subject="doc"))["note"]
+    assert read["body"] == "" and read["medications"] == [] and read["erased"] is True
+    assert erase_expired_all_tenants() == 0
+
+
+def test_recent_death_keeps_notes_until_8_years_elapse(clinic):
+    from modules.clinicalnote.jobs import erase_expired_all_tenants
+
+    _, pat = clinic.patient("pat_dead_rec")
+    with tenant_transaction(clinic.clinic.ctx):
+        trust.ensure_care_relationship(
+            actor_public_id=clinic.doc,
+            person_public_id=pat,
+            basis=trust.CareBasis.CARE_TEAM,
+            organization_ref=clinic.clinic.org,
+            by="system",
+        )
+
+    clinic.person = pat
+    note = draft(clinic, day="2020-01-05")
+    step(clinic, note, "sign")
+
+    # Patient died 2 years ago -> 8 years has not yet elapsed
+    clinic.login("boss_rec", FAC, "R13")
+    clinic.post(f"people/{pat}/death", {"died_on": "2024-06-01", "source": "hospital_notice"}, subject="boss_rec")
+
+    assert erase_expired_all_tenants() == 0
+
+
+def test_guardian_access_terminates_on_patient_death_and_restores_on_withdrawal(clinic):
+    child = _child_of_guardian(clinic, _years_ago(10))
+    with tenant_transaction(clinic.clinic.ctx):
+        trust.link_person_to_site(child, clinic.clinic.org, "booking")
+    note = signed(clinic)
+    backdate(clinic, note, 25)
+
+    # Guardian sees child's note before death
+    shown = body(mine(clinic, G))["notes"]
+    assert [n["id"] for n in shown] == [note]
+    assert clinic.get(f"my/notes/{note}", subject=G).status_code == 200
+
+    # Clinic administrator records child's death
+    clinic.login("boss_d1", FAC, "R13")
+    clinic.login("boss_d2", FAC, "R13")
+    r = clinic.post(f"people/{child}/death", {"died_on": "2026-11-20", "source": "hospital_notice"}, subject="boss_d1")
+    assert r.status_code == 201
+
+    # AHRA 1990: Guardian proxy access terminates upon death
+    assert body(mine(clinic, G))["notes"] == []
+    assert clinic.get(f"my/notes/{note}", subject=G).status_code == 404
+
+    # Clinician still has access for post-mortem/clinical audit
+    doc_read = clinic.get(f"clinician/notes/{note}", subject="doc")
+    assert doc_read.status_code == 200
+
+    # Second administrator withdraws death recorded in error
+    w = clinic.post(f"people/{child}/death/withdraw", {"reason": "recorded_in_error"}, subject="boss_d2")
+    assert w.status_code == 200
+
+    # Proxy access is restored
+    assert [n["id"] for n in body(mine(clinic, G))["notes"]] == [note]
+    assert clinic.get(f"my/notes/{note}", subject=G).status_code == 200
 
 
 

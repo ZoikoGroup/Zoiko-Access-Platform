@@ -58,6 +58,7 @@ from .support import (
     is_allowed,
     json_body,
     purpose_for,
+    require_recent_second_step,
     text,
 )
 
@@ -165,7 +166,7 @@ def _waiting_too_long(booking: dict[str, Any]) -> bool:
         booking["slot"]["organization_ref"], dt.datetime.fromisoformat(booking["created_at"]))
 
 
-@endpoint("GET")
+@endpoint("GET", during_set_up=True)
 def me(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     with tenant_transaction():
         orgs = trust.organization_names()
@@ -801,7 +802,14 @@ def login(request: HttpRequest) -> HttpResponse:
         password=password,
         remember=body.get("remember") is True,
     )
-    response = JsonResponse(_login_json(result))
+    if result.second_step_ticket:
+        # Two-step sign-in (DEV-380): the password was right, the code is still to come. No
+        # session, no roles: only a 5-minute ticket for POST auth/login/second-step.
+        response = JsonResponse({
+            "second_step": True, "ticket": result.second_step_ticket,
+            "expires_at": result.expires_at.isoformat()})
+    else:
+        response = JsonResponse(_login_json(result))
     response["Cache-Control"] = "no-store"
     return response
 
@@ -809,6 +817,7 @@ def login(request: HttpRequest) -> HttpResponse:
 def _login_json(result: trust.LoginResult) -> dict[str, Any]:
     return {
         "token": result.token,
+        "must_set_up_two_step": result.must_set_up_two_step,
         "expires_at": result.expires_at.isoformat(),
         "remembered": result.remembered,
         "home": home_for(result.actor_type, [r for r, _, _ in result.roles], result.tenant_type),
@@ -860,7 +869,7 @@ def providers(request: HttpRequest) -> HttpResponse:
     return JsonResponse({"google": {"enabled": bool(client_id), "client_id": client_id or None}})
 
 
-@endpoint("POST")
+@endpoint("POST", during_set_up=True)
 def logout(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """Sign out everywhere: every token this person was ever issued stops working."""
     with tenant_transaction():
@@ -3943,7 +3952,8 @@ def auth_change_password(request: HttpRequest, auth: trust.Authenticated) -> Htt
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["current_password", "new_password"])
     with tenant_transaction():
         result = trust.change_password(
-            auth.actor_public_id, current_password=current, new_password=new
+            auth.actor_public_id, current_password=current, new_password=new,
+            second_step_at=auth.second_step_at,
         )
     if not result.ok or result.expires_at is None:  # raised AFTER the transaction, so the
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["current_password"])  # counter stays
@@ -3996,6 +4006,7 @@ def staff_invite(request: HttpRequest, auth: trust.Authenticated) -> HttpRespons
     body = json_body(request)
     org = _staff_only(auth)
     decision = _authorize(auth, "write:staff", organization_public_id=org)
+    require_recent_second_step(auth)          # a risky act: the code again if stale (DEV-380)
     with tenant_transaction():
         member = trust.invite_staff(
             email=text(body, "email"),
@@ -4014,6 +4025,7 @@ def staff_member_status(
     body = json_body(request)
     org = _staff_only(auth)
     decision = _authorize(auth, "write:staff", organization_public_id=org)
+    require_recent_second_step(auth)
     with tenant_transaction():
         done = trust.set_member_status(
             member_id,
@@ -6807,15 +6819,19 @@ def _note_people(auth: trust.Authenticated, notes: Any) -> dict[str, bool]:
     child's only while the child is under 16 (DEV-324); an adult's they act for as attorney or
     court deputy (DEV-353, LEAD DECISION). The policy engine has already required the "notes"
     part of the grant, so without it there is nothing. A note its author kept from guardians is
-    kept from attorneys and deputies too."""
+    kept from attorneys and deputies too. Access by guardians and adult proxies ends when the
+    patient dies (AHRA 1990, DEV-377)."""
     people = _my_people(auth, notes.READ)
     with tenant_transaction():
         own = trust.own_person_of(auth.actor_public_id)
         others = [p for p in people if p != own]
         births = trust.get_person_profiles(others) if others else {}
         adults = trust.adult_proxy_persons(auth.actor_public_id) if others else set()
-    out = {p: False for p in people if p == own}
+        deceased = set(trust.death_dates(people).keys()) if people else set()
+    out = {p: False for p in people if p == own and p not in deceased}
     for person in others:
+        if person in deceased:
+            continue
         if person in adults or notes.guardian_may_read(births.get(person, {}).get("birth_date")):
             out[person] = True
     return out

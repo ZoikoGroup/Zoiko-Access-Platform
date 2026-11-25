@@ -931,7 +931,8 @@ def keep_until(
 ) -> dt.date | None:
     """The first day a patient's notes may be erased under the NHS rules, or None when it cannot
     be worked out safely (no birth date known: a child's notes must never go early). For a patient
-    recorded as having died: 8 years after death (DEV-333)."""
+    recorded as having died: 8 years after death or conclusion of care, whichever is later
+    (DEV-333, DEV-377)."""
     death = _birth(died_on)
     if death is not None:
         return max(_plus_years(death, ADULT_YEARS), _plus_years(last_care, ADULT_YEARS))

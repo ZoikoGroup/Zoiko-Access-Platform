@@ -2287,6 +2287,63 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
   - Consumer contracts verified: clinician routes 35, patient routes 55 (`python scripts/consumer_contract.py --check` clean).
   - OpenAPI snapshot refreshed and verified (`pytest backend/tests/test_openapi.py`: 7 passed).
 
+### DEV-377: clinical notes NHS 8-years-after-death retention rule & AHRA 1990 proxy termination
+
+- **Context & Requirement:**
+  - In `docs/HANDOVER.md`, the final remaining item under "What is not built (Clinical)" was `"the NHS '8 years after death' retention rule"`.
+  - Under the NHS Records Management Code of Practice 2021 and English law (Access to Health Records Act 1990, Mental Capacity Act 2005, Powers of Attorney Act 1971):
+    - Deceased patient notes must be retained for at least 8 years following death (or conclusion of care, whichever is later).
+    - Digital proxy access (parental guardian or Lasting Power of Attorney / Court Deputy) in patient portals terminates immediately upon patient death. Post-death records requests must be processed via formal legal representative procedures under AHRA 1990, not via living consumer app access.
+- **What was done:**
+  - **Retention Rules (`modules.clinicalnote.services`):**
+    - `keep_until(last_care, birth_date, died_on)`: works out the retention erasure date as `max(_plus_years(death, 8), _plus_years(last_care, 8))` for deceased patients, ensuring care concluding after recorded death or prior to death is safely retained for the full 8-year statutory window.
+    - `erase_expired()` / `clinicalnote.retention` daily worker job: erases `body_enc`, `diagnoses_enc`, `medications_enc`, and attachment `content_enc` for deceased patients whose 8-year post-death period has elapsed. Audit event `clinicalnote.erased_retention` recorded.
+  - **AHRA 1990 Proxy Termination Guardrails (`backend/api/views._note_people`):**
+    - `_note_people(auth, notes)`: checks `trust.death_dates(people)` and removes deceased patients from the active patient/proxy grant set.
+    - Proxies and guardians can no longer see deceased patient notes in `GET /api/v1/my/notes` or fetch individual notes (`GET /api/v1/my/notes/<id>`) and attachments (`GET /api/v1/my/notes/<id>/attachments/<id>`), returning 404 NOT_FOUND.
+    - When death is withdrawn by a second administrator (`POST /api/v1/people/<id>/death/withdraw`), proxy access is automatically restored.
+    - Clinicians retain read access (`GET /api/v1/clinician/notes/<id>`) for post-mortem reviews, inquests, and clinical audits throughout the 8-year retention window.
+- **Checked:**
+  - Added unit and integration tests to `backend/tests/test_clinical_notes.py`:
+    - `test_retention_erases_notes_8_years_after_death`: validates complete erasure of body, addenda, medications, and attachments after 8 years post-death.
+    - `test_recent_death_keeps_notes_until_8_years_elapse`: validates retention preservation for recent deaths.
+    - `test_guardian_access_terminates_on_patient_death_and_restores_on_withdrawal`: validates immediate proxy cutoff on death and restoration on withdrawal.
+  - All 52 tests in `tests/test_clinical_notes.py` and `tests/test_death.py` passed in Docker (100% success).
+  - Consumer contracts verified: `python scripts/consumer_contract.py --check` clean.
+  - OpenAPI snapshot verified: `pytest tests/test_openapi.py` (7 passed).
+
+### DEV-380: two-step sign-in for staff, with a re-check before risky actions (GHE-02)
+(Numbered 380, not 378, because another session was using the numbers after 377 at the time.)
+
+- **Why:** the design-document audit found every staff, doctor and Zoiko-staff login protected by a password alone (GHE-02, 36%): a password stolen by phishing or reuse opened the whole clinic. The error catalogue already had `STEP_UP_REQUIRED`, but nothing used it.
+- **What was done:**
+  - **The factor.** An authenticator app (RFC 6238: 30-second, 6-digit, SHA-1 codes, as every common app uses), plus ten one-time recovery codes for a lost phone (`modules/trust/two_step.py`). The secret is stored ENCRYPTED, bound to the login, and is covered by `rotate_field_keys`. Recovery codes are kept only as keyed hashes (a copy of the database alone cannot test guesses). A code is accepted 30 seconds either side of its own, and only once (no replay).
+  - **Sign-in.** With it on, the right password gives no session, only a 5-minute ticket (a different signing key: a ticket is never a session). `POST auth/login/second-step {ticket, code}` gives the session.
+  - **Lockout.** Wrong codes count towards the same lockout as wrong passwords (5, then 15 minutes). **The counter is reset only by a right code, never by the right password**: otherwise a stolen password would buy endless guesses.
+  - **Turning it on and off.** Setting it up needs the current password, then a first code. Turning it off needs the password AND a code. Either ends every other session and emails a notice to a verified address, and so does a spent recovery code.
+  - **The customer's rule.** The clinic administrator (R13) may require it for every staff login (`Tenant.staff_two_step_required`, `staff/two-step-rule`). They must have it on themselves first. While it is required, staff cannot turn theirs off, and a staff login without it gets a session that can only set it up: every other endpoint answers `STEP_UP_REQUIRED` with the field `two_step_set_up`. Patients and family members are never required.
+  - **Re-check before risky actions.** Each session records when its code was proved. Inviting staff, suspending or restoring them, merging or unmerging patient records, and dropping the clinic's two-step rule ask for the code again when the last one is over 15 minutes old (`STEP_UP_REQUIRED`, field `two_step`; then `POST auth/two-step/recheck`). The apps show a small code prompt and retry by themselves. Logins without two-step are not re-checked.
+  - **Screens.**
+    - Staff console, doctor app and platform console: a code step after the password, the required set-up straight after sign-in, and a "Two-step sign-in" card on My account / Settings. The card shows the setup key, an `otpauth://` link, the recovery codes once and the codes left, and has buttons for new codes and turning it off.
+    - Staff console Settings: the clinic's "Two-step sign-in for all staff" rule, with how many staff logins have not set it up.
+  - **Migration** `trust/0032` (added columns only).
+- **Proposals, not decided:**
+  - The 15-minute re-check window and the list of risky actions.
+  - The 5-minute ticket.
+  - Whether Zoiko's own platform tenant should be required before go-live. Recommended yes: a release check could then insist on it.
+  - Whether patients should be offered it. The backend already allows it; the patient app has no screen.
+- **Not done:**
+  - A QR code on the set-up screen (needs a QR library: the key and link are shown instead).
+  - Passkeys or WebAuthn.
+  - An administrator resetting a staff member's lost two-step (today: their recovery codes, or support).
+  - The partner portal (its logins are partner users, left for its own item).
+  - Single sign-on (Google) logins: they bring their own provider's second step.
+- **Checked:**
+  - New `tests/test_two_step.py`: 21 passed, mostly refusals. A replayed code; old and future codes; the counter not reset by the password; forged, expired and signed-out tickets; a session used as a ticket and a ticket as a session. Set-up only while required; the administrator needing it first; no turning off while required; patients never required; the re-check after 15 minutes and before inviting staff, and none without two-step. The secret and codes are never stored plainly or audited.
+  - Existing tests: sign-in, password change, identifiers, merge, key rotation, team and OpenAPI (snapshot refreshed), 139 passed. A first combined run showed database errors in the team and key-rotation tests from a parallel run on the shared test database; both files then passed in full.
+  - Ruff and mypy are clean on the changed files; no missing migrations; the three apps type-check.
+  - Live check against the running server with the demo administrator: on, sign-in with a code, replay refused, off with a recovery code, then the password alone again.
+
 ### Note: the whole backend suite, run once on 23 November
 
 3,097 passed, 2 skipped, 4 failed (3 hours). The 4 failures were the API and event snapshot checks, because code was changed while the run was going (the merge events of DEV-365 and the endpoints of DEV-366 to DEV-368 were added after it started). Run again on the final code, the event catalogue and OpenAPI tests pass (31 passed, then the snapshot refreshed for the last new endpoint: 7 passed).
