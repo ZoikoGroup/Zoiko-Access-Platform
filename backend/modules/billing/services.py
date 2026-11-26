@@ -407,6 +407,12 @@ def payment_dict(a: PaymentAttempt, inv: Invoice) -> dict[str, Any]:
     }
 
 
+def online_payment() -> dict[str, Any]:
+    """Whether a bill can be paid online on this deployment, and whether that moves real money."""
+    found = payments.active()
+    return {"available": found is not None, "pretend": bool(found and found.pretend)}
+
+
 def _provider() -> payments.PaymentProvider:
     found = payments.active()
     if found is None:

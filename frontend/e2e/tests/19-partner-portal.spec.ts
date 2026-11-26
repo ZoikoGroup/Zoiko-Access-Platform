@@ -11,7 +11,7 @@ for (const p of PARTNER_LOGINS) {
     await signIn(page, "partners", p.login, p.org);
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
     await expect(page.getByText(p.name).first()).toBeVisible();
-    await expect(page.getByText("Waiting for a decision")).toBeVisible();
+    await expect(page.getByText("Not available yet", { exact: false }).first()).toBeVisible();
     await expect(page.getByText("What this role never does")).toBeVisible();
     const items = (await page.locator(".nav-item").allInnerTexts()).map((t) => t.trim());
     expect(items.includes("My services")).toBe(p.services);

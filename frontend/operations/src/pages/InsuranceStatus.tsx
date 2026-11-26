@@ -30,10 +30,11 @@ function View({ data }: { data: BillingData }) {
   return (
     <>
       <div className="hero"><div>
-        <h1>Billing &amp; Claims</h1>
+        <h1>Insurance status</h1>
         <p>What this clinic can say about its patients' insurance today. A patient's insurance is shown only when
           they chose to share it with staff; for everyone else this page says only that they have not shared, and
-          never whether they have insurance. Nothing is checked with an insurer, and member numbers are never shown.</p>
+          never whether they have insurance. This page does not ask any insurer: to do that, open the patient and use
+          "Check cover". Invoices are under Billing and claims under Claims. Member numbers are never shown.</p>
       </div></div>
       <div className="grid stats">
         <StatCard icon="patients" label="Patients" value={c.patients} note="at this clinic" />
@@ -49,10 +50,6 @@ function View({ data }: { data: BillingData }) {
         </Card>
         <Card title={`All patients (${c.patients})`}>
           <Table headers={headers} empty="No patients yet." rows={rows(data.patients)} />
-        </Card>
-        <Card title={<>Invoices, payments and claims <Pill kind="warn">not built yet</Pill></>}>
-          <div className="empty">These are a later phase. They wait on the first market and on Zoiko's legal role
-            for each service, which the lead has not decided yet.</div>
         </Card>
       </div>
     </>

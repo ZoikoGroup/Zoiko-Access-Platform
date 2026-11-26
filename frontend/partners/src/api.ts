@@ -1,3 +1,4 @@
+import type { Step } from "@shared/StepHistory";
 // The only file that talks to the backend. Pages call these functions, never fetch().
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
@@ -240,6 +241,10 @@ export async function clearDisplayName(): Promise<void> {
 }
 
 export const getClaims = async () => (await v1<{ claims: Claim[] }>("claims/incoming")).claims;
+export const getClaimHistory = async (id: string) =>
+  (await v1<{ history: Step[] }>(`claims/${encodeURIComponent(id)}/history`)).history;
+export const getRequestHistory = async (id: string) =>
+  (await v1<{ history: Step[] }>(`exchange/requests/${encodeURIComponent(id)}/history`)).history;
 export const claimCheck = async (id: string) =>
   (await v1<{ check: ClaimCheck }>(`claims/incoming/${encodeURIComponent(id)}/check`)).check;
 export const claimStep = async (id: string, step: "approve" | "decline" | "pay", extra: { reason?: string; payment_ref?: string } = {}) =>

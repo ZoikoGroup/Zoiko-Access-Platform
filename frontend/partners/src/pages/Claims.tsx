@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { claimCheck, claimStep, getClaims } from "../api";
+import { StepHistory } from "@shared/StepHistory";
+import { claimCheck, claimStep, getClaimHistory, getClaims } from "../api";
 import type { Claim, ClaimCheck } from "../types";
 import { Card, Pill } from "../ui";
 import { Gate, useLoad } from "../useLoad";
@@ -67,6 +68,7 @@ function Row({ c, onChanged }: { c: Claim; onChanged: () => void }) {
           <button className="btn" disabled={busy || pay.trim().length < 3} onClick={() => void run("pay")}>Mark as paid</button>
         </div>
       )}
+      <StepHistory label={c.claim_no} load={() => getClaimHistory(c.id)} />
     </div>
   );
 }

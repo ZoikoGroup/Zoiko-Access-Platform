@@ -1,10 +1,63 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, getMatrix, importMatrixSeed, type MatrixData } from "../api";
+import { ApiError, getMatrix, importMatrixSeed, updateRequirement, type MatrixData } from "../api";
 import { Card, Pill } from "../ui";
 
 const STANDING: Record<string, { text: string; kind: "ok" | "warn" | "bad" }> = {
   met: { text: "Met", kind: "ok" }, partly: { text: "Partly", kind: "warn" }, not_built: { text: "Not built", kind: "bad" },
 };
+
+type Requirement = MatrixData["requirements"][number];
+
+/** One requirement, and (for regional support) changing how far it is met. */
+function Row({ r, canWrite, onDone }: { r: Requirement; canWrite: boolean; onDone: () => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [status, setStatus] = useState<string>(r.status);
+  const [evidence, setEvidence] = useState(r.evidence);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError("");
+    try { await updateRequirement(r.public_id, status, evidence); setEditing(false); await onDone(); }
+    catch (err) {
+      const code = err instanceof ApiError ? err.code : "";
+      setError(code === "VALIDATION_FAILED" ? "To mark it “met”, the evidence must name an automated test, such as tests/test_booking.py. Evidence can be up to 1000 characters."
+        : code === "POLICY_DENIED" ? "Your account may not change requirements."
+        : err instanceof Error ? err.message : "That did not work");
+    } finally { setBusy(false); }
+  }
+  return (
+    <div className="appt">
+      <div className="info">
+        <b>{r.source} {r.req_id} <Pill kind={STANDING[r.status].kind}>{STANDING[r.status].text}</Pill></b>
+        <small>{r.title}</small>
+        {r.evidence && <small>{r.evidence}</small>}
+      </div>
+      {canWrite && !editing && (
+        <button className="btn ghost" onClick={() => { setStatus(r.status); setEvidence(r.evidence); setEditing(true); }}>
+          Update<span className="sr-only"> {r.source} {r.req_id}</span>
+        </button>
+      )}
+      {editing && (
+        <form className="add-form" style={{ flexBasis: "100%" }} onSubmit={(e) => void save(e)}>
+          <label>Standing of {r.source} {r.req_id}
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="met">Met</option><option value="partly">Partly</option><option value="not_built">Not built</option>
+            </select>
+          </label>
+          <label>Evidence
+            <textarea value={evidence} maxLength={1000} onChange={(e) => setEvidence(e.target.value)} />
+          </label>
+          {error && <div className="error" role="alert">{error}</div>}
+          <div className="row">
+            <button className="btn" type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+            <button type="button" className="btn ghost" onClick={() => { setEditing(false); setError(""); }}>Close</button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
 
 /** The requirements matrix: each requirement of the specifications and how far it is met. */
 export function Matrix({ canWrite }: { canWrite: boolean }) {
@@ -63,13 +116,7 @@ export function Matrix({ canWrite }: { canWrite: boolean }) {
               </select>
             </label>
           </div>
-          {data?.requirements.map((r) => (
-            <div key={r.public_id} className="appt"><div className="info">
-              <b>{r.source} {r.req_id} <Pill kind={STANDING[r.status].kind}>{STANDING[r.status].text}</Pill></b>
-              <small>{r.title}</small>
-              {r.evidence && <small>{r.evidence}</small>}
-            </div></div>
-          ))}
+          {data?.requirements.map((r) => <Row key={r.public_id} r={r} canWrite={canWrite} onDone={load} />)}
         </Card>
       </div>
     </>

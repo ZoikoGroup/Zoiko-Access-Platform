@@ -127,22 +127,26 @@ function OpeningHours() {
             <p>{cur ? <>Today: <b>{cur.days.map((n) => WEEKDAYS[n]).join(", ")}</b>, {cur.opens} to {cur.closes}{cur.holidays.length ? `, ${cur.holidays.length} holiday(s)` : ""}.</>
               : <>Not set: deadlines count every hour of the day.</>}</p>
             {b.can_set ? (
-              <div className="form-row">
-                <div role="group" aria-label="Working days">
+              <div className="profile-form">
+                <div role="group" aria-label="Working days" className="row" style={{ gap: 18 }}>
                   {WEEKDAYS.map((name, n) => (
-                    <label key={name} style={{ marginRight: 8 }}>
+                    <label key={name}>
                       <input type="checkbox" checked={d.includes(n)}
                         onChange={() => setDays(d.includes(n) ? d.filter((x) => x !== n) : [...d, n].sort())} /> {name}
                     </label>
                   ))}
                 </div>
-                <label>Opens <input type="time" value={o} onChange={(e) => setOpens(e.target.value)} aria-label="Opening time" /></label>{" "}
-                <label>Closes <input type="time" value={c} onChange={(e) => setCloses(e.target.value)} aria-label="Closing time" /></label>
-                <label style={{ display: "block" }}>Holidays (dates like 2026-12-25, separated by commas)
-                  <input value={h} onChange={(e) => setHolidays(e.target.value)} aria-label="Holidays" style={{ width: "100%" }} />
+                <div className="row" style={{ gap: 18 }}>
+                  <label>Opens <input type="time" value={o} onChange={(e) => setOpens(e.target.value)} aria-label="Opening time" /></label>
+                  <label>Closes <input type="time" value={c} onChange={(e) => setCloses(e.target.value)} aria-label="Closing time" /></label>
+                </div>
+                <label>Holidays (dates like 2026-12-25, separated by commas)
+                  <input value={h} onChange={(e) => setHolidays(e.target.value)} aria-label="Holidays" />
                 </label>
-                <button className="btn" disabled={busy || d.length === 0 || o >= c} onClick={() => void save(false, d, o, c, h)}>Save</button>{" "}
-                <button className="btn ghost" disabled={busy || !cur} onClick={() => void save(true, d, o, c, h)}>Count every hour</button>
+                <div className="row">
+                  <button className="btn" disabled={busy || d.length === 0 || o >= c} onClick={() => void save(false, d, o, c, h)}>Save</button>
+                  <button className="btn ghost" disabled={busy || !cur} onClick={() => void save(true, d, o, c, h)}>Count every hour</button>
+                </div>
               </div>
             ) : <small>Only your clinic administrator can change this.</small>}
             {error && <div className="error" role="alert">{error}</div>}

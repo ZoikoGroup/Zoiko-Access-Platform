@@ -1,3 +1,4 @@
+import type { AttachmentPayload, AttachmentRef } from "@shared/Attachments";
 // The only file that talks to the backend. Pages call these functions, never fetch().
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
@@ -121,9 +122,34 @@ export const sendReferral = (body: { patient: string; service: string; reason: s
 export const getThreads = async () => (await v1<{ threads: Thread[] }>("clinician/messages")).threads;
 export const getThread = async (id: string) =>
   (await v1<{ thread: ThreadView }>(`messages/threads/${encodeURIComponent(id)}`)).thread;
-export const replyToThread = (id: string, body: string, key: string) =>
+export const replyToThread = (id: string, body: string, key: string, attachments?: AttachmentPayload[]) =>
   v1<unknown>(`messages/threads/${encodeURIComponent(id)}/reply`, {
-    method: "POST", body: JSON.stringify({ body }), headers: { "Idempotency-Key": key } });
+    method: "POST", body: JSON.stringify({ body, attachments }), headers: { "Idempotency-Key": key } });
+/** Save one attached file. The browser cannot send the login with a plain link, so it is fetched here,
+ *  with the same reason for working as every other look at a patient. */
+export async function downloadAttachment(a: AttachmentRef): Promise<void> {
+  if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
+  const res = await fetch(`/api/v1/messages/attachments/${encodeURIComponent(a.id)}`, {
+    headers: { Authorization: `Bearer ${current.token}`, "X-Zoiko-Purpose": purpose } });
+  if (!res.ok) throw new ApiError("Could not download the file");
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = a.name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+/** A pointer to a record held in a clinic's own system: never the record. */
+export interface RecordReference {
+  id: string; kind: string; refers_to: string; system: string; external_id: string;
+  status: "active" | "withdrawn"; withdrawn_reason: string | null; organization: { id: string; name: string };
+}
+export const getReferences = async (person: string) =>
+  (await v1<{ references: RecordReference[] }>(`clinician/patients/${encodeURIComponent(person)}/references`)).references;
+export const addReference = (person: string, body: { system: string; external_id: string; kind: string; refers_to: string }) =>
+  v1<unknown>(`clinician/patients/${encodeURIComponent(person)}/references`, { method: "POST", body: JSON.stringify(body) });
+export const withdrawReference = (id: string, reason: string) =>
+  v1<unknown>(`clinician/references/${encodeURIComponent(id)}/withdraw`, { method: "POST", body: JSON.stringify({ reason }) });
 export const getPartnerRequests = async () => (await v1<{ requests: PartnerRequest[] }>("exchange/requests")).requests;
 export const reviewPartnerResult = (id: string) =>
   v1<{ request: PartnerRequest }>(`exchange/requests/${encodeURIComponent(id)}/review`, { method: "POST", body: "{}" });

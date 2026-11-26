@@ -1,3 +1,4 @@
+import type { AttachmentRef } from "@shared/Attachments";
 // Shapes returned by the backend's /api/v1/clinician endpoints.
 
 export type Health = "ok" | "down" | "checking";
@@ -69,7 +70,7 @@ export interface Thread {
 }
 
 export interface ThreadView extends Thread {
-  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; seen_at?: string | null; from?: string }[];
+  messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; seen_at?: string | null; from?: string; attachments?: AttachmentRef[] }[];
 }
 
 export interface PartnerRequest {

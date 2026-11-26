@@ -374,6 +374,8 @@ def clinic_counts(tenant_ref: str) -> dict[str, int]:
     base = Claim.objects.filter(from_tenant_ref=tenant_ref, **_scope())
     return {
         "waiting": base.filter(state=ClaimState.SUBMITTED).count(),
+        "approved": base.filter(state=ClaimState.APPROVED).count(),
+        "paid": base.filter(state=ClaimState.PAID).count(),
         "declined": base.filter(state=ClaimState.DECLINED).count(),
     }
 

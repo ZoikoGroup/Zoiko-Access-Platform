@@ -473,7 +473,32 @@ export interface Invoice {
   status: "draft" | "issued" | "paid" | "void";
   due_on: string | null;
 }
-export const getInvoices = async () => (await request<{ invoices: Invoice[] }>("billing/invoices")).body.invoices;
+export interface OnlinePayment { available: boolean; pretend: boolean }
+export const getBills = async () => {
+  const { body } = await request<{ invoices: Invoice[]; online_payment: OnlinePayment }>("billing/invoices");
+  return { invoices: body.invoices, online: body.online_payment };
+};
+export interface Payment {
+  public_id: string; invoice_number: string; amount_minor: number; currency: string; provider_ref: string;
+  status: "pending" | "succeeded" | "failed" | "unknown"; created_at: string;
+}
+export const getPayments = async (invoice: string) =>
+  (await request<{ payments: Payment[] }>(`billing/invoices/${encodeURIComponent(invoice)}/payments`)).body.payments;
+export async function payBill(invoice: string, key: string): Promise<void> {
+  await request(`billing/invoices/${encodeURIComponent(invoice)}/payments`, {
+    method: "POST", body: JSON.stringify({ idempotency_key: key }) });
+}
+export async function refreshPayment(id: string): Promise<void> {
+  await request(`billing/payments/${encodeURIComponent(id)}/refresh`, { method: "POST", body: "{}" });
+}
+
+/** Where one of the patient's records is held: never the record, nor its number in that system. */
+export interface RecordReference {
+  id: string; kind: string; refers_to: string; system: string; status: "active" | "withdrawn";
+  organization: { id: string; name: string };
+}
+export const getMyReferences = async () =>
+  (await request<{ references: RecordReference[] }>("my/references")).body.references;
 
 export interface RightsRequest {
   id: string;

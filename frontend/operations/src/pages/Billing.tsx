@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { billingAction, createInvoice, getBillingFees, getInvoice, getInvoices, getPatients, setFee } from "../api";
+import { billingAction, createInvoice, getBillingFees, getInvoice, getInvoices, getPatients, setFee, getPaymentAttempts, type PaymentAttempt } from "../api";
 import type { FeeRow, InvoiceRow, PatientRow } from "../types";
 import { Card, Pill, type PillKind } from "../ui";
 
@@ -145,6 +145,37 @@ function Row({ inv, canAdmin, onDone }: { inv: InvoiceRow; canAdmin: boolean; on
 }
 
 /** A clinic's fees and invoices. Records only: no money moves here and no card detail is held. */
+const ATTEMPT: Record<PaymentAttempt["status"], { text: string; kind: "ok" | "bad" | "warn" }> = {
+  succeeded: { text: "Received", kind: "ok" }, failed: { text: "Failed", kind: "bad" },
+  pending: { text: "Being processed", kind: "warn" }, unknown: { text: "Outcome unknown", kind: "warn" },
+};
+
+/** What patients have tried to pay online, and what the provider said. */
+function Attempts() {
+  const [rows, setRows] = useState<PaymentAttempt[] | null>(null);
+  const [error, setError] = useState("");
+  const load = useCallback(() => {
+    getPaymentAttempts().then((got) => { setRows(got); setError(""); })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load the payments"));
+  }, []);
+  useEffect(() => { load(); const timer = setInterval(load, 30_000); return () => clearInterval(timer); }, [load]);
+  return (
+    <Card title={`Online payment attempts (${rows?.length ?? 0})`} sub="Newest first. An unknown outcome is not a failure: the patient can ask the provider again.">
+      {error && <div className="error" role="alert">{error}</div>}
+      {rows === null ? <div className="empty">{error ? "Could not load." : "Loading…"}</div>
+        : rows.length === 0 ? <div className="empty">No one has tried to pay online yet.</div>
+        : rows.map((p) => (
+          <div key={p.public_id} className="appt">
+            <div className="info">
+              <b>{p.invoice_number} <Pill kind={ATTEMPT[p.status].kind}>{ATTEMPT[p.status].text}</Pill>{p.provider === "pretend" && <> <Pill kind="info">practice</Pill></>}</b>
+              <small>{(p.amount_minor / 100).toFixed(2)} {p.currency} · {new Date(p.created_at).toLocaleString()} · asked {p.attempts} time{p.attempts === 1 ? "" : "s"}{p.provider_ref ? ` · reference ${p.provider_ref}` : ""}</small>
+            </div>
+          </div>
+        ))}
+    </Card>
+  );
+}
+
 export function Billing() {
   const [fees, setFees] = useState<FeeRow[]>([]);
   const [canSet, setCanSet] = useState(false);
@@ -162,7 +193,7 @@ export function Billing() {
     <>
       <div className="hero"><div>
         <h1>Billing</h1>
-        <p>Prices, invoices and credit notes for this clinic. This keeps the records: it does not take payments and holds no card or bank details. When you mark an invoice as paid, you give the reference of a payment you took elsewhere. Credit notes can never take an invoice below zero. There is no tax handling yet, and a patient sees only their own issued invoices.</p>
+        <p>Prices, invoices and credit notes for this clinic. No card or bank details are held here. Where online payment is switched on, a patient can pay an issued invoice and it is marked as paid; when you mark one as paid yourself, you give the reference of a payment you took elsewhere. Credit notes can never take an invoice below zero. There is no tax handling yet, and a patient sees only their own issued invoices.</p>
       </div></div>
       {error && <div className="error" role="alert">{error}</div>}
       <div className="grid">
@@ -172,6 +203,7 @@ export function Billing() {
           {invoices === null ? <div className="empty">Loading…</div> : invoices.length === 0
             ? <div className="empty">No invoice yet.</div> : invoices.map((i) => <Row key={i.public_id} inv={i} canAdmin={canAdmin} onDone={load} />)}
         </Card>
+        <Attempts />
       </div>
     </>
   );

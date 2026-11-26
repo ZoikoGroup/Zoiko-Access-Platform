@@ -18,6 +18,7 @@ import { Profile } from "./pages/Profile";
 import { Help } from "./pages/Help";
 import { Referrals } from "./pages/Referrals";
 import { MyClaims } from "./pages/MyClaims";
+import { Records } from "./pages/Records";
 import { MyNotes } from "./pages/MyNotes";
 import { MyProgramme } from "./pages/MyProgramme";
 import { MyRequests } from "./pages/MyRequests";
@@ -42,7 +43,7 @@ const NAV: NavItem[] = [
   { id: "notes", label: "My Notes", icon: "services" },
   { id: "claims", label: "My Claims", icon: "compliance" },
   { id: "programme", label: "Employer Programme", icon: "patients" },
-  { id: "records", label: "My Health Records", icon: "services", waitsFor: "Health records need the clinical record service, a later phase." },
+  { id: "records", label: "My Health Records", icon: "services" },
   { id: "careteam", label: "My Care Team", icon: "providers" },
   { id: "family", label: "Family Members", icon: "patients" },
   { id: "bills", label: "Bills & Payments", icon: "billing" },
@@ -53,7 +54,7 @@ const NAV: NavItem[] = [
   { id: "profile", label: "My Profile", icon: "settings" },
   { id: "help", label: "Help & Support", icon: "integrations" },
 ];
-const LIVE: PageId[] = ["dashboard", "find", "doctors", "appointments", "referrals", "notifications", "profile", "insurance", "careteam", "privacy", "family", "messages", "help", "bills", "requests", "notes", "claims", "programme"];
+const LIVE: PageId[] = ["dashboard", "find", "doctors", "appointments", "referrals", "notifications", "profile", "insurance", "records", "careteam", "privacy", "family", "messages", "help", "bills", "requests", "notes", "claims", "programme"];
 
 function startPage(): PageId {
   const wanted = new URLSearchParams(window.location.search).get("page");
@@ -145,6 +146,7 @@ export default function App() {
   else if (page === "careteam") body = <CareTeam />;
   else if (page === "privacy") body = <Privacy />;
   else if (page === "bills") body = <Bills />;
+  else if (page === "records") body = <Records />;
   else if (page === "insurance") body = <Insurance coverage={coverage} hasPatient={me.persons.length > 0} onChanged={refresh} />;
   else if (page === "profile") body = <Profile key={profiles.map((x) => x.name).join("|")} profiles={profiles} onSaved={refresh} />;
   else if (page === "referrals") body = <Referrals referrals={referrals} />;

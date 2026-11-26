@@ -984,6 +984,12 @@ def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
             ]
             if "R13" in auth.roles:  # the administrator's own number (DEV-303)
                 partner_escalated = mine["escalated"]
+    claims = None                      # only for someone who may read this clinic's claims
+    if org is not None and is_allowed(auth, "read:coverage", organization_public_id=org) and any(
+        t["type"] == "platform" and t["status"] == "active" for t in trust.list_tenants()
+    ):
+        with tenant_transaction(_platform_context()):
+            claims = claim.clinic_counts(_my_customer(auth))
     with tenant_transaction():
         numbers = trust.counts()
         attention = {
@@ -1026,6 +1032,7 @@ def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
             "attention": attention,
             "late": late,
             "today": today,
+            "claims": claims,
             **_evidence_block(auth, org),
         }
     )
@@ -1773,11 +1780,11 @@ def my_invoices(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse
     with tenant_transaction():
         person = trust.own_person_of(auth.actor_public_id)
     if not person or org is None:
-        return JsonResponse({"invoices": []})
+        return JsonResponse({"invoices": [], "online_payment": billing.online_payment()})
     _authorize(auth, "read:billing", organization_public_id=org, subject_ref=person)
     with tenant_transaction():
         rows = billing.patient_invoices(person)
-    return JsonResponse({"invoices": rows})
+    return JsonResponse({"invoices": rows, "online_payment": billing.online_payment()})
 
 
 # ------------------------------------------------------------------ requirements matrix (DEV-138)
@@ -2582,38 +2589,47 @@ def platform_customers(request: HttpRequest, auth: trust.Authenticated) -> HttpR
 # -------------------------------------------------------------- partner, payer, employer portal
 PORTAL_AREAS = ("partner", "payer", "employer", "developer")
 
-# What is really connected for each kind of login today, said plainly so a screen never implies
-# more (TEMPORARY, DEV-158): the rest waits on decisions in docs/LEAD-NOTE.md.
+# What is really connected for each kind of login today, and what is not, said plainly so a screen
+# never implies more or less than is true (TEMPORARY, DEV-158, brought up to date by DEV-353).
 _PORTAL_CONNECTED = {
     "partner": [
         "Your organisation's service listings (add, request a listing, a colleague reviews it)",
+        "Requests clinics send you: accept or decline, do the work and report a result",
+        "The system you receive coded orders in, from those Zoiko has put live",
         "Your team (add colleagues of your own kind)",
     ],
-    "payer": ["Plans, members and entitlement checks", "Your team (add colleagues)"],
-    "employer": ["Programme counts (small groups hidden)", "Your team (add colleagues)"],
+    "payer": [
+        "Plans, members and entitlement checks",
+        "Claims clinics send you: check cover, approve or decline, record your payment",
+        "Your team (add colleagues)",
+    ],
+    "employer": [
+        "Programme counts (small groups hidden)",
+        "One-time codes a member uses to agree to be counted",
+        "Your team (add colleagues)",
+    ],
     "developer": [
         "Your API keys, webhooks and delivery log",
         "The API and event documents",
+        "A sandbox with synthetic patients that checks your messages",
         "Your team (add colleagues)",
     ],
 }
 _PORTAL_WAITING = {
     "developer": [
-        "A sandbox with synthetic patients, partner certification and onboarding "
-        "checks (GHE-13): not built. Nothing here reaches production patient data."
+        "Applying for certification and following it here: Zoiko staff decide it for now. "
+        "Nothing here reaches production patient data."
     ],
     "partner": [
-        "Receiving and answering referrals, orders and results: this needs a way for "
-        "separate customers to exchange them, which is not built."
+        "Attaching files or documents to a result: a result is your reference, a short summary "
+        "and measured values."
     ],
     "payer": [
-        "Claims, and a clinic asking you whether a patient is covered: this needs a way "
-        "for separate customers to exchange them, which is not built (GHE-17)."
+        "Moving money: you record the reference of a payment you made elsewhere.",
+        "A clinic's or patient's own cover check does not read your plans yet.",
     ],
     "employer": [
-        "Counts about how your people use care (visits, bookings): this needs a link "
-        "between your programme and clinics, which is not built. You see counts only, "
-        "never an individual (GHE-17)."
+        "Costs of care: not built. You see counts only, never an individual (GHE-17)."
     ],
 }
 

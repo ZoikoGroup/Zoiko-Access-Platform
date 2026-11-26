@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { getPatients, listClaimPayers, listClaims, sendClaim, withdrawClaim } from "../api";
+import { StepHistory } from "@shared/StepHistory";
+import { getClaimHistory, getPatients, listClaimPayers, listClaims, sendClaim, withdrawClaim } from "../api";
 import type { Claim, ClaimState, PatientRow } from "../types";
 import { Card, Pill, type PillKind } from "../ui";
 
@@ -33,7 +34,10 @@ function Row({ c, onDone }: { c: Claim; onDone: () => Promise<void> }) {
         {c.state === "paid" && c.payment_ref && <small>Payment reference {c.payment_ref}</small>}
         {error && <div className="error" role="alert">{error}</div>}
       </div>
-      {c.state === "submitted" && <div><button className="btn ghost" disabled={busy} onClick={() => void withdraw()}>Withdraw the claim</button></div>}
+      <div className="row">
+        {c.state === "submitted" && <button className="btn ghost" disabled={busy} onClick={() => void withdraw()}>Withdraw the claim</button>}
+        <StepHistory label={c.claim_no} load={() => getClaimHistory(c.id)} />
+      </div>
     </div>
   );
 }
@@ -59,7 +63,7 @@ function Send({ payers, patients, onDone }: { payers: { id: string; name: string
     } finally { setBusy(false); }
   }
   return (
-    <form onSubmit={(e) => void submit(e)} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <form className="profile-form" onSubmit={(e) => void submit(e)}>
       <label>Payer
         <select value={f.payer} onChange={(e) => set("payer", e.target.value)}>
           {payers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}

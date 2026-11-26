@@ -2,6 +2,7 @@ import { useState } from "react";
 import { getPatients } from "../api";
 import { Gate, useLoad } from "../useLoad";
 import { Card, Patient, Pill, Table } from "../ui";
+import { RecordReferences } from "./RecordReferences";
 
 const WHY: Record<string, string> = {
   appointment: "an appointment", referral: "a referral", care_team: "your care team",
@@ -10,6 +11,7 @@ const WHY: Record<string, string> = {
 export function Patients({ initialSearch = "" }: { initialSearch?: string }) {
   const [search, setSearch] = useState(initialSearch);
   const result = useLoad(getPatients);
+  const [records, setRecords] = useState<{ id: string; name: string } | null>(null);
   return (
     <Gate result={result}>
       {(all) => {
@@ -30,14 +32,18 @@ export function Patients({ initialSearch = "" }: { initialSearch?: string }) {
           </div>
           <div className="grid">
             <Card title={word ? `${rows.length} of ${all.length} patients` : `${all.length} patient${all.length === 1 ? "" : "s"}`}>
-              <Table headers={["Patient", "Why you can see them", "Since", "Appointments with you"]}
+              <Table headers={["Patient", "Why you can see them", "Since", "Appointments with you", "Records"]}
                 empty={word ? "No patient of yours matches that name." : "No patients yet. A patient appears here after a clinic confirms their booking with you."}
                 rows={rows.map((p) => [
                   <Patient key="i" name={p.patient_name} id={p.id} />,
                   <Pill key="b" kind="info">{WHY[p.basis] ?? p.basis}</Pill>,
                   p.since.slice(0, 10), p.appointments,
+                  <button key="r" className="btn ghost" onClick={() => setRecords({ id: p.id, name: p.patient_name || p.id })}>
+                    Held elsewhere<span className="sr-only"> for {p.patient_name || p.id}</span>
+                  </button>,
                 ])} />
             </Card>
+            {records && <RecordReferences key={records.id} person={records.id} name={records.name} onClose={() => setRecords(null)} />}
           </div>
         </>
         );

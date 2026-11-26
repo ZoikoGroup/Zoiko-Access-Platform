@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { cancelExchangeRequest, getPatients, listExchangePartners, listExchangeRequests, sendExchangeRequest } from "../api";
+import { StepHistory } from "@shared/StepHistory";
+import { cancelExchangeRequest, getExchangeHistory, getPatients, listExchangePartners, listExchangeRequests, sendExchangeRequest } from "../api";
 import type { ExchangeRequest, ExchangeState, PatientRow } from "../types";
 import { Card, Pill, type PillKind } from "../ui";
 
@@ -76,9 +77,12 @@ function Row({ r, onDone }: { r: ExchangeRequest; onDone: () => Promise<void> })
         {r.on_hold && (r.state === "requested" || r.state === "accepted" || r.state === "in_progress") && <small>The partner cannot take this at the moment. Cancel it and ask elsewhere, or wait: it carries on if the partner comes back. {r.hold_escalated ? "It has waited over 3 days, so the administrator has been asked to decide." : r.hold_mine ? "This one is yours to decide." : r.hold_owner_name ? `${r.hold_owner_name} sent it and decides.` : ""}</small>}
         {error && <div className="error" role="alert">{error}</div>}
       </div>
-      {(r.state === "requested" || r.state === "accepted" || r.state === "in_progress") && (
-        <div><button className="btn ghost" disabled={busy} onClick={() => void cancel()}>Cancel the request</button></div>
-      )}
+      <div className="row">
+        {(r.state === "requested" || r.state === "accepted" || r.state === "in_progress") && (
+          <button className="btn ghost" disabled={busy} onClick={() => void cancel()}>Cancel the request</button>
+        )}
+        <StepHistory label={r.ref_no} load={() => getExchangeHistory(r.id)} />
+      </div>
     </div>
   );
 }

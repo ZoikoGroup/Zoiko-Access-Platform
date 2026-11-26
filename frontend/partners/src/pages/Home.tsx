@@ -76,10 +76,10 @@ export function Home() {
             {o.roles.map((r) => <RoleCard key={r.code} role={r} />)}
             <Card title="Connected today">
               {o.connected.length === 0
-                ? <div className="empty">Nothing is connected for your kind of account yet. See what it waits for below.</div>
+                ? <div className="empty">Nothing is connected for your kind of account yet. See what is not available yet below.</div>
                 : <ul style={{ margin: 0, paddingLeft: 18 }}>{o.connected.map((c) => <li key={c}>{c}</li>)}</ul>}
             </Card>
-            <Card title={<>Waiting for a decision <Pill kind="warn">not built yet</Pill></>}>
+            <Card title={<>Not available yet <Pill kind="warn">not built yet</Pill></>}>
               <ul style={{ margin: 0, paddingLeft: 18 }}>{o.waiting.map((w) => <li key={w}>{w}</li>)}</ul>
             </Card>
           </div>

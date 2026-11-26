@@ -2,12 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { getWorkflowHistory, listEscalations, listWorkflows, recordEscalation } from "../api";
 import type { Escalation, WorkflowHistory, WorkflowInstance } from "../types";
 import { Card, Pill, type PillKind } from "../ui";
+import { InstanceActions, STATE_TEXT, WorkflowSetup, usePeople } from "./WorkflowControls";
 
-const STATE_TEXT: Record<string, string> = {
-  requested: "Requested", validated: "Validated", accepted: "Accepted", in_progress: "In progress",
-  output_available: "Output available", clinical_reviewed: "Reviewed by a clinician",
-  handoff_acknowledged: "Next party accepted", closed: "Closed", cancelled: "Cancelled", blocked: "Blocked",
-};
 const OVERLAY: Record<string, { text: string; kind: PillKind }> = {
   clear: { text: "Clear", kind: "ok" }, at_risk: { text: "At risk", kind: "warn" },
   exception: { text: "Exception", kind: "bad" }, reconciling: { text: "Checking with the source", kind: "info" },
@@ -38,7 +34,7 @@ function Timeline({ id }: { id: string }) {
   );
 }
 
-function InstanceRow({ w }: { w: WorkflowInstance }) {
+function InstanceRow({ w, people, onDone }: { w: WorkflowInstance; people: { id: string; label: string }[]; onDone: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
@@ -46,7 +42,8 @@ function InstanceRow({ w }: { w: WorkflowInstance }) {
         <b>{w.definition} v{w.definition_version} <Pill kind="info">{STATE_TEXT[w.state]}</Pill> <Pill kind={OVERLAY[w.overlay].kind}>{OVERLAY[w.overlay].text}</Pill></b>
         <small>Reference {w.subject_ref}. Accountable: {w.owner_name || "unknown"}{w.owner_inactive ? " (can no longer act: reassign)" : ""}.{w.open_escalations > 0 ? ` ${w.open_escalations} escalation${w.open_escalations === 1 ? "" : "s"} waiting for a person.` : ""}{w.timers.length > 0 ? ` Next timer: ${w.timers[0].due_at.slice(0, 16).replace("T", " ")}.` : ""}</small>
       </div>
-      <div className="form-row">
+      <InstanceActions w={w} people={people} onDone={onDone} />
+      <div className="row">
         <button className="btn ghost" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Hide the history" : "Show the history"}</button>
       </div>
       {open && <Timeline id={w.public_id} />}
@@ -86,6 +83,7 @@ export function Engine() {
   const [all, setAll] = useState<WorkflowInstance[]>([]);
   const [escs, setEscs] = useState<Escalation[]>([]);
   const [error, setError] = useState("");
+  const people = usePeople();
   const load = useCallback(async () => {
     try {
       setNeeds(await listWorkflows(true)); setAll(await listWorkflows(false)); setEscs(await listEscalations());
@@ -108,11 +106,12 @@ export function Engine() {
         <Card title={`Needs a person (${needs?.length ?? 0})`} sub="At risk, in exception, blocked, or with an escalation waiting.">
           {escs.map((e) => <EscalationRow key={e.public_id} e={e} onDone={load} />)}
           {needs === null ? <div className="empty">Loading…</div> : needs.length === 0 && escs.length === 0
-            ? <div className="empty">Nothing needs attention.</div> : needs.map((w) => <InstanceRow key={w.public_id} w={w} />)}
+            ? <div className="empty">Nothing needs attention.</div> : needs.map((w) => <InstanceRow key={w.public_id} w={w} people={people} onDone={load} />)}
         </Card>
         <Card title={`Everything (${all.length})`}>
-          {all.length === 0 ? <div className="empty">No workflow has been started.</div> : all.map((w) => <InstanceRow key={w.public_id} w={w} />)}
+          {all.length === 0 ? <div className="empty">No workflow has been started.</div> : all.map((w) => <InstanceRow key={w.public_id} w={w} people={people} onDone={load} />)}
         </Card>
+        <WorkflowSetup people={people} onStarted={load} />
       </div>
     </>
   );

@@ -12,7 +12,6 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "noEmit": true,
-    "baseUrl": ".",
     "paths": {
       "@shared/*": ["../shared/src/*"],
       "react": ["./node_modules/@types/react"],

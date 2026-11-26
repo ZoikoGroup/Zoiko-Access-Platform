@@ -3,6 +3,7 @@ import { BookingHistory } from "@shared/BookingHistory";
 import { CLINIC_REASONS, reasonText } from "@shared/cancelReasons";
 import { askProvider, cancelBooking, confirmBooking, getBookingHistory, getBookingSystem, listBookings, listFreeTimes, markAttendance, rescheduleBooking, type Staff } from "../api";
 import type { BookingRow, FreeTime } from "../types";
+import { BookingStage } from "./BookingStage";
 import { Card, Patient, Pill, Table, shortId, type PillKind } from "../ui";
 
 const STATUS: Record<BookingRow["status"], { text: string; kind: PillKind }> = {
@@ -213,8 +214,11 @@ export function Appointments({ staff }: { staff: Staff | null }) {
       </div>
       {historyFor && (
         <div className="grid">
-          <Card title="History of this appointment" sub="Every step, oldest first. Patients appear only as the patient or family."
+          <Card title="Where this appointment stands"
             action={<button className="btn ghost" onClick={() => setHistoryFor("")}>Close</button>}>
+            <BookingStage key={historyFor} id={historyFor} />
+          </Card>
+          <Card title="History of this appointment" sub="Every step, oldest first. Patients appear only as the patient or family.">
             <BookingHistory key={historyFor} load={loadHistory} />
           </Card>
         </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { getIncoming, getOrderSystem, incomingStep, setOrderSystem, type OrderSystem } from "../api";
+import { StepHistory } from "@shared/StepHistory";
+import { getIncoming, getOrderSystem, getRequestHistory, incomingStep, setOrderSystem, type OrderSystem } from "../api";
 import { ValuesEditor, toValues, type ValueRow } from "./ResultValues";
 import type { Incoming, IncomingState } from "../types";
 import { Card, Pill } from "../ui";
@@ -105,6 +106,7 @@ function Row({ r, onChanged }: { r: Incoming; onChanged: () => void }) {
           <button className="btn ghost" disabled={busy} onClick={() => setCorrecting(false)}>Cancel</button>
         </div>
       )}
+      <StepHistory label={r.ref_no} load={() => getRequestHistory(r.id)} />
     </div>
   );
 }

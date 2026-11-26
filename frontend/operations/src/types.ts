@@ -55,6 +55,7 @@ export interface Dashboard extends Evidence {
   counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
   late: { hours: number; bookings: number; messages: number; data_requests: number };
   today: { confirmed: number; waiting: number; still_to_come: number };
+  claims: { waiting: number; approved: number; paid: number; declined: number } | null;  // null: not yours to see
   attention: { bookings_to_confirm: number; family_requests: number; waiting_list: number; referrals_to_decide: number; messages: number; data_requests: number; workflows_without_owner: number; partner_results: number; partner_on_hold: number; partner_held_mine: number; partner_hold_escalated: number; webhooks_gave_up: number };
 }
 

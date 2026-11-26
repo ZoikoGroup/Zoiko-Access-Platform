@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { CrashGuard, installFatalNotice } from "@shared/CrashGuard";
 import App from "./App";
 import "./styles.css";
+import "@shared/forms.css";
 import "@shared/auth.css";
 import "./clinician.css";
 

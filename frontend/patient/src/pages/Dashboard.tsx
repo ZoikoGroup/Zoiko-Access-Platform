@@ -54,9 +54,9 @@ export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
           <span className="icon"><Icon name="appointments" size={22} /></span>
           <span><b>Book Appointment</b><small>Schedule an in-person or video visit</small></span>
         </button>
-        <button className="tile" disabled title="Not built yet">
+        <button className="tile" onClick={() => goTo("records")}>
           <span className="icon"><Icon name="services" size={22} /></span>
-          <span><b>My Health Records</b><small>View and download your records - coming soon</small></span>
+          <span><b>My Health Records</b><small>See which clinics hold your records</small></span>
         </button>
         <button className="tile" onClick={() => goTo("referrals")}>
           <span className="icon"><Icon name="referrals" size={22} /></span>
@@ -127,7 +127,7 @@ export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
             ))}
           </Card>
           <Card title="Bills & Payments" action={<button className="btn ghost" onClick={() => goTo("bills")}>View bills</button>}>
-            <div className="empty">See your bills from the clinic. You cannot pay here: the clinic takes payment and marks the bill as paid.</div>
+            <div className="empty">See your bills from the clinic, and pay them here where online payment is switched on.</div>
           </Card>
         </div>
       </div>

@@ -233,6 +233,9 @@ export interface MatrixData {
 }
 export const getMatrix = (source: string, status: string) =>
   v1<MatrixData>(`platform/traceability?source=${encodeURIComponent(source)}&status=${encodeURIComponent(status)}`);
+export const updateRequirement = (id: string, status: string, evidence: string) =>
+  v1<unknown>(`platform/traceability/${encodeURIComponent(id)}/update`,
+    { method: "POST", body: JSON.stringify({ status, evidence }) });
 export const importMatrixSeed = () =>
   v1<{ added: number; changed: number; unchanged: number }>("platform/traceability/import",
     { method: "POST", body: JSON.stringify({ seed: true }) });

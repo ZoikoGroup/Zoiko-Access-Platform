@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, getThread, getThreads, replyToThread } from "../api";
+import { AttachPicker, AttachmentLinks, toPayloads } from "@shared/Attachments";
+import { ApiError, downloadAttachment, getThread, getThreads, replyToThread } from "../api";
 import type { Thread, ThreadView } from "../types";
 import { Card, Pill } from "../ui";
 import { Gate, useLoad } from "../useLoad";
@@ -14,6 +15,7 @@ const newKey = () => crypto.randomUUID().replace(/-/g, "") + "k";
 function Conversation({ id, onChanged }: { id: string; onChanged: () => void }) {
   const [view, setView] = useState<ThreadView | null>(null);
   const [text, setText] = useState("");
+  const [picked, setPicked] = useState<File[]>([]);
   const key = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -28,11 +30,12 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => void }) 
     e.preventDefault();
     setBusy(true); setError("");
     key.current ??= newKey();
-    try { await replyToThread(id, text, key.current); key.current = null; setText(""); await load(); }
+    try { await replyToThread(id, text, key.current, await toPayloads(picked)); key.current = null; setText(""); setPicked([]); await load(); }
     catch (err) {
       setError(err instanceof ApiError && err.code === "CONFLICT_VERSION" ? "This conversation is closed."
         : err instanceof ApiError && err.code === "RATE_LIMITED" ? "Please wait a little before sending more."
         : err instanceof ApiError && err.code === "POLICY_DENIED" ? "You can only reply while you are treating this patient (not when following up read only)."
+        : err instanceof ApiError && err.code === "VALIDATION_FAILED" ? "Check the reply. Files must be a PDF, PNG, JPEG or text file."
         : err instanceof Error ? err.message : "Could not send");
     } finally { setBusy(false); }
   }
@@ -45,6 +48,7 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => void }) 
           <div className="info">
             <b>{m.mine ? "You" : m.side === "staff" ? (m.from || "The clinic") : view.patient_name || "The patient"}</b>
             <div style={{ whiteSpace: "pre-wrap" }}>{m.body || (view.erased ? "(erased after the retention period)" : "(this message cannot be shown)")}</div>
+            <AttachmentLinks items={m.attachments} onOpen={downloadAttachment} />
             <small>{when(m.at)}</small>
           </div>
         </div>
@@ -54,6 +58,7 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => void }) 
           <label>Your reply
             <textarea value={text} maxLength={2000} onChange={(e) => { key.current = null; setText(e.target.value); }} placeholder="Write a reply" />
           </label>
+          <AttachPicker files={picked} onChange={(f) => { key.current = null; setPicked(f); }} disabled={busy} />
           <small>The patient sees this as a reply from the clinic. Messages are for appointments and everyday questions, not emergencies.</small>
           {error && <div className="error" role="alert">{error}</div>}
           <div><button className="btn" type="submit" disabled={busy || !text.trim()}>{busy ? "Sending…" : "Reply"}</button></div>

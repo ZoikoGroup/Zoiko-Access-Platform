@@ -2062,3 +2062,16 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Limits:** records sent before this existed have no lines; after two patient records are merged, earlier lines stay on the record they were written for.
 - **Checked:** `tests/test_disclosure_log.py`.
 
+### DEV-353: screens catching up with the product (ADD)
+
+- **What was done:** a doctor can open and send files in a conversation; clinic staff can ask an insurer about a patient's policy from the patient's insurance (only while the patient shares it); the clinic dashboard counts its claims by where they stand; claims and partner requests show their history in the staff and partner apps; and screen text that still said claims, exchange or insurer checks were not built was corrected, including the partner app's overview.
+- **Rules held:** the same access rules as before: no new access was added; claim counts are shown only to someone who may read the clinic's claims; histories name sides, never people.
+- **Checked:** `tests/test_screen_gaps.py` (history access is already covered by `tests/test_claims.py` and `tests/test_exchange.py`).
+
+### DEV-354: screens for features that only had a backend (ADD, TEMPORARY development switches)
+
+- **What was done:** a patient can pay an issued bill online and see each attempt (the bills answer now says whether online payment is available and whether it is practice only); clinic staff see payment attempts, where each appointment stands (booking stage, who confirmed it, the booking system's answer), and can write, release and retire workflow definitions, start workflows and move, block, resume, reassign or cancel them; regional support can update a requirement's standing; a doctor can list and withdraw pointers to records held in a clinic's own system, and the patient sees where their records are held.
+- **Rules held:** every action goes through the same server checks as before; no access was added. Payment retries reuse one key, so a bill is never paid twice.
+- **Development only:** `config/settings/dev.py` now turns on the pretend payment provider (`BILLING_PAYMENT_PROVIDER=pretend`) and clinical references (DEV-041). Production and test settings keep both off, and the release check still refuses the pretend provider.
+- **Checked:** `tests/test_screen_gaps.py`, with `tests/test_payments.py`, `tests/test_orchestration.py`, `tests/test_traceability.py`, `tests/test_clinical_references.py` and `tests/test_lifecycles.py` for the rules behind the screens.
+

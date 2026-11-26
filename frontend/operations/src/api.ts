@@ -1,6 +1,7 @@
 // The only file that talks to the backend. Pages call these functions, never fetch().
 import type { BookingHistoryData } from "@shared/BookingHistory";
 import type { AttachmentPayload, AttachmentRef } from "@shared/Attachments";
+import type { Step } from "@shared/StepHistory";
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
@@ -171,6 +172,16 @@ export const addPatientCoverage = (person: string, body: {
   insurer: string; plan: string; member_id: string; valid_until: string;
 }) => post("coverage", { person, ...body });
 export const endPatientCoverage = (id: string) => post(`coverage/${encodeURIComponent(id)}/end`);
+/** What an insurer said when a policy was checked. Indicative: not a promise that a claim is paid. */
+export interface CoverCheck {
+  id: string; coverage_ref: string; category: string;
+  result: "eligible" | "not_eligible" | "unknown";
+  reason: string; reason_text: string; checked_at: string; fresh: boolean; disclaimer: string;
+}
+export const checkCover = async (coverageId: string) =>
+  (await post<{ check: CoverCheck }>(`coverage/${encodeURIComponent(coverageId)}/check`, {})).check;
+export const getCoverChecks = async (coverageId: string) =>
+  (await v1<{ checks: CoverCheck[] }>(`coverage/${encodeURIComponent(coverageId)}/checks`)).checks;
 export const listFamilyRequests = async () =>
   await v1<{ requests: FamilyRequest[]; approved: FamilyRequest[] }>("staff/family-requests");
 export const familyStep = (id: string, step: "proof-needed" | "proof-received" | "suspend" | "resume", reason = "") =>
@@ -305,6 +316,38 @@ export const listEscalations = async () =>
   (await v1<{ escalations: Escalation[] }>("staff/workflows/escalations")).escalations;
 export const recordEscalation = (id: string, reached: boolean, note: string) =>
   post(`staff/workflows/escalations/${encodeURIComponent(id)}/record`, { reached, note });
+export interface WorkflowDefinition {
+  public_id: string; key: string; version: number; journey: string; path: string[];
+  status: "draft" | "published" | "retired"; clinical: boolean;
+}
+export const listDefinitions = () =>
+  v1<{ definitions: WorkflowDefinition[]; can_write: boolean }>("staff/workflows/definitions");
+export const createDefinition = (body: { key: string; journey: string; path: string[]; timer_policies: unknown[] }) =>
+  post("staff/workflows/definitions", body);
+export const definitionStep = (id: string, step: "publish" | "version" | "retire") =>
+  post(`staff/workflows/definitions/${encodeURIComponent(id)}/${step}`);
+export const startWorkflow = (body: {
+  definition: string; subject: string; owner: string; evidence: { kind: string; ref: string }[];
+  purpose: string; idempotency_key: string;
+}) => post("staff/workflows", body);
+export const workflowStep = (id: string, step: "advance" | "resume" | "overlay" | "reassign", body: Record<string, unknown>) =>
+  post(`staff/workflows/${encodeURIComponent(id)}/${step}`, body);
+
+/** One request to a payment provider to pay one of the clinic's invoices. */
+export interface PaymentAttempt {
+  public_id: string; invoice_number: string; provider: string; provider_ref: string; amount_minor: number;
+  currency: string; status: "pending" | "succeeded" | "failed" | "unknown"; attempts: number; created_at: string;
+}
+export const getPaymentAttempts = async () =>
+  (await v1<{ payments: PaymentAttempt[] }>("staff/billing/payments")).payments;
+
+export interface BookingIntent {
+  status: string; label: string; final: boolean; next: string[]; source_confirmation: { by: string } | null;
+}
+export interface ProviderStage { stage: string; operation: string }
+export const getBookingIntent = (id: string) => v1<BookingIntent>(`bookings/${encodeURIComponent(id)}/intent`);
+export const getProviderStage = async (id: string) =>
+  (await v1<{ provider_stage: ProviderStage | null }>(`bookings/${encodeURIComponent(id)}/provider-stage`)).provider_stage;
 export const getBillingFees = () =>
   v1<{ fees: FeeRow[]; can_set: boolean }>("staff/billing/fees");
 export const setFee = (service: string, currency: string, amount_minor: number) =>
@@ -468,6 +511,10 @@ export const sendExchangeRequest = async (body: { partner: string; kind: string;
 export const listClaimPayers = async () =>
   (await v1<{ payers: { id: string; name: string }[] }>("claims/payers")).payers;
 export const listClaims = async () => (await v1<{ claims: Claim[] }>("claims/sent")).claims;
+export const getClaimHistory = async (id: string) =>
+  (await v1<{ history: Step[] }>(`claims/${encodeURIComponent(id)}/history`)).history;
+export const getExchangeHistory = async (id: string) =>
+  (await v1<{ history: Step[] }>(`exchange/requests/${encodeURIComponent(id)}/history`)).history;
 export const sendClaim = async (body: { payer: string; patient: string; member_id: string; category: string; label: string; amount: number; currency: string; service_date: string }) =>
   (await post<{ claim: Claim }>("claims/sent", body)).claim;
 export const withdrawClaim = async (id: string) =>

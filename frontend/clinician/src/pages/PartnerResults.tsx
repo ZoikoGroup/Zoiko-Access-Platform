@@ -95,7 +95,7 @@ function NewOrder({ onSent }: { onSent: (message: string) => void }) {
   const ready = f.patient && f.partner && f.label.trim().length >= 3;
   return (
     <Card title="Place an order">
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className="ref-form">
         <label>Patient{" "}
           <select aria-label="Order patient" value={f.patient} onChange={(e) => set("patient", e.target.value)}>
             <option value="">Choose a patient</option>

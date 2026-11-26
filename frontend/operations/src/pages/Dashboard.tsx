@@ -5,7 +5,6 @@ import type { PageId } from "../nav";
 import { Card, Donut, Icon, Pill, StatCard, Table, timeOf } from "../ui";
 
 const PLANNED = [
-  { title: "Claims processed", note: "A later commercial phase." },
   { title: "Patients by region", note: "Needs more than one cell; not planned yet." },
 ];
 
@@ -94,6 +93,22 @@ function View({ d, tenantName, api, database, onGo }: {
         <StatCard icon="link" label="Care relationships" value={d.counts.care_links} note="active, not contested" />
         {d.evidence && <StatCard icon="bolt" label="Recent access checks" value={d.decisions.length} note={`${denied} denied`} />}
       </div>
+
+      {d.claims && (
+        <div className="grid">
+          <Card title="Claims" sub="Claims this clinic sent to payers, by where they stand"
+            action={<button className="btn ghost" onClick={() => onGo("claims")}>Open claims</button>}>
+            {d.claims.waiting + d.claims.approved + d.claims.paid + d.claims.declined === 0
+              ? <div className="empty">No claims sent yet.</div> : (
+                <div className="appt">
+                  <div className="info">
+                    <b>{d.claims.waiting} waiting for the payer · {d.claims.approved} approved, not yet paid · {d.claims.paid} paid · {d.claims.declined} declined</b>
+                  </div>
+                </div>
+              )}
+          </Card>
+        </div>
+      )}
 
       {!d.evidence && (
         <div className="notice">Your role does not include the audit and access-check panels, so they are hidden.</div>
