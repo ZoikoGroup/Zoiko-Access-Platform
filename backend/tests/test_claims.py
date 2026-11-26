@@ -465,3 +465,191 @@ def test_payment_advice_defaults_to_the_full_amount_today_and_bad_advice_is_refu
         assert step(payer, claim_id, "pay", payment_ref="PAY-0003", **bad).status_code == 422, bad
     done = body(step(payer, claim_id, "pay", payment_ref="PAY-0003"))["claim"]
     assert done["amount_paid_minor"] == claimed and done["paid_on"] == dt.date.today().isoformat()
+
+
+# ------------------------------------------------ claim attachments & remittance advice (DEV-378)
+_PDF = b"%PDF-1.4\n1 0 obj<< /Type /Catalog /Font /AAAAAB+Arial >>endobj\ntrailer<<>>\n%%EOF\n"
+_PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+_JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb"
+
+
+def upload_claim_att(clinic, claim_id, data, name="bill.pdf", content_type="application/pdf", subject="ops"):
+    return clinic.client.post(
+        f"/api/v1/claims/sent/{claim_id}/attachments?filename={name}",
+        data,
+        content_type=content_type,
+        **clinic.header(subject),
+    )
+
+
+def delete_claim_att(clinic, claim_id, att_id, subject="ops"):
+    return clinic.client.delete(
+        f"/api/v1/claims/sent/{claim_id}/attachments/{att_id}",
+        **clinic.header(subject),
+    )
+
+
+def get_claim_att_sent(clinic, claim_id, att_id, subject="ops"):
+    return clinic.client.get(
+        f"/api/v1/claims/sent/{claim_id}/attachments/{att_id}",
+        **clinic.header(subject),
+    )
+
+
+def get_claim_att_incoming(payer, claim_id, att_id, subject=None):
+    header = {
+        "HTTP_AUTHORIZATION": f"Bearer dev:{payer.tenant_public_id}:idp:{subject or payer.subject}"
+    }
+    return payer.client.get(f"/api/v1/claims/incoming/{claim_id}/attachments/{att_id}", **header)
+
+
+def test_clinic_uploads_and_downloads_supporting_attachments(world, settings):
+    settings.ATTACHMENT_SCANNER = "pretend"
+    _, clinic, payer = world
+    claim_id = made(clinic, payer)
+
+    # Upload PDF
+    r1 = upload_claim_att(clinic, claim_id, _PDF, name="itemized_bill.pdf")
+    assert r1.status_code == 201, r1.content
+    a1 = body(r1)["attachment"]
+    assert a1["scan"] == "clean" and a1["filename"] == "itemized_bill.pdf"
+    assert a1["content_type"] == "application/pdf"
+
+    # Upload PNG
+    r2 = upload_claim_att(clinic, claim_id, _PNG, name="receipt.png", content_type="image/png")
+    assert r2.status_code == 201, r2.content
+    a2 = body(r2)["attachment"]
+    assert a2["scan"] == "clean" and a2["content_type"] == "image/png"
+
+    # Upload JPEG
+    r3 = upload_claim_att(clinic, claim_id, _JPEG, name="diagnostic.jpg", content_type="image/jpeg")
+    assert r3.status_code == 201, r3.content
+    a3 = body(r3)["attachment"]
+    assert a3["scan"] == "clean" and a3["content_type"] == "image/jpeg"
+
+    # Sent claim lists attachments
+    mine = body(clinic.get("claims/sent", subject="ops"))["claims"][0]
+    assert len(mine["attachments"]) == 3
+    assert {a["filename"] for a in mine["attachments"]} == {"itemized_bill.pdf", "receipt.png", "diagnostic.jpg"}
+
+    # Download attachment
+    got = get_claim_att_sent(clinic, claim_id, a1["id"])
+    assert got.status_code == 200
+    assert got["Content-Type"] == "application/pdf"
+    assert "itemized_bill.pdf" in got["Content-Disposition"]
+    assert got.content == _PDF
+
+    # Max 3 attachments: 4th upload refused
+    r4 = upload_claim_att(clinic, claim_id, _PDF, name="extra.pdf")
+    assert r4.status_code == 409
+    assert body(r4)["code"] == "CONFLICT_VERSION"
+
+    # Delete PNG attachment
+    del_res = delete_claim_att(clinic, claim_id, a2["id"])
+    assert del_res.status_code == 200
+    mine_after = body(clinic.get("claims/sent", subject="ops"))["claims"][0]
+    assert len(mine_after["attachments"]) == 2
+
+    # Payer approves claim -> clinic cannot add or delete attachments anymore
+    step(payer, claim_id, "approve")
+    assert upload_claim_att(clinic, claim_id, _PNG, name="late.png", content_type="image/png").status_code == 409
+    assert delete_claim_att(clinic, claim_id, a1["id"]).status_code == 409
+
+
+def test_attachment_validation_and_security(world, settings):
+    settings.ATTACHMENT_SCANNER = "pretend"
+    _, clinic, payer = world
+    claim_id = made(clinic, payer)
+
+    # Missing filename
+    assert upload_claim_att(clinic, claim_id, _PDF, name="").status_code == 422
+
+    # Magic byte mismatch (fake PDF)
+    assert upload_claim_att(clinic, claim_id, b"plain text", name="fake.pdf").status_code == 422
+
+    # Unsupported MIME type
+    assert upload_claim_att(clinic, claim_id, b"echo hello", name="script.sh", content_type="text/plain").status_code == 422
+
+    # Size limit > 10 MB
+    large_pdf = _PDF + b"0" * (10 * 1024 * 1024 + 1)
+    r_big = upload_claim_att(clinic, claim_id, large_pdf, name="big.pdf")
+    assert r_big.status_code == 422
+    assert body(r_big)["code"] == "VALIDATION_FAILED"
+
+    # Active PDF exploit strings rejected
+    for exploit in (b"/JavaScript", b"/Launch", b"/EmbeddedFile", b"/OpenAction", b"/AA", b"/RichMedia", b"/XFA"):
+        evil_pdf = b"%PDF-1.4\n1 0 obj<< " + exploit + b" (alert(1)) >>endobj\ntrailer<<>>\n%%EOF\n"
+        r_exploit = upload_claim_att(clinic, claim_id, evil_pdf, name="malicious.pdf")
+        assert r_exploit.status_code == 422, exploit
+        assert body(r_exploit)["code"] == "VALIDATION_FAILED"
+
+    # Virus check: EICAR standard test file is detected as infected and cannot be opened
+    from foundation.scanner import EICAR
+    r_inf = upload_claim_att(clinic, claim_id, _PDF + EICAR, name="virus.pdf")
+    assert r_inf.status_code == 201
+    assert body(r_inf)["attachment"]["scan"] == "infected"
+    inf_id = body(r_inf)["attachment"]["id"]
+    assert get_claim_att_sent(clinic, claim_id, inf_id).status_code == 422
+
+
+def test_payer_can_only_download_attachments_after_patient_consent(world, settings):
+    settings.ATTACHMENT_SCANNER = "pretend"
+    _, clinic, payer = world
+    claim_id = made(clinic, payer, consent=False)
+
+    # Clinic attaches report before patient has agreed
+    r = upload_claim_att(clinic, claim_id, _PDF, name="referral_note.pdf")
+    assert r.status_code == 201
+    att_id = body(r)["attachment"]["id"]
+
+    # Payer tries to download attachment before consent is granted -> 404 (claim inaccessible to payer)
+    p_get = get_claim_att_incoming(payer, claim_id, att_id)
+    assert p_get.status_code == 404
+
+    # Patient agrees to the claim
+    assert agree(clinic, claim_id).status_code == 200
+
+    # Payer now sees the claim and its attachments
+    inc = incoming(payer)[0]
+    assert inc["id"] == claim_id
+    assert len(inc["attachments"]) == 1
+    assert inc["attachments"][0]["filename"] == "referral_note.pdf"
+
+    # Payer downloads attachment
+    p_dl = get_claim_att_incoming(payer, claim_id, att_id)
+    assert p_dl.status_code == 200
+    assert p_dl["Content-Type"] == "application/pdf"
+    assert p_dl.content == _PDF
+
+    # Other clinic or unauthorized caller cannot download
+    clinic.login("other_doc", "FAC", "R01")
+    assert clinic.client.get(
+        f"/api/v1/claims/sent/{claim_id}/attachments/{att_id}",
+        **clinic.header("other_doc"),
+    ).status_code in (403, 404)
+
+
+def test_payer_remittance_advice_and_clinic_visibility(world):
+    _, clinic, payer = world
+    claim_id = made(clinic, payer)
+    step(payer, claim_id, "approve")
+
+    # Invalid remittance advice (> 500 chars or invalid type)
+    assert step(payer, claim_id, "pay", payment_ref="PAY-0005", remittance_advice="x" * 501).status_code == 422
+    assert step(payer, claim_id, "pay", payment_ref="PAY-0005", remittance_advice=123).status_code == 422
+
+    # Payer submits payment with remittance advice
+    advice_text = "Deductible applied: GBP 10.00. Copay 10% deducted: GBP 4.50. Net payment: GBP 30.50."
+    paid = step(payer, claim_id, "pay", payment_ref="PAY-0005", amount_paid_minor=3050,
+                remittance_advice=advice_text)
+    assert paid.status_code == 200, paid.content
+    assert body(paid)["claim"]["remittance_advice"] == advice_text
+
+    # Payer incoming view includes remittance advice
+    inc = incoming(payer)[0]
+    assert inc["remittance_advice"] == advice_text
+
+    # Clinic sent view includes remittance advice
+    mine = body(clinic.get("claims/sent", subject="ops"))["claims"][0]
+    assert mine["remittance_advice"] == advice_text
+

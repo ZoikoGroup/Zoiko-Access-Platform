@@ -51,6 +51,7 @@ from modules.trust import api as trust
 from modules.waitlist import api as waitlist
 from modules.workflow import api as workflow
 
+from .result_holds import IDENTITY_CHECK, identity_held, refuse_if_identity_held
 from .support import (
     endpoint,
     held_organizations,
@@ -166,6 +167,12 @@ def _waiting_too_long(booking: dict[str, Any]) -> bool:
         booking["slot"]["organization_ref"], dt.datetime.fromisoformat(booking["created_at"]))
 
 
+def _switched_off(auth: trust.Authenticated) -> list[str]:
+    from .capability_gate import switched_off  # noqa: PLC0415 - capability_gate imports support
+
+    return switched_off(auth)
+
+
 @endpoint("GET", during_set_up=True)
 def me(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     with tenant_transaction():
@@ -195,6 +202,8 @@ def me(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
             "roles": [
                 {"role": r, "organization": {"id": o, "name": orgs.get(o, "")}} for r, o in roles
             ],
+            # Features this customer's market has not switched on (DEV-383): the apps hide them.
+            "switched_off": _switched_off(auth),
         }
     )
 
@@ -1343,7 +1352,10 @@ def staff_reports(request: HttpRequest, auth: trust.Authenticated) -> HttpRespon
             "waiting_list": waitlist.report(org, since, until),
             "messages": messaging.report(org, since, until),
         }
-    return JsonResponse(out)
+    # Approved measures only, small numbers suppressed, the run recorded (DEV-389).
+    from .report_measures import measured
+
+    return JsonResponse(measured(auth, org, out))
 
 
 # ------------------------------------------------------------------ platform console (Zoiko staff)
@@ -2924,7 +2936,9 @@ def exchange_requests(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
     _add_names(auth, rows, "patient")
     with tenant_transaction():
         labels = trust.actor_labels()
+    checking = identity_held([r["patient"] for r in rows])     # DEV-385
     for row in rows:
+        row["identity_check_open"] = row["patient"] in checking
         row["hold_owner_name"] = labels.get(row["hold_owner"], "") if row["hold_owner"] else ""
         row["hold_mine"] = bool(row["hold_owner"]) and row["hold_owner"] == auth.actor_public_id
     return JsonResponse({"requests": rows, **({"next_cursor": next_cursor} if paged else {})})
@@ -2955,6 +2969,8 @@ def exchange_request_step(
     )
     version: int | None = None
     if step == "review":
+        # Never reviewed while it may belong to the other record of a duplicate pair (DEV-385).
+        refuse_if_identity_held(person)
         # The version of the result the doctor read (DEV-373): a review of anything else is refused.
         sent = json_body(request).get("version")
         if isinstance(sent, bool) or not isinstance(sent, int) or sent < 1:
@@ -3014,6 +3030,12 @@ def exchange_mine(request: HttpRequest, auth: trust.Authenticated) -> HttpRespon
     pg = _page_req(request, auth, "exchange_mine")
     with tenant_transaction(_platform_context()):
         rows = exchange.list_for_patients(tenant_ref=mine, person_refs=reachable, page=pg)
+    # Held while the patient is in an open duplicate-record case (DEV-385): no values shown.
+    checking = identity_held([r["person"] for r in rows])
+    for r in rows:
+        if r["person"] in checking:
+            r["values_ready"] = False
+            r["held"] = r.get("held") or IDENTITY_CHECK
     out = []
     for r in rows:
         key = (r["kind"], r["person"])
@@ -3040,6 +3062,8 @@ def exchange_mine_values(
         raise ZoikoError(ErrorCode.NOT_FOUND)
     if not is_allowed(auth, _EXCHANGE_READ[found["kind"]], subject_ref=found["person"]):
         raise ZoikoError(ErrorCode.NOT_FOUND)
+    if identity_held([found["person"]]):        # held during a duplicate-record check (DEV-385)
+        raise ZoikoError(ErrorCode.NOT_FOUND)
     with tenant_transaction(_platform_context()):
         got = exchange.patient_values(
             request_ref=request_id, tenant_ref=mine, person_refs=[found["person"]],
@@ -3065,8 +3089,9 @@ def exchange_mine_trend(
         raise ZoikoError(ErrorCode.NOT_FOUND)
     if not is_allowed(auth, _EXCHANGE_READ[found["kind"]], subject_ref=found["person"]):
         raise ZoikoError(ErrorCode.NOT_FOUND)
-    if not found["values_ready"]:
-        # Asked from a result the patient may not see yet (as for its own values): not found.
+    if not found["values_ready"] or identity_held([found["person"]]):
+        # Asked from a result the patient may not see yet (as for its own values), or one held
+        # during a duplicate-record check (DEV-385): not found.
         raise ZoikoError(ErrorCode.NOT_FOUND)
     key = request.GET.get("key")
     with tenant_transaction(_platform_context()):
@@ -3567,6 +3592,62 @@ def claim_withdraw(
     return JsonResponse({"claim": done})
 
 
+@endpoint("POST")
+def claim_attachments_sent(
+    request: HttpRequest, auth: trust.Authenticated, claim_id: str
+) -> HttpResponse:
+    """The clinic attaches a supporting document (PDF, PNG, JPEG, up to 10 MB) to an undecided claim."""
+    org = _clinic_org(auth)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        person = claim.person_of(claim_id, mine)
+    _authorize(auth, "write:coverage", organization_public_id=org, subject_ref=person)
+    filename = request.GET.get("filename") or ""
+    data = request.read(10 * 1024 * 1024 + 1)
+    with tenant_transaction(_platform_context()):
+        att = claim.add_attachment(
+            claim_ref=claim_id,
+            tenant_ref=mine,
+            filename=filename,
+            data=data,
+            actor_ref=auth.actor_public_id,
+            side="clinic",
+        )
+    return JsonResponse({"attachment": att}, status=201)
+
+
+@endpoint("GET", "DELETE")
+def claim_attachment_sent_item(
+    request: HttpRequest, auth: trust.Authenticated, claim_id: str, attachment_id: str
+) -> HttpResponse:
+    """The clinic downloads or deletes an attachment on a claim it sent."""
+    org = _clinic_org(auth)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        person = claim.person_of(claim_id, mine)
+    if request.method == "DELETE":
+        _authorize(auth, "write:coverage", organization_public_id=org, subject_ref=person)
+        with tenant_transaction(_platform_context()):
+            claim.remove_attachment(
+                claim_ref=claim_id,
+                attachment_ref=attachment_id,
+                tenant_ref=mine,
+                actor_ref=auth.actor_public_id,
+            )
+        return JsonResponse({"deleted": True})
+    _authorize(auth, "read:coverage", organization_public_id=org, subject_ref=person)
+    with tenant_transaction(_platform_context()):
+        name, ctype, data = claim.open_attachment(
+            claim_ref=claim_id,
+            attachment_ref=attachment_id,
+            tenant_ref=mine,
+            actor_ref=auth.actor_public_id,
+        )
+    response = HttpResponse(data, content_type=ctype)
+    response["Content-Disposition"] = f'attachment; filename="{name}"'
+    return response
+
+
 @endpoint("GET")
 def claim_history(request: HttpRequest, auth: trust.Authenticated, claim_id: str) -> HttpResponse:
     """The steps of a claim, for the clinic that sent it or the payer it went to."""
@@ -3680,6 +3761,26 @@ def claim_cover_check(
     return JsonResponse({"check": answer})
 
 
+@endpoint("GET")
+def claim_attachment_incoming_item(
+    request: HttpRequest, auth: trust.Authenticated, claim_id: str, attachment_id: str
+) -> HttpResponse:
+    """The payer downloads a clean supporting attachment on a claim sent to them."""
+    org = _portal_org(auth, "payer")
+    _authorize(auth, "read:coverage", organization_public_id=org)
+    mine = _my_customer(auth)
+    with tenant_transaction(_platform_context()):
+        name, ctype, data = claim.open_attachment(
+            claim_ref=claim_id,
+            attachment_ref=attachment_id,
+            tenant_ref=mine,
+            actor_ref=auth.actor_public_id,
+        )
+    response = HttpResponse(data, content_type=ctype)
+    response["Content-Disposition"] = f'attachment; filename="{name}"'
+    return response
+
+
 @endpoint("POST")
 def claim_payer_step(
     request: HttpRequest, auth: trust.Authenticated, claim_id: str, step: str
@@ -3699,6 +3800,7 @@ def claim_payer_step(
             payment_ref=body.get("payment_ref"),
             amount_paid_minor=body.get("amount_paid_minor"),
             paid_on=body.get("paid_on"),
+            remittance_advice=body.get("remittance_advice"),
         )
     with tenant_transaction():
         evidence.record(
@@ -6795,11 +6897,13 @@ def clinician_note_attachment_item(
     found = _note_found(notes, auth, note_id)
     if request.method == "DELETE":
         decision = _authorize(
-            auth, notes.WRITE, organization_public_id=found["organization"], subject_ref=found["person"]
+            auth, notes.WRITE, organization_public_id=found["organization"],
+            subject_ref=found["person"],
         )
         with tenant_transaction():
             notes.remove_attachment(
-                note_ref=note_id, attachment_ref=attachment_id, by=auth.actor_public_id, decision=decision
+                note_ref=note_id, attachment_ref=attachment_id, by=auth.actor_public_id,
+                decision=decision,
             )
         return JsonResponse({"deleted": True})
     decision = _authorize(
@@ -6807,7 +6911,8 @@ def clinician_note_attachment_item(
     )
     with tenant_transaction():
         name, ctype, data = notes.open_attachment(
-            note_ref=note_id, attachment_ref=attachment_id, by=auth.actor_public_id, decision=decision
+            note_ref=note_id, attachment_ref=attachment_id, by=auth.actor_public_id,
+            decision=decision,
         )
     response = HttpResponse(data, content_type=ctype)
     response["Content-Disposition"] = f'attachment; filename="{name}"'
@@ -6896,7 +7001,8 @@ def my_note(request: HttpRequest, auth: trust.Authenticated, note_id: str) -> Ht
 def my_note_attachment(
     request: HttpRequest, auth: trust.Authenticated, note_id: str, attachment_id: str
 ) -> HttpResponse:
-    """Download an attachment on a note for the patient (or guardian) after the 24h delay (DEV-376)."""
+    """Download an attachment on a note for the patient (or guardian) after the 24h delay
+    (DEV-376)."""
     notes = _notes_on()
     people = _note_people(auth, notes)
     with tenant_transaction():

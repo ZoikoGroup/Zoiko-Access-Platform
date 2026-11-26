@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getPatients, listClaimPayers, listClaims, sendClaim, withdrawClaim } from "../api";
+import { deleteClaimAttachment, downloadClaimAttachmentSent, getPatients, listClaimPayers, listClaims, sendClaim, uploadClaimAttachment, withdrawClaim } from "../api";
 import type { Claim, ClaimState, PatientRow } from "../types";
 import { Card, Pill, type PillKind } from "../ui";
 
@@ -17,12 +17,42 @@ const today = () => new Date().toISOString().slice(0, 10);
 function Row({ c, onDone }: { c: Claim; onDone: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
+
   async function withdraw() {
     setBusy(true); setError("");
     try { await withdrawClaim(c.id); await onDone(); }
     catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
     finally { setBusy(false); }
   }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true); setError("");
+    try {
+      await uploadClaimAttachment(c.id, file);
+      e.target.value = "";
+      await onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDeleteAttachment(attId: string) {
+    setBusy(true); setError("");
+    try {
+      await deleteClaimAttachment(c.id, attId);
+      await onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const state = STATE[c.state];
   return (
     <div className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
@@ -31,9 +61,44 @@ function Row({ c, onDone }: { c: Claim; onDone: () => Promise<void> }) {
         <small>{c.payer} · {c.patient_name || c.patient} · member …{c.member_tail} · {money(c.amount_minor, c.currency)} · service on {c.service_date} · {c.claim_no}</small>
         {c.state === "declined" && c.decision_reason && <small>Reason given: {REASON[c.decision_reason] ?? c.decision_reason}</small>}
         {c.state === "paid" && c.payment_ref && <small>Payment reference {c.payment_ref}{c.amount_paid_minor != null ? `, paid ${(c.amount_paid_minor / 100).toFixed(2)} ${c.currency}${c.amount_paid_minor < c.amount_minor ? " (less than claimed)" : ""}` : ""}{c.paid_on ? ` on ${c.paid_on}` : ""}</small>}
+        {c.remittance_advice && <small><b>Remittance advice:</b> {c.remittance_advice}</small>}
+        {c.attachments && c.attachments.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <b>Supporting documents ({c.attachments.length})</b>
+            <ul style={{ margin: "4px 0" }}>
+              {c.attachments.map((a) => (
+                <li key={a.id} style={{ margin: "2px 0" }}>
+                  {a.scan === "clean" ? (
+                    <button className="btn ghost" disabled={busy} onClick={() => void downloadClaimAttachmentSent(c.id, a).catch((e: unknown) => setError(e instanceof Error ? e.message : "Download failed"))}>
+                      Download {a.filename}
+                    </button>
+                  ) : (
+                    <span>{a.filename} ({a.scan === "pending" ? "waiting for virus scan" : "virus found; blocked"})</span>
+                  )}
+                  <small> ({Math.ceil(a.size / 1024)} KB)</small>
+                  {c.state === "submitted" && (
+                    <button className="btn ghost" style={{ marginLeft: 8 }} disabled={busy} onClick={() => void handleDeleteAttachment(a.id)}>Remove</button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {error && <div className="error" role="alert">{error}</div>}
       </div>
-      {c.state === "submitted" && <div><button className="btn ghost" disabled={busy} onClick={() => void withdraw()}>Withdraw the claim</button></div>}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+        {c.state === "submitted" && (
+          <>
+            {(c.attachments?.length ?? 0) < 3 && (
+              <label className="btn ghost" style={{ cursor: busy || uploading ? "default" : "pointer" }}>
+                {uploading ? "Uploading…" : "Add supporting document (PDF, PNG, JPEG)"}
+                <input type="file" accept=".pdf,image/png,image/jpeg" disabled={busy || uploading} onChange={(e) => void handleUpload(e)} style={{ display: "none" }} />
+              </label>
+            )}
+            <button className="btn ghost" disabled={busy || uploading} onClick={() => void withdraw()}>Withdraw the claim</button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

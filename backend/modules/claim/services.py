@@ -26,10 +26,19 @@ from .models import (
     MAX_AMOUNT_MINOR,
     MAX_OPEN_TO_ONE_PAYER,
     Claim,
+    ClaimAttachment,
     ClaimConsent,
     ClaimEvent,
+    ClaimScanState,
     ClaimState,
     DeclineReason,
+)
+
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_ATTACHMENTS_PER_CLAIM = 3
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]")
+_ACTIVE_PDF = re.compile(
+    rb"/(JavaScript|JS|Launch|EmbeddedFile|OpenAction|AA|RichMedia|XFA)(?![A-Za-z0-9])"
 )
 
 _MEMBER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{2,39}$")
@@ -108,6 +117,8 @@ def clinic_dict(c: Claim) -> dict[str, Any]:
         "payment_ref": c.payment_ref or None,
         "amount_paid_minor": c.amount_paid_minor,
         "paid_on": c.paid_on.isoformat() if c.paid_on else None,
+        "remittance_advice": c.remittance_advice or None,
+        "attachments": [attachment_dict(a) for a in ClaimAttachment.objects.filter(claim=c, **_scope()).order_by("created_at")],
         "created_at": c.created_at.isoformat(),
         "decided_at": c.decided_at.isoformat() if c.decided_at else None,
         "paid_at": c.paid_at.isoformat() if c.paid_at else None,
@@ -131,8 +142,224 @@ def payer_dict(c: Claim) -> dict[str, Any]:
         "payment_ref": c.payment_ref or None,
         "amount_paid_minor": c.amount_paid_minor,
         "paid_on": c.paid_on.isoformat() if c.paid_on else None,
+        "remittance_advice": c.remittance_advice or None,
+        "attachments": [attachment_dict(a) for a in ClaimAttachment.objects.filter(claim=c, **_scope()).order_by("created_at")],
         "created_at": c.created_at.isoformat(),
     }
+
+
+def attachment_dict(a: ClaimAttachment) -> dict[str, Any]:
+    return {
+        "id": a.public_id,
+        "filename": a.filename,
+        "content_type": a.content_type,
+        "size": a.size,
+        "sha256": a.sha256,
+        "scan": a.scan_state,
+        "uploaded_by_side": a.uploaded_by_side,
+        "created_at": a.created_at.isoformat(),
+    }
+
+
+def _detect_type(data: bytes, filename: str) -> tuple[str, str]:
+    if not isinstance(filename, str) or not filename.strip():
+        raise _bad("filename")
+    if not isinstance(data, bytes) or not 1 <= len(data) <= MAX_ATTACHMENT_BYTES:
+        raise _bad("attachment")
+    if data.startswith(b"%PDF-") and b"%%EOF" in data[-2048:]:
+        if _ACTIVE_PDF.search(data):
+            raise _bad("attachment")
+        ctype = "application/pdf"
+        ext = ".pdf"
+    elif data.startswith(b"\x89PNG\r\n\x1a\n"):
+        ctype = "image/png"
+        ext = ".png"
+    elif data.startswith(b"\xff\xd8\xff"):
+        ctype = "image/jpeg"
+        ext = ".jpg"
+    else:
+        raise _bad("attachment")
+
+    name = (
+        _SAFE_NAME.sub("_", filename.strip())[:120]
+        if isinstance(filename, str) and filename.strip()
+        else ""
+    )
+    if not name:
+        name = f"attachment{ext}"
+    elif not name.lower().endswith(ext):
+        name = f"{name[:116]}{ext}"
+    return ctype, name
+
+
+def _apply_scan(a: ClaimAttachment, data: bytes, clock: Clock | None = None) -> None:
+    from foundation import scanner
+
+    verdict = scanner.scan(data)
+    if verdict == "pending":
+        return
+    a.scan_state = ClaimScanState.CLEAN if verdict == "clean" else ClaimScanState.INFECTED
+    a.scanned_at = utc_now(clock)
+    if a.scan_state == ClaimScanState.INFECTED:
+        a.content_enc = ""
+    a.entity_version += 1
+    a.save(
+        update_fields=[
+            "scan_state",
+            "scanned_at",
+            "content_enc",
+            "entity_version",
+            "updated_at",
+        ]
+    )
+    _audit("system", f"claim_attachment_{a.scan_state}", a.claim)
+
+
+def add_attachment(
+    *,
+    claim_ref: str,
+    tenant_ref: str,
+    filename: str,
+    data: bytes,
+    actor_ref: str,
+    side: str,
+    clock: Clock | None = None,
+) -> dict[str, Any]:
+    """Attach a document or image to a claim (DEV-378).
+    Clinic attaches supporting documents to submitted claims.
+    Payer attaches remittance advice documents when approving/paying.
+    """
+    import base64
+    import hashlib
+
+    ctype, name = _detect_type(data, filename)
+    with transaction.atomic():
+        claim = Claim.objects.select_for_update().filter(public_id=claim_ref, **_scope()).first()
+        if claim is None:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        if side == "clinic":
+            if claim.from_tenant_ref != tenant_ref:
+                raise ZoikoError(ErrorCode.NOT_FOUND)
+            if claim.state != ClaimState.SUBMITTED:
+                raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        elif side == "payer":
+            if claim.to_tenant_ref != tenant_ref:
+                raise ZoikoError(ErrorCode.NOT_FOUND)
+            if claim.consent_state != ClaimConsent.GRANTED:
+                raise ZoikoError(ErrorCode.NOT_FOUND)
+            if claim.state not in (ClaimState.APPROVED, ClaimState.PAID):
+                raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        else:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+
+        if ClaimAttachment.objects.filter(claim=claim, **_scope()).count() >= MAX_ATTACHMENTS_PER_CLAIM:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+
+        a = ClaimAttachment(
+            claim=claim,
+            filename=name,
+            content_type=ctype,
+            size=len(data),
+            sha256=hashlib.sha256(data).hexdigest(),
+            content_enc="",
+            uploaded_by_side=side,
+            uploaded_by_ref=actor_ref,
+            **_scope(),
+        )
+        a.content_enc = encrypt(
+            base64.b64encode(data).decode("ascii"),
+            tenant_id=require_context().tenant_id,
+            context=f"claim:{claim.public_id}:attachment:{a.public_id}",
+        )
+        a.save()
+        _event(claim, "attachment_added", side, actor_ref)
+        _audit(actor_ref, "claim.attachment_added", claim)
+        _apply_scan(a, data, clock)
+        return attachment_dict(a)
+
+
+def remove_attachment(
+    *, claim_ref: str, attachment_ref: str, tenant_ref: str, actor_ref: str
+) -> None:
+    """The clinic removes a supporting attachment while the claim is still submitted."""
+    with transaction.atomic():
+        claim = Claim.objects.select_for_update().filter(public_id=claim_ref, **_scope()).first()
+        if claim is None or claim.from_tenant_ref != tenant_ref:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        if claim.state != ClaimState.SUBMITTED:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        a = ClaimAttachment.objects.filter(
+            public_id=attachment_ref, claim=claim, **_scope()
+        ).first()
+        if a is None:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        if a.uploaded_by_side != "clinic":
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        a.delete()
+        _event(claim, "attachment_removed", "clinic", actor_ref)
+        _audit(actor_ref, "claim.attachment_removed", claim)
+
+
+def open_attachment(
+    *, claim_ref: str, attachment_ref: str, tenant_ref: str, actor_ref: str
+) -> tuple[str, str, bytes]:
+    """Download a clean attachment for either the sending clinic or the adjudicating payer."""
+    import base64
+
+    claim = Claim.objects.filter(public_id=claim_ref, **_scope()).first()
+    if claim is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if claim.from_tenant_ref != tenant_ref:
+        if claim.to_tenant_ref != tenant_ref or claim.consent_state != ClaimConsent.GRANTED:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+
+    a = ClaimAttachment.objects.filter(
+        public_id=attachment_ref, claim=claim, **_scope()
+    ).first()
+    if a is None:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    if a.scan_state != ClaimScanState.CLEAN:
+        if a.scan_state == ClaimScanState.INFECTED:
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED)
+        raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+
+    try:
+        data = base64.b64decode(
+            decrypt(
+                a.content_enc,
+                tenant_id=require_context().tenant_id,
+                context=f"claim:{claim.public_id}:attachment:{a.public_id}",
+            )
+        )
+    except (CryptoError, ValueError):
+        raise ZoikoError(ErrorCode.NOT_FOUND) from None
+    _audit(actor_ref, "claim.attachment_opened", claim)
+    return a.filename, a.content_type, data
+
+
+def scan_pending_attachments(limit: int = 20, clock: Clock | None = None) -> int:
+    import base64
+
+    done = 0
+    for a in (
+        ClaimAttachment.objects.select_related("claim")
+        .filter(scan_state=ClaimScanState.PENDING, **_scope())
+        .order_by("created_at")[:limit]
+    ):
+        try:
+            data = base64.b64decode(
+                decrypt(
+                    a.content_enc,
+                    tenant_id=require_context().tenant_id,
+                    context=f"claim:{a.claim.public_id}:attachment:{a.public_id}",
+                )
+            )
+        except (CryptoError, ValueError):
+            continue
+        with transaction.atomic():
+            _apply_scan(a, data, clock)
+        done += a.scan_state != ClaimScanState.PENDING
+    return done
 
 
 def send(
@@ -320,6 +547,7 @@ def payer_step(
     clock: Clock | None = None,
     amount_paid_minor: Any = None,
     paid_on: Any = None,
+    remittance_advice: Any = None,
 ) -> dict[str, Any]:
     if step not in PAYER_STEPS:
         raise ZoikoError(ErrorCode.NOT_FOUND)
@@ -345,6 +573,9 @@ def payer_step(
                 isinstance(amount_paid_minor, bool) or not isinstance(amount_paid_minor, int)
                 or amount_paid_minor < 0):
             raise _bad("amount_paid_minor")
+        if remittance_advice is not None and (
+                not isinstance(remittance_advice, str) or len(remittance_advice) > 500):
+            raise _bad("remittance_advice")
     with transaction.atomic():
         row = (
             Claim.objects.select_for_update()
@@ -368,6 +599,8 @@ def payer_step(
                 raise _bad("amount_paid_minor")  # never more than claimed
             row.payment_ref, row.paid_at = payment_ref, now
             row.amount_paid_minor, row.paid_on = paid, paid_day
+            if remittance_advice is not None:
+                row.remittance_advice = remittance_advice.strip()
         row.entity_version += 1
         row.save()
         _event(row, step, "payer", actor_ref)

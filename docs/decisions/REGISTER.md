@@ -2312,6 +2312,42 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
   - Consumer contracts verified: `python scripts/consumer_contract.py --check` clean.
   - OpenAPI snapshot verified: `pytest tests/test_openapi.py` (7 passed).
 
+### DEV-378: insurance claim supporting document attachments & remittance advice (follows DEV-308, DEV-347)
+
+- **Context & Requirement:**
+  - In `docs/HANDOVER.md` under "What is not built (Money and cover)", the remaining item was `"claim attachments and remittance advice"`.
+  - Clinics submitting claims frequently need to attach itemized bills, physician referral notes, and diagnostic test reports (PDF, PNG, JPEG up to 10 MB each, maximum 3 attachments per claim) to satisfy private health insurance adjudication requirements.
+  - Adjudicating payers need to view and download supporting documents once patient consent is granted, and provide structured remittance advice (copay deductions, contractual adjustments, deductible breakdown up to 500 characters) when approving or paying claims.
+  - Sensitive files must be envelope-encrypted (`claim:<claim_id>:attachment:<att_id>`), scanned with ClamAV / pretend scanner, sanitized against PDF exploits (`/JavaScript`, `/Launch`, etc.), and protected by PostgreSQL row-level security (`EnableRLS`).
+- **What was done:**
+  - **Data Model (`modules/claim/models.py`, migration `claim.0004`):**
+    - Added `remittance_advice = models.CharField(max_length=500, blank=True, default="")` to `Claim`.
+    - Added `ClaimScanState` enum (`pending`, `clean`, `infected`).
+    - Added `ClaimAttachment(CellScopedModel)` with `filename`, `content_type`, `size`, `sha256`, `content_enc`, `scan_state`, `scanned_at`, `uploaded_by_side`, `uploaded_by_ref`. Applied `EnableRLS('claim_claimattachment')`.
+  - **Service Layer (`modules/claim/services.py`, `api.py`):**
+    - Implemented `add_attachment`, `remove_attachment`, `open_attachment`, `scan_pending_attachments`, `_detect_type` (magic bytes verification, max 10 MB size, active PDF regex filtering), and `_apply_scan` with `foundation.scanner.scan`.
+    - Attachments can only be added or deleted while the claim is in `submitted` state (immutable post-decision).
+    - Payers can only access attachments after patient consent is `granted`; prior to consent, returns 404 NOT_FOUND to preserve absolute patient privacy.
+    - Updated `payer_step` for `step="pay"` to validate and record `remittance_advice` (up to 500 characters).
+  - **API Routing & Views (`api/urls.py`, `api/views.py`):**
+    - `POST /api/v1/claims/sent/<claim_id>/attachments`: clinic binary upload with `filename` query parameter.
+    - `GET, DELETE /api/v1/claims/sent/<claim_id>/attachments/<attachment_id>`: clinic download or delete.
+    - `GET /api/v1/claims/incoming/<claim_id>/attachments/<attachment_id>`: payer download (consent-gated).
+    - `POST /api/v1/claims/incoming/<claim_id>/pay`: accepts and stores `remittance_advice`.
+  - **Frontend UI (`frontend/operations`, `frontend/partners`):**
+    - Operations Claims page: supporting document upload widget, delete button, clean download link, and remittance advice callout.
+    - Partners Claims page: supporting document viewer and download widget for consented claims, and remittance advice input on payment action.
+- **Checked:**
+  - Added unit and integration tests in `backend/tests/test_claims.py`:
+    - `test_clinic_uploads_and_downloads_supporting_attachments`: verifies upload of PDF, PNG, and JPEG, metadata list, downloading original bytes, 3-attachment limit (409), deletion, and immutability after approval.
+    - `test_attachment_validation_and_security`: verifies rejection of missing filename (422), fake MIME types (422), active PDF exploits like `/JavaScript` and `/Launch` (422), files > 10 MB (422), and EICAR infected files (quarantined, opening refused with 422).
+    - `test_payer_can_only_download_attachments_after_patient_consent`: verifies payer receives 404 before consent, can inspect and download clean attachments after consent, and unauthorized callers are rejected.
+    - `test_payer_remittance_advice_and_clinic_visibility`: verifies payer recording remittance advice on payment, 500-char length validation, and clinic viewing the remittance advice.
+  - All 45 tests in `backend/tests/test_claims.py` passed in Docker (`45 passed in 187.44s`).
+  - Frontend TypeScript type checks: both `frontend/operations` and `frontend/partners` passed cleanly (`tsc --noEmit`).
+  - Consumer contracts verified: `python scripts/consumer_contract.py` clean.
+  - OpenAPI snapshot verified: `pytest tests/test_openapi.py` (7 passed).
+
 ### DEV-380: two-step sign-in for staff, with a re-check before risky actions (GHE-02)
 (Numbered 380, not 378, because another session was using the numbers after 377 at the time.)
 
@@ -2343,6 +2379,294 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
   - Existing tests: sign-in, password change, identifiers, merge, key rotation, team and OpenAPI (snapshot refreshed), 139 passed. A first combined run showed database errors in the team and key-rotation tests from a parallel run on the shared test database; both files then passed in full.
   - Ruff and mypy are clean on the changed files; no missing migrations; the three apps type-check.
   - Live check against the running server with the demo administrator: on, sign-in with a code, replay refused, off with a recovery code, then the password alone again.
+
+### DEV-381: short-term support access, approved by the customer (GHE-05 W10, GHE-09 T04, GHE-15 W06)
+
+- **Why:** Zoiko support had no way to look inside a customer to troubleshoot, only platform-wide counts. The design documents ask for exactly one way in: "no standing PHI access; a session that is expiring, auditable and revocable". It is requested against a ticket, approved locally, time-limited (10–30 minutes as an example), behind two-step sign-in, restricted to a list of views, recorded in full, and expired grants are "denied and logged". `policy/rules.py` had noted this as "not built".
+- **What was done:**
+  - **The request.** Support (R11 in Zoiko's platform space) asks one customer for access (`POST platform/support-access`): a ticket number, a reason (10–300 characters, shown to the customer), which views, and 10, 20 or 30 minutes. They must have two-step sign-in on (DEV-380) and a recent code. Only one open request or grant per person per customer.
+  - **Where it is kept.** The request is kept in the CUSTOMER's own data (`trust.SupportAccess`, migration `trust/0033`, row-level security). The customer's administrators get an email.
+  - **The customer decides.** The administrator (R13) approves (re-asking for their code if they use two-step and it is stale) or refuses it in the staff console, Settings > Support access. The time starts at approval. An unanswered request lapses after 24 hours. Either side can end it at once.
+  - **Looking.** One view per call (`GET platform/support-access/<customer>/<id>/<view>`), only while it is active, only views granted, only by the person who asked, and only with a code from the last 15 minutes. Each look is counted on the request and recorded in the customer's audit chain AND the platform's. **A refused look (before approval, after the end, outside the views, refused) is recorded first, then refused.**
+  - **What the views show: setup and status, never patients.** The support role's hard prohibitions are not loosened.
+    - `setup`: the clinics with their response targets, opening hours, booking system, waiting-list window and services; staff logins by kind, status and roles only (no login, name or address); how many have no two-step.
+    - `activity`: the last 100 audit entries as action, record type, outcome and reason, without who or which record; booking and service counts; access checks in the last 7 days.
+    - `deliveries`: the existing status-only delivery view (DEV-328).
+  - **Screens.** Platform console "Support access": ask, see my requests with the time left, open a granted view, end or withdraw. Staff console Settings, "Support access" card: who asked, the ticket, why, what they would see, the number of looks, and Approve, Refuse and End now for the administrator.
+  - **Catalogues.** `requester_ref` (a platform login) and `ticket_ref` (an external number) are added to the identifier catalogue.
+- **Proposals, not decided:**
+  - The 10, 20 and 30 minute lengths ("design examples pending risk review", GHE-05).
+  - The 24-hour lapse of an unanswered request.
+  - The three views and their exact fields.
+  - That one customer administrator's approval is enough. The document's "dual approval" is read here as support plus the customer.
+- **Not done (needs a decision or later work):**
+  - Break-glass access to clinical data (a separate clinical approval, deliberately not opened).
+  - Screen recording.
+  - A cross-border transfer check by the support person's country (no country is recorded for platform staff yet).
+  - A compliance review of grants after they end.
+- **Checked:**
+  - New `tests/test_support_access.py`: 25 passed, mostly refusals:
+    - no two-step, no support role, a customer asking;
+    - unusable requests (7 cases), an unknown customer or Zoiko itself, a second open request;
+    - a look before approval or outside the views granted (each recorded), refused or lapsed requests, after the time ends (recorded), after the customer ends it;
+    - another support person ending or using someone's grant, another customer seeing the request, a stale code;
+    - no logins or ids of people in the views.
+  - The identifier (33) and OpenAPI (7, snapshot refreshed) tests pass, and so do the two-step tests (21).
+  - Ruff, mypy and import contracts are clean; both apps type-check.
+  - Live check against the running server: support without two-step refused; with it, asked Demo Clinic; a look before approval refused; the clinic administrator saw the request and approved it; the setup view opened; a view outside the grant refused; support ended it; a look after the end refused; the clinic saw one look. The support login's two-step was switched off again afterwards.
+
+### DEV-382: risk controls in the hazard register, each tied to the test that proves it (GHE-08 SAF-12 and W05, GHE-19)
+
+- **Why:** the hazard register (DEV-103) had assessment, independent review and acceptance, but nothing recorded *what controls* each hazard. DEV-103 listed `safety.control` and "linking a hazard to the code or tests that control it" as not built. GHE-08 SAF-12: "All clinical-risk controls map to one hazard, measurable acceptance tests, a versioned release build and a named signatory." GHE-08 W05 and GHE-19 draw the chain hazard → control → code → test → pass evidence → sign-off, and GHE-19 says "No high-risk feature without mapped verified mitigation" and that a change "must reopen the affected links and prior signoffs". This was one of the lowest audit areas (GHE-16 35%).
+- **What was done:**
+  - **The record.** `safety.HazardControl` (migration `safety/0004`, row-level security). A control is numbered per customer (C-001, C-002 ...). It has a kind (preventive, detection, fallback or monitoring, the four GHE-08 section 05 names), what it does, where it lives (code, configuration or procedure) and the automated test that proves it, written `tests/test_x.py::test_y`. **The test must exist in this build** (the file and the `def`), or the control is refused.
+  - **The independent check.** A DIFFERENT safety officer verifies a control. They must say what they checked, and the test must still exist. The build they checked is recorded (`ZOIKO_BUILD`). Controls can be withdrawn with a reason and stay on the record. Every step is audited.
+  - **Acceptance now needs controls.** The remaining risk of a hazard is accepted only with at least one verified control and none still waiting (422, field `controls`). This is on top of DEV-103's independent review and "never high".
+  - **Changes re-open sign-offs.** Proposing or withdrawing a control on a verified or accepted hazard sends it back to open, with its review cleared and a `controls_changed` step in its history.
+  - **The trace** (`GET platform/hazard-trace`). Every hazard with its controls and whether each named test is still there, plus the gaps: hazards without a verified control, controls waiting for a check, named tests that have gone, and hazards accepted before this rule without a control. A test that is deleted or renamed shows at once.
+  - **Platform console, Hazards page.** A "Hazard → control → test" summary of the gaps, and in each hazard a "Risk controls and their tests" section: the list with test found or missing, propose, verify and withdraw.
+  - **Robot 12** now proposes a control, has the second officer verify it before accepting, and withdraws it when tidying up.
+  - **Identifier catalogue.** A new kind `test_ref` with its pattern; `control_no` and `verified_by_ref` added.
+- **Proposals, not decided (INFERRED, for the clinical safety lead):**
+  - That one verified control is enough to accept, whatever the severity. GHE-08 also asks for a detected failure, a fallback, a responder and a monitoring signal per hazard: these are recorded as kinds, not yet required as a set.
+  - That the named test only has to EXIST. Its result in the release's CI run is not yet linked (the go-live readiness area, GHE-19 `execution`).
+  - That browser robots cannot be named (only backend tests can be checked from the server).
+- **Not done:** linking each control to a requirement (the requirements matrix) and to a release's test run; per-control review dates; a "missing test" alarm outside the screen. Hazards already ACCEPTED before this rule stay accepted, and the trace counts them.
+- **Checked:**
+  - New `tests/test_hazard_controls.py`: 17 test cases, mostly refusals. A missing, malformed or path-escaping test; unusable kinds and texts; support adding or checking; a retired hazard; verifying your own control or without a note, or twice; acceptance with no verified control or with one still waiting; re-opening on propose and on withdraw; the trace and its gaps; a test that disappears; audit.
+  - `test_hazards.py` updated (accepting now adds a checked control first): 37 passed together.
+  - The identifier and OpenAPI (snapshot refreshed) tests pass, 40 in all.
+  - Ruff, mypy and import contracts are clean; no missing migrations; the platform console type-checks.
+  - Robot 12 passed twice in a row, so it is repeatable.
+
+### DEV-383: country-pack capabilities checked on every customer endpoint, from one table (GHE-08 SAF-01, SAF-10; GHE-04, GHE-05)
+
+- **Why:** a signed country pack switches named capabilities on for a market: provider directory, booking, messaging, referrals, waiting list. Until now only three things read them: workflow starts (DEV-156), partner booking systems (DEV-224) and real texts (DEV-228). The booking, message, referral, waiting-list and directory screens and APIs worked whatever the pack said. SAF-01 says no function activates for a market without a matching pack; SAF-10 says country and feature flags "fail closed". The audit counted this among the largest gaps (GHE-05 38%).
+- **What was done:**
+  - **One table** (`api/capability_gate.py`). `GATED` maps each API route to the capability it needs; `UNGATED` lists every other route with the reason it needs none. The categories are: own account and sign-in; rights and the own record; clinical records; clinic safety and administration; the clinic's team and settings; money; partners; public API descriptions; and lab results, held back for a decision (below).
+  - **The check** runs in the shared `endpoint` wrapper after sign-in, so it covers every endpoint at once. Zoiko's own platform tenant is never gated.
+  - **A new endpoint cannot slip past.** `test_capability_gate.py` walks every URL and fails when one is in neither table, or when the tables name a route that no longer exists. It caught two workflow routes on its first run.
+  - **Three modes**, `ZOIKO_PACK_GATING`:
+    - `enforce`: 403 `JURISDICTION_INACTIVE` naming the capability, reading and writing alike.
+    - `report`: allow, and log one line naming only the route and the capability.
+    - `off`.
+    An unknown value counts as `enforce` (fail closed). The base settings default to `enforce`; development and test settings use `report`, because demo and test customers have no signed pack.
+  - **The release check refuses a real server that does not enforce.**
+  - **The apps.** `GET me` now returns `switched_off`: the capabilities the market has not switched on, empty unless enforcing. The staff console hides those menu items, and a direct visit shows "not switched on here". All five apps turn a 403 `JURISDICTION_INACTIVE` into one plain message (`shared/src/packMessage.ts`).
+- **For the lead (TEMPORARY, please confirm):**
+  - Which capability each screen needs. Staff setting up services and locations are gated by `provider_directory` like the patients looking them up.
+  - That rights, records, billing, team and safety screens are never switched off by a market.
+  - **Lab results and record exchange are NOT gated:** the pack names for them (`diagnostics`, `record_exchange`) are still marked "not built" in the pack rules, so gating them would switch them off for good. Decide, then mark them buildable and add their routes to the table.
+  - Whether `report` is right for development.
+- **Before go-live:** every customer's country must be set and a signed pack must cover what it uses. Otherwise, with `enforce`, its booking, messages, referrals, waiting list and directory are refused. That is the intended fail-closed behaviour, but it will look like an outage to a customer nobody prepared.
+- **Not done:** the patient and doctor apps do not hide their menu items yet (they show the plain message instead); a platform view listing, per customer, what is on and off; gating inside background jobs (only the API is gated; texts already are, DEV-228).
+- **Also fixed:**
+  - 4 long lines in `api/views.py` and 1 in `api/urls.py` (clinical-note attachments, DEV-376), and an `env` lint warning in `config/settings/dev.py`, so CI's lint passes on those files.
+  - 24 more lint errors remain in the clinical-notes files the other session is changing (`modules/clinicalnote`, `tests/test_clinical_notes.py`).
+- **Checked:**
+  - New `tests/test_capability_gate.py`, 16 cases:
+    - table coverage both ways, and only known capabilities;
+    - enforce refuses with no country or pack, for a pack of another country, and for writes too;
+    - ungated screens keep working, a signed pack switches on exactly what it names, the platform console is never gated;
+    - an unknown mode fails closed; report allows and logs only the route and the capability; off does nothing;
+    - the release check needs enforce; what the apps are told.
+  - The booking, booking-history, booking-flow, directory, message, referral, referral-inbox, waiting-list, text-market, partner-gate and workflow-pack suites, rerun once in report mode: 191 passed.
+  - Ruff and mypy clean on the changed files; the five apps type-check.
+
+### DEV-384: outgoing addresses approved by Zoiko before a clinic's data is sent there (GHE-09 SEC-07, GHE-13, GHE-22 AT-024)
+
+- **Why:** a clinic administrator could register any public https address as a webhook receiver and, once it answered the challenge, every event went there. Only private networks were refused (DEV-127). GHE-09 SEC-07 forbids "unbounded internet egress into a healthcare cell"; GHE-13 asks for a "webhook endpoint allowlist" and a security review before a partner is enabled; GHE-22 AT-024: "Prevent connector from calling non-allowlisted egress host". The audit counted this in GHE-18 (38%).
+- **What was done:**
+  - **The allowlist.** An `EgressPermit` names one exact host name, for one customer and one purpose (`webhook`, or `connector` for partner systems). It is kept in Zoiko's platform tenant like the country packs (migration `integration/0007`, row-level security). There are no wildcards and no IP numbers.
+  - **Asking.** Registering a webhook address asks for its permit automatically, once per customer and host. A refused or revoked one is asked again when the address is registered again. Zoiko's staff can also propose one, for example for a connector.
+  - **Deciding.** On the platform console's new page **Outgoing addresses**, Zoiko support (R11) or safety (R12) approves, refuses or revokes. Refusing and revoking need a reason. **Nobody approves a permit they proposed themselves.** Approving re-asks for the two-step code when the last one is stale (DEV-380). Every step is in the platform's audit chain.
+  - **Before every send.** The verification challenge and every delivery check the permit for that customer and host. Without an approved one nothing is sent:
+    - the check of the address answers 403 `address_not_approved`;
+    - a delivery becomes a dead letter `address_not_approved`. It does not count towards pausing the address, so the clinic can resend it after approval.
+    - Revoking stops the next send at once.
+  - **Modes**, `ZOIKO_EGRESS`: `enforce` (do not send), `report` (send, and log one line naming only the host and purpose) or `off`. An unknown value counts as `enforce`. Base settings default to `enforce`, development and tests to `report`. **The release check refuses a real server that does not enforce.**
+  - **Email provider.** `SENDGRID_API_HOST` must be one of the provider's own hosts (`EGRESS_PROVIDER_HOSTS`), so a mistyped setting cannot send mail elsewhere. The text provider's address was already fixed in the code.
+  - **The clinic's screen.** Staff console Integrations: each address shows "Waiting for Zoiko to approve this address" (or refused, revoked, or "cannot be approved" for an IP number), and a check of an unapproved address says why.
+- **For the lead (TEMPORARY, please confirm):**
+  - That Zoiko approves each clinic's webhook hosts (rather than the clinic alone).
+  - That one Zoiko approval is enough for a clinic's own request: the clinic asking plus Zoiko approving makes two parties. Zoiko's own proposals need a second person.
+  - That `report` is right for development.
+- **Before go-live:** every clinic's existing webhook hosts must be approved, or their deliveries stop when `enforce` is on.
+- **Not done:**
+  - A network-level egress gateway or firewall (this is the application's own check; GHE-18's "no-default egress" network rule is for the cloud set-up).
+  - Real partner connectors do not exist yet (only the simulator): when one is written, its adapter must call `egress.may_send(customer, url, "connector")` before any request. This is stated in `modules/integration/egress.py`.
+  - Expiry dates on permits.
+- **Checked:**
+  - New `tests/test_egress.py`, 21 cases, mostly refusals:
+    - registering asks once, and the clinic sees the request waiting;
+    - nothing is sent to an unapproved address (the challenge or a delivery); a revoked one stops the next delivery and says why; one clinic's approval does not cover another;
+    - refusing and revoking need a reason; nobody approves their own proposal; wildcards, IP numbers, `localhost`, empty and over-long host names are refused; clinics cannot see permits;
+    - report sends and logs only the host and purpose; an unknown mode fails closed;
+    - production must enforce; the email provider host must be known; the address shape rules still apply.
+  - `test_webhooks.py`: 42 passed (63 with the new file). A raw IP address is registered as before and simply never asked for or approved.
+  - The SendGrid, release-check, identifier and capability-gate tests pass (195 in that run with the above).
+  - OpenAPI snapshot refreshed (7 passed). Mypy, import contracts and migrations are clean; ruff is clean on these files. The staff console and platform console type-check.
+
+### DEV-385: a lab result is held while who it belongs to is in doubt: an open duplicate check, or the patient's dispute (GHE-06 I-05 and W04, GHE-07)
+
+- **Why:** GHE-06 I-05 says an "ambiguous match, conflicting identifiers ... -> DENY / HOLD"; the patient portal must offer a "restricted match, ability to dispute" (W04). GHE-07 calls a wrong-patient delivery a zero-tolerance failure. Until now a result was shown to the patient (after review and 24 hours) and could be marked reviewed even while the patient was in an open duplicate-record case (DEV-365 merge work), and a patient had no way to say "this is not mine".
+- **What was done:**
+  - **Hold during a duplicate check.** While the patient is in a duplicate-record case still waiting for a decision (possible match, matched pending, split review):
+    - the patient's list says the result is held "while your clinic checks that your records are not mixed up", with no values; its values and trend answer 404;
+    - a doctor sees "On hold: possible duplicate record", and marking it reviewed is refused (409, field `identity_check_open`).
+    - Deciding the case releases it at once.
+    This is worked out live in the API from `trust.open_case_people` (`api/result_holds.py`), so nothing is copied or left behind.
+  - **The patient disputes.**
+    - `POST exchange/mine/<id>/dispute` with a reason CODE only: `not_me`, `wrong_test` or `wrong_values`. No free text, so nothing clinical is typed in. Allowed only once a result has arrived, by the patient or someone who may act for them for that kind of request, and only one open dispute at a time.
+    - While open the result is HELD the same way: no values or trend for the patient (`_patient_may_see_values`), and review refused (field `dispute_open`).
+  - **The treating doctor decides.** `POST exchange/requests/<id>/dispute` takes `confirmed` (it is theirs: released again, and the patient may dispute again later) or `not_theirs` (withheld from the patient for good; needs a note without patient details; review is refused for good, field `not_this_patient`; the doctor app says to report an incident and have the lab correct it). The decision is final.
+  - **Recording.** Every step is in the request's history (`disputed`, `dispute_confirmed`, `dispute_not_theirs`) and in both audit chains.
+  - **Migration** `exchange/0013_result_disputes` (added columns only).
+  - **Patient app:** an "On hold" line with the reason in plain words, and "Something wrong with this result?" with the three reasons.
+  - **Doctor app:** the two hold notices, and "It is theirs: release it" or "It is not theirs" with a short note.
+- **For the clinical safety lead (TEMPORARY, please confirm):**
+  - That review is BLOCKED (not only warned) during a duplicate check and an open dispute. This is the safe reading of "DENY / HOLD", but it can delay a review.
+  - The three reason codes.
+  - That "not theirs" is final and does not itself withdraw the result from the lab's record (the lab must send a correction, DEV-331).
+  - That a guardian may dispute for the child.
+- **Not done:**
+  - Holding consultation notes and attachments during a duplicate check.
+  - An automatic incident on "not theirs".
+  - Telling the lab automatically.
+  - Holding FHIR results that arrive for a patient in an open case (they are held on the patient's side by the rules above, but the arrival itself is not quarantined).
+- **Checked:**
+  - New `tests/test_result_holds.py`, 16 cases, mostly refusals:
+    - during a case the patient sees "held", no values and no trend, and deciding releases it; review refused during a case; a decided case holds nothing;
+    - a dispute holds at once; no review until decided; confirmed releases; not-theirs needs a note, is final and withheld;
+    - only known reason codes (4 bad ones); nothing to dispute before a result; one open dispute at a time; staff and doctors cannot dispute; only a treating doctor decides;
+    - history and audit.
+  - The existing exchange, patient-trend, FHIR-intake, capability-gate, OpenAPI (snapshot refreshed), identity-merge and paging tests: 183 of 184 passed. The one failure was `test_patient_trend.py::test_exchange_mine_trend_api_view`, which builds a fake signed-in user from a MagicMock: since DEV-380 its `must_set_up_two_step` counted as "yes". The test now sets it, and stubs the new duplicate-check lookup; its 4 tests pass.
+  - Ruff and mypy clean on the changed files; the patient and doctor apps type-check.
+
+### DEV-386: every email and text is an approved template; unapproved wording is held (GHE-16 TemplateDefinition, WF-15, policy order)
+
+- **Why:** GHE-16 asks for a TemplateDefinition per message (audience, class, "variable whitelist, PHI exposure allowance, safety owner approval, version") and a policy decision before every send (ALLOW / HOLD_FOR_REVIEW / DENY, "every decision versioned and traceable"). WF-15 is a template approval screen with privacy and clinical approvals and a diff of the wording. Texts already came from a fixed list (DEV-194), but the 13 emails were free text written in 13 places, and nobody approved any wording.
+- **What was done:**
+  - **The catalogue** (`foundation/message_templates.py`). Every email is a named template with fixed wording, a class (security notice, service update, clinical alert, staff admin), an audience and named gaps. Each gap has a strict shape: a link, a masked address, a clinic name, a number, a date, a fixed headline from the code. **Free text cannot get in**, and every template's health-information exposure is "none".
+    - A template's VERSION is a fingerprint of its wording and gaps, so any change of words is a new version.
+    - The wording of every existing email is unchanged.
+    - The texts' own list (`foundation/texts.py`) is part of the same catalogue, with a class each.
+  - **Queuing.** `queue_email(kind, to_address, values)` now takes only the template's values; a caller can no longer write a subject or a body. An unknown template, a missing or extra value, or a value of the wrong shape is refused. All 13 senders were changed. A test scans the code and fails if any `queue_email` names a template that is not in the catalogue.
+  - **The decision before every send** (`foundation/template_policy.py`):
+    - an approved version is sent;
+    - an unapproved one is HELD (new mail and text state `held`), kept, and sent the moment that exact version is approved;
+    - an unknown template or bad value is refused.
+    Each queued message records its template and version. The platform's mail numbers count held messages.
+  - **Approval.** A version is approved only when a safety officer (R12, "clinical") AND a different person for privacy (Zoiko support, R11) have each signed it off. Nobody can give both, and each signs only their own part. Each sign-off re-asks for the two-step code when stale (DEV-380) and is audited. Approvals hold the exact approved wording (`foundation.TemplateApproval`, migration `foundation/0010`). Like the mail queue, approvals are not row-level secured: every customer's sending reads them, and they hold no personal data.
+  - **Platform console, "Message templates":** every email and text with its version, class, gaps, sign-offs and held count. It shows the wording, and for a changed template what changed since the last approved version (line by line). There are buttons to approve as clinical safety or as privacy.
+  - **Modes,** `ZOIKO_TEMPLATE_GATING`: `enforce` (hold), `report` (send, and log one line naming only the channel, template and version) or `off`. An unknown value holds. Base settings `enforce`, development and tests `report`. **The release check refuses a real server that does not enforce.**
+- **For the lead (TEMPORARY, please confirm):**
+  - Who signs: a safety officer for clinical, Zoiko support standing in for privacy (no privacy officer role exists).
+  - That security notices (password reset, verification) are held like the rest when unapproved. They are, so every template must be approved before go-live, or sign-in emails wait.
+  - That held messages are sent late rather than dropped. A held one-time link may have expired by then.
+- **Not done:**
+  - Translations and reading-level checks (one language: English).
+  - A sunset or retirement marker per version.
+  - Per-country template sets (GHE-16: "country-approved template").
+  - Push notifications.
+  - The in-app notices (the notification list) are not templated; they hold the same fixed headlines.
+- **Checked:**
+  - New `tests/test_message_templates.py`, 20 cases:
+    - every email kind used in the code is in the catalogue; new wording is a new version; no template carries health information;
+    - an unapproved email is held and not sent; one sign-off is not enough; both approve it and the held message goes;
+    - nobody gives both; each role signs only its part; no sign-off twice; new wording needs a new approval and shows the previous wording;
+    - texts are held and released the same way;
+    - the screen lists everything; customers cannot see it; sign-offs are audited;
+    - report logs only the template and version; an unknown mode holds; production must enforce.
+  - Mail tests updated to queue templates (`test_email.py` now refuses an unknown template, missing values, a bad link and an extra value), plus `test_email_notices.py`, `test_message_states.py` and `test_sendgrid.py`.
+  - The sign-in, password, grants, digest, email, oncall, late, notifications, release, SendGrid, set-email, support-access, team, texts, two-step, OpenAPI (snapshot refreshed), identifier and capability-gate suites: 432 passed, 1 skipped; the one failure was the identifier catalogue, which now lists `template_key` (a new kind, checked against the template catalogue rather than by shape), `clinical_by_ref` and `privacy_by_ref`, and DEV-385's `dispute_by_ref` and `dispute_decided_by_ref` (33 identifier tests pass).
+  - Ruff and mypy clean on the changed files; the platform console type-checks.
+
+### DEV-387: rate limits per network address, per login and per customer, with safety-critical work protected (GHE-13 rate control, GHE-09 T11, OWASP API4)
+
+- **Why:** GHE-13 asks for "rate control per partner, tenant, endpoint ... and risk tier; defined fairness for safety-dependent traffic; Retry-After or backoff", and a 429 "with bounded Retry-After". GHE-09 T11 names denial of service and cost exhaustion; OWASP API4 (unrestricted resource consumption) applies to every API. There were only scattered limits: the sign-in lockout, the sign-up flood brake, resend gaps and a few per-feature counts. One caller could send any number of requests.
+- **What was done:**
+  - **Counting** (`foundation/ratelimit.py`). Fixed one-minute windows, counted in the database (`foundation.RateWindow`, migration `foundation/0011`), the one store every server process shares: one atomic upsert per check. Keys are keyed fingerprints (HMAC under SECRET_KEY): **no network address or login is stored**. The worker forgets windows older than 10 minutes, and the app may delete this table's rows (`dbgrants` FULL_ACCESS).
+  - **Per network address** (`RateLimitMiddleware`, before anything else): every `/api/` request counts towards `ip`. Sign-in, sign-up, password reset, the email check and the two-step second step also count towards the much smaller `ip_auth`. Health checks are never counted.
+  - **Per signed-in login** (in the shared `endpoint` wrapper, after sign-in): `actor_read` for GET and `actor_write` for anything else; the write limit is smaller. Also **per customer**, `tenant`: all its logins together.
+  - **Fairness for safety-critical work:** reviewing a result, reading it, deciding a dispute, clinical notes, the doctor's schedule and patients, and recording a death never count towards the customer-wide cap (`SAFETY_ROUTES`), only towards the login's own limits. A flood elsewhere in a clinic cannot block a doctor.
+  - **When over a limit:** 429 `RATE_LIMITED` with `Retry-After` (the seconds left in the minute, 1 to 60). A refused caller keeps using up its window.
+  - **Limits per minute** (`RATE_LIMITS`): ip 600, ip_auth 20, actor_read 300, actor_write 60, tenant 3000.
+  - **Modes**, `ZOIKO_RATE_LIMITING`: `enforce`, `report` (allow, and log one line naming only the kind of limit) or `off`. Unknown counts as `enforce`. Base settings `enforce`; development `report` (the browser robots are fast); tests `off` except the rate-limit tests. **The release check refuses a real server that does not enforce.**
+- **Proposals, not decided:** every number above; which routes are safety-critical; that a partner's own limits are the login and customer limits (no separate partner contract quotas yet).
+- **Not done:**
+  - Per-partner contract quotas and a platform view of who is being throttled (GHE-18 W-wireframe "PARTNER B THROTTLED").
+  - Per-endpoint cost weights.
+  - Behind a load balancer the real client address must be passed as REMOTE_ADDR (a proxy setting at deployment, noted in the middleware).
+  - Counting in a faster store (Redis) if traffic grows: one database upsert per request is fine at this scale.
+- **Checked:**
+  - New `tests/test_rate_limits.py`, 16 cases:
+    - sign-in from one address is limited with Retry-After while another address is unaffected; every API request counts towards the address limit; health checks never;
+    - a login's own read limit while another login is unaffected; writing has a smaller limit than reading; one customer's share while another customer is unaffected; safety-critical work is not blocked by the customer cap; a new minute starts afresh;
+    - no address or login stored; old windows forgotten;
+    - report logs only the kind; off counts nothing; an unknown mode enforces; production must enforce.
+  - The API-version, grants, errors, health, metrics, release-check, identifier and OpenAPI suites: 208 passed, 1 skipped.
+  - Ruff, mypy, import contracts and migrations clean. The running development server still answers (version and readiness 200).
+
+### DEV-388: a 30-day error budget with burn-rate alerts and runbooks, and releases held while it is used up (GHE-18 section 05 and error-budget policy, GHE-20)
+
+- **Why:** GHE-18 defines availability over "a rolling 30-day window" and requires that the "error-budget policy must suspend risky releases when approved thresholds are exhausted, with a safety-critical override controlled by Clinical Safety/SRE". GHE-20 asks for operations runbooks. The service-level numbers (DEV-130) lived in ONE web process's memory, for one hour at most, reset on restart. There was no budget, no alert and no runbook.
+- **What was done:**
+  - **Counting that lasts** (`foundation.SloMinute`, migration `foundation/0012`). Every request is counted per minute in the database: total, server errors (5xx) and fast answers (within 750 ms). One upsert per request, from every web process. Counts only: no route, tenant, person or address. Health checks are excluded as before. Kept 35 days, then deleted by the worker. A failure to count never breaks the answer.
+  - **The budgets** (`foundation/error_budget.py`): over 30 days, for availability (target 99.9%) and speed (95% within 750 ms), the failures the target allows, how much is used, and the state:
+    - healthy;
+    - warning (three quarters used);
+    - exhausted;
+    - not enough traffic (under 1000 requests: a few errors on a quiet day are not an outage).
+  - **Burn-rate alerts**, the usual two-window pair: fast (the last hour at 14.4 times the allowed rate) and slow (6 hours at 6 times), plus "exhausted". Each alert names its runbook.
+  - **Runbooks** (`docs/runbooks/`): server errors, slow responses, database unavailable, email not going out (including held templates, DEV-386), texts circuit open, partner deliveries stuck (including unapproved addresses, DEV-384), request flood (DEV-387), and error budget used up. Each has what to check, what to do, what never to do, and when it is done. A README has the rules for all of them.
+  - **The release hold.** A used-up budget is a new system-checked G3 requirement in the go-live readiness register (`g3.error_budget:missing`), like hazards and incidents: every release waits.
+  - **The override.** A **safety officer (R12)** may let ONE release go on, for at most 7 days, with a reason (a fix for the cause, never a feature). It is only possible while the budget is actually used up, never by the release's author, and asks for the two-step code again. It is shown on the release ("overridden by clinical safety until ..."), audited, and stops counting when it ends.
+  - **Screens.** Platform console, Service levels: an "Error budget" card with both budgets, the burn rates, the alerts with their runbooks, and every runbook's name. Go-live readiness: the new row, and "Override the error-budget hold" for a safety officer.
+  - **Setting.** `ZOIKO_SLO_RECORDING` (on by default, off in tests except these). **The release check refuses a real server with it off.**
+- **Proposals, not decided:** the targets (still DEV-130's), the burn thresholds, the 1000-request minimum, the 7-day override limit, and that only a safety officer overrides (the spec says "Clinical Safety/SRE": there is no SRE role).
+- **Not done:**
+  - Alerts are shown on the page, not sent (no paging or email to on-call yet).
+  - Budgets per customer or per capability.
+  - A metrics store outside the database (this is enough at this scale).
+  - Correctness indicators (whether a booking or handoff was actually right) are still not measured: the spec's clinical acknowledgement SLI needs its own evidence.
+- **Checked:**
+  - New `tests/test_error_budget.py`, 21 cases:
+    - requests counted per minute, health checks not; server errors and slow answers counted, 4xx not; counting can be off but never on a real server;
+    - healthy, warning, exhausted, latency, not enough traffic, old failures age out; a fast burn raises its alert with its runbook; old minutes forgotten; every runbook named exists (checked on the repository: all 8 are there); only Zoiko staff see it;
+    - a used-up budget holds every release; a safety officer overrides one release with a reason; refused without its conditions (5 cases); no override while the budget is not used up; the override ends after its days.
+  - The readiness, release-check, grants, metrics, health, errors, OpenAPI (snapshot refreshed), identifier and rate-limit suites: 278 passed, 1 skipped; the one failure was the readiness test that counts a new release's rows, which now has five system checks instead of four (updated, passes). Import contracts and migrations clean.
+  - Ruff, mypy and import contracts clean; the platform console type-checks.
+
+### DEV-389: report numbers need approved measure definitions, small numbers are suppressed, and each run is reproducible (GHE-10 sections 10 and 11, DAT-11)
+
+- **Why:** GHE-10 says "No KPI may be displayed without an approved measure definition. Metrics are metadata plus computation, not labels pasted onto dashboards." It asks for "small-cell and differencing protection", and that "all report results are reproducible from versioned code, inputs, policies, periods, denominator logic, suppression rules and query evidence" (DAT-11). The clinic's Reports page showed raw counts: a "1" next to a doctor and a weekday can point at a person. Nothing defined what a number meant, and nothing recorded how a report was made. Reports and analytics was one of the thinnest areas in the audit.
+- **What was done:**
+  - **Measures** (`foundation/measures.py`). Every number on the report belongs to one of 10 measures: appointments booked, cancellation reasons, attendance, missed-appointment rate by doctor, hours to confirm, next week's forecast, referrals received, waiting list, patient messages, and hours to first reply. Each says what it counts, out of what, what it leaves out, which parts of the report it covers, and which code computes it. Its VERSION is a fingerprint of all that, so a change of definition OR of computing code is a new version.
+  - **Approval.** Measures are approved like message templates (DEV-386): a safety officer AND, separately, privacy, on the same platform page ("Message templates" now also lists the 10 measures with their full definitions). `ZOIKO_MEASURE_GATING`: `enforce` (a part of the report whose measure version is not approved is withheld, and the report says which), `report` (shown, and logged) or `off`. Production must enforce (release check).
+  - **Small numbers**, in every mode:
+    - a count from 1 to 4 is not shown (`null`, shown as "fewer than 5"), while zero is shown;
+    - in a group with a shown total (status, attendance, cancellation reasons, referral states, a doctor's visits), when exactly one number is hidden the smallest other non-zero one is hidden too, so it cannot be worked out by subtraction;
+    - a missed-visit rate needs at least 5 attended-or-missed visits, and a median or average at least 5 cases.
+    The threshold is `REPORT_SMALL_CELL_K` (5). **The release check refuses a real server below 5.** Only the tests of the counting itself set 1.
+  - **Reproducible runs.** Each report run is audited (`report.run`): the period, the threshold, how many numbers were suppressed and withheld, a fingerprint of the measure versions, and a fingerprint of exactly what was shown. Never the numbers themselves. The report carries the same reference ("Report reference …").
+  - **The staff Reports page and its CSV** show "fewer than 5" for hidden numbers and "Not shown: the measure … is not approved yet" for withheld parts. Charts treat hidden numbers as empty. A new card, "How these numbers are counted", lists every measure's definition and whether it is approved.
+- **Proposals, not decided:** the 10 definitions, the threshold of 5, and that zero is shown.
+- **Not done:**
+  - Report exports to other parties (GHE-10 tier 2 and 3: purpose approval, recipients, expiry).
+  - Population analytics.
+  - A separate analytics store (reports still read the live tables).
+  - Suppression of the forecast (averages of past weeks; covered by its measure's approval only).
+- **Checked:**
+  - New `tests/test_report_measures.py`, 16 cases:
+    - counts 1 to 4 suppressed while zero is shown; differencing protection; rates and averages from fewer than 5 cases withheld; large numbers untouched;
+    - every measure has a definition and version, and a change of code is a new version;
+    - the report carries measures, the threshold and evidence, and the audited run holds no numbers;
+    - unapproved measures withheld when enforced; an approved one shown; measures on the approval screen;
+    - production must enforce; production never below 5 (4 cases).
+  - The report, report-zone, forecast, cancel-reason, message-template and release-check suites: 165 passed, 1 skipped. Then 30 passed for report-zone and cancel-reasons once those counting tests set the threshold to 1, as `test_reports.py` does (they check exact small counts on purpose).
+  - Ruff and mypy clean on the changed files; the staff console type-checks.
+- **Seen in the other session's work, not changed here:** new claim-attachment routes and lines in `api/urls.py` and `api/views.py` are over the line length, and their routes are not yet in the feature-pack table (`api/capability_gate.py`), so `test_capability_gate` failed; the three routes were added to the table as billing and claims (never switched off by a market), and it passes.
 
 ### Note: the whole backend suite, run once on 23 November
 

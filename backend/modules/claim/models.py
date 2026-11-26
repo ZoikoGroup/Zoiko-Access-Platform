@@ -80,6 +80,8 @@ class Claim(CellScopedModel):
     # May be less than claimed; never more.
     amount_paid_minor = models.PositiveIntegerField(null=True, blank=True)
     paid_on = models.DateField(null=True, blank=True)
+    # Remittance advice (DEV-378, LEAD DECISION): explanation of payment/adjustments from payer.
+    remittance_advice = models.CharField(max_length=500, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [
@@ -101,3 +103,34 @@ class ClaimEvent(CellScopedModel):
     class Meta(CellScopedModel.Meta):
         constraints = [models.UniqueConstraint(fields=["claim", "seq"], name="claim_event_seq")]
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="claim_event_scope_idx")]
+
+
+class ClaimScanState(models.TextChoices):
+    PENDING = "pending", "Waiting for the virus scan"
+    CLEAN = "clean", "Scanned: no virus found"
+    INFECTED = "infected", "A virus was found: it can never be opened"
+
+
+class ClaimAttachment(CellScopedModel):
+    """Supporting documentation or remittance advice attached to a claim (DEV-378). Stored ENCRYPTED;
+    only the clinic that sent the claim or the adjudicating payer (once patient consent is granted)
+    may open it, and only once a virus scan found it clean."""
+
+    claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="+")
+    filename = models.CharField(max_length=120)
+    content_type = models.CharField(max_length=50)
+    size = models.PositiveIntegerField()
+    sha256 = models.CharField(max_length=64)
+    content_enc = models.TextField()  # sealed ciphertext only
+    scan_state = models.CharField(
+        max_length=10, choices=ClaimScanState.choices, default=ClaimScanState.PENDING
+    )
+    scanned_at = models.DateTimeField(null=True, blank=True)
+    uploaded_by_side = models.CharField(max_length=8)  # "clinic" or "payer"
+    uploaded_by_ref = models.CharField(max_length=22)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="claimattach_scope_idx"),
+            models.Index(fields=["claim", "scan_state"], name="claimattach_scan_idx"),
+        ]

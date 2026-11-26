@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { claimCheck, claimStep, getClaims } from "../api";
+import { claimCheck, claimStep, downloadClaimAttachmentIncoming, getClaims } from "../api";
 import type { Claim, ClaimCheck } from "../types";
 import { Card, Pill } from "../ui";
 import { Gate, useLoad } from "../useLoad";
@@ -25,6 +25,7 @@ function Row({ c, onChanged }: { c: Claim; onChanged: () => void }) {
   const [pay, setPay] = useState("");
   const [paidAmount, setPaidAmount] = useState("");   // in currency units; empty = the full amount
   const [paidOn, setPaidOn] = useState("");
+  const [remittance, setRemittance] = useState("");
   const [check, setCheck] = useState<ClaimCheck | null>(null);
   async function run(step: "approve" | "decline" | "pay") {
     setBusy(true); setError("");
@@ -32,6 +33,7 @@ function Row({ c, onChanged }: { c: Claim; onChanged: () => void }) {
       payment_ref: pay,
       ...(paidAmount.trim() ? { amount_paid_minor: Math.round(Number(paidAmount) * 100) } : {}),
       ...(paidOn ? { paid_on: paidOn } : {}),
+      ...(remittance.trim() ? { remittance_advice: remittance.trim() } : {}),
     } : {}); onChanged(); }
     catch (err) {
       const code = (err as { code?: string }).code;
@@ -55,6 +57,26 @@ function Row({ c, onChanged }: { c: Claim; onChanged: () => void }) {
         {check && <small role="status">Cover check: <b>{CHECK[check.reason] ?? check.reason}</b>{check.plan ? ` (plan ${check.plan})` : ""}.</small>}
         {c.state === "declined" && c.decision_reason && <small>Your reason: {c.decision_reason.replace(/_/g, " ")}</small>}
         {c.payment_ref && <small>Your payment reference: {c.payment_ref}{c.amount_paid_minor != null ? ` · paid ${money(c.amount_paid_minor, c.currency)}` : ""}{c.paid_on ? ` on ${c.paid_on}` : ""}</small>}
+        {c.remittance_advice && <small><b>Remittance advice:</b> {c.remittance_advice}</small>}
+        {c.attachments && c.attachments.length > 0 && (
+          <div style={{ marginTop: 6 }}>
+            <b>Supporting documents ({c.attachments.length})</b>
+            <ul style={{ margin: "4px 0" }}>
+              {c.attachments.map((a) => (
+                <li key={a.id} style={{ margin: "2px 0" }}>
+                  {a.scan === "clean" ? (
+                    <button className="btn ghost" disabled={busy} onClick={() => void downloadClaimAttachmentIncoming(c.id, a).catch((e: unknown) => setError(e instanceof Error ? e.message : "Download failed"))}>
+                      Download {a.filename}
+                    </button>
+                  ) : (
+                    <span>{a.filename} ({a.scan === "pending" ? "waiting for virus scan" : "virus found; blocked"})</span>
+                  )}
+                  <small> ({Math.ceil(a.size / 1024)} KB)</small>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {error && <div className="error" role="alert">{error}</div>}
       </div>
       {c.state === "submitted" && (
@@ -68,11 +90,14 @@ function Row({ c, onChanged }: { c: Claim; onChanged: () => void }) {
         </div>
       )}
       {c.state === "approved" && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input className="field" aria-label={`Payment reference for ${c.claim_no}`} placeholder="Your payment reference" value={pay} onChange={(e) => setPay(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
-          <input className="field" aria-label={`Amount paid for ${c.claim_no}`} inputMode="decimal" placeholder={`Paid (${c.currency}), empty = in full`} value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} style={{ width: 170 }} />
-          <input className="field" type="date" aria-label={`Date paid for ${c.claim_no}`} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
-          <button className="btn" disabled={busy || pay.trim().length < 3} onClick={() => void run("pay")}>Mark as paid</button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input className="field" aria-label={`Payment reference for ${c.claim_no}`} placeholder="Your payment reference" value={pay} onChange={(e) => setPay(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
+            <input className="field" aria-label={`Amount paid for ${c.claim_no}`} inputMode="decimal" placeholder={`Paid (${c.currency}), empty = in full`} value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} style={{ width: 170 }} />
+            <input className="field" type="date" aria-label={`Date paid for ${c.claim_no}`} value={paidOn} onChange={(e) => setPaidOn(e.target.value)} />
+            <button className="btn" disabled={busy || pay.trim().length < 3} onClick={() => void run("pay")}>Mark as paid</button>
+          </div>
+          <input className="field" aria-label={`Remittance advice for ${c.claim_no}`} placeholder="Remittance advice (optional explanation of adjustments / copay / deductible)" value={remittance} onChange={(e) => setRemittance(e.target.value)} maxLength={500} style={{ width: "100%" }} />
         </div>
       )}
     </div>

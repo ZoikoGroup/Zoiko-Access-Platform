@@ -78,11 +78,23 @@ export interface Incoming {
   result_version?: number; result_correction?: "amended" | "corrected" | "appended" | null;
 }
 
+export interface ClaimAttachment {
+  id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  sha256: string;
+  scan: "pending" | "clean" | "infected";
+  uploaded_by_side: "clinic" | "payer";
+  created_at: string;
+}
+
 export interface Claim {
   id: string; claim_no: string; from: string; member_id: string; category: string; label: string;
   amount_minor: number; currency: string; service_date: string;
   state: "submitted" | "approved" | "declined" | "paid" | "withdrawn";
   decision_reason: string | null; payment_ref: string | null; created_at: string;
-  amount_paid_minor?: number | null; paid_on?: string | null;
+  amount_paid_minor?: number | null; paid_on?: string | null; remittance_advice?: string | null;
+  attachments?: ClaimAttachment[];
 }
 export interface ClaimCheck { covered: boolean; reason: string; plan: string | null; copay_percent: number | null }

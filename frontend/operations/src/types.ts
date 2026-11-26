@@ -89,6 +89,8 @@ export interface Me {
   tenant: string;
   cell: string;
   home: string;
+  /** Features the organization's country pack has not switched on (DEV-383). */
+  switched_off?: string[];
 }
 
 // ---- /api/v1 shapes (staff screens) ----
@@ -154,38 +156,53 @@ export interface ThreadView extends MessageThread {
   messages: { id: string; side: "patient" | "staff"; body: string; at: string; mine: boolean; from: string; seen_at?: string | null }[];
 }
 
+/** A count, or null when it is fewer than the small-number threshold and so not shown (DEV-389). */
+export type Count = number | null;
+
 export interface Timing {
-  count: number;
+  count: Count;
   median: number | null;               // hours
   average: number | null;              // hours
+}
+
+/** What one report number means (GHE-10: no number without an approved definition, DEV-389). */
+export interface ReportMeasure {
+  key: string; title: string; counts: string; out_of: string; leaves_out: string;
+  covers: string[]; version: string; approved: boolean;
 }
 
 export interface Reports {
   forecast?: {
     enough_history: boolean; history_days: number;
     days: { date: string; weekday: number; booked: number; open: number; usual: number | null }[];
-  };
+  } | null;
   days: number;
   from: string;
   to: string;
   /** The clock the days run on: the time zone this clinic's places share, else UTC (see zone_source). */
   zone: string;
   zone_source: "places" | "mixed" | "none";
+  /** A section is null when its measure is not approved (withheld); a number is null when small. */
   bookings: {
-    per_day: { date: string; count: number }[];
-    total: number;
-    status: { requested: number; confirmed: number; cancelled: number };
-    attendance: { attended: number; no_show: number; not_recorded: number };
-    busiest_services: { name: string; count: number }[];
-    hours_to_confirm: Timing;
-    cancel_reasons: Record<string, number>;
-    by_weekday: number[];                 // Monday first: appointments in the period, by the clinic's own day
-    by_doctor: { provider_ref: string; name: string; attended: number; no_show: number;
-      not_recorded: number; no_show_rate: number | null }[];
+    per_day: { date: string; count: Count }[] | null;
+    total: Count;
+    status: { requested: Count; confirmed: Count; cancelled: Count } | null;
+    attendance: { attended: Count; no_show: Count; not_recorded: Count } | null;
+    busiest_services: { name: string; count: Count }[] | null;
+    hours_to_confirm: Timing | null;
+    cancel_reasons: Record<string, Count> | null;
+    by_weekday: Count[] | null;           // Monday first: appointments in the period, by the clinic's own day
+    by_doctor: { provider_ref: string; name: string; attended: Count; no_show: Count;
+      not_recorded: Count; no_show_rate: number | null }[] | null;
   };
-  referrals: { received: number; issued: number; accepted: number; needs_info: number; declined: number };
-  waiting_list: { joined: number; booked: number; left: number; waiting_now: number };
-  messages: { started: number; closed: number; waiting_for_clinic: number; hours_to_first_reply: Timing };
+  referrals: { received: Count; issued: Count; accepted: Count; needs_info: Count; declined: Count } | null;
+  waiting_list: { joined: Count; booked: Count; left: Count; waiting_now: Count } | null;
+  messages: { started: Count; closed: Count; waiting_for_clinic: Count; hours_to_first_reply: Timing | null } | null;
+  measures?: ReportMeasure[];
+  small_cell_k?: number;
+  suppressed?: string[];
+  withheld?: string[];
+  evidence?: string;
 }
 
 export interface WorkItem {
@@ -208,6 +225,7 @@ export interface ClinicSettings {
   can_set_target?: boolean;               // only the clinic administrator can change it
   reminder_lead_hours: number;
   waitlist_offer_hours: number;
+  waitlist_offer_default?: number;        // what it is when the clinic has not chosen (DEV-366)
   late_email_recipients: number;
 }
 
@@ -243,6 +261,10 @@ export interface WaitingRow {
   offered_at: string | null;
   service: { id: string; name: string };
   organization: { id: string; name: string };
+  /** 0 routine, 1 priority, 2 urgent: set by clinic staff, never shown to the patient (DEV-366). */
+  priority?: 0 | 1 | 2;
+  /** A code from the fixed list (never free text), or "" when routine. */
+  priority_reason?: string;
 }
 
 export interface FreeTime {
@@ -385,6 +407,8 @@ export interface WebhookEndpoint {
   created_at: string;
   verified_at: string | null;
   failure_streak: number;
+  /** Zoiko's approval of the address (DEV-384): nothing is sent until it is "approved". */
+  address_permit?: "none" | "proposed" | "approved" | "refused" | "revoked";
   secret?: string;                  // only in the answer to "add" and "new secret"
 }
 
@@ -452,12 +476,24 @@ export interface ReferralInbox {
 
 export type ExchangeState = "requested" | "accepted" | "declined" | "in_progress" | "result_available" | "reviewed" | "cancelled";
 export type ClaimState = "submitted" | "approved" | "declined" | "paid" | "withdrawn";
+export interface ClaimAttachment {
+  id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  sha256: string;
+  scan: "pending" | "clean" | "infected";
+  uploaded_by_side: "clinic" | "payer";
+  created_at: string;
+}
+
 export interface Claim {
   id: string; claim_no: string; payer: string; payer_ref: string; patient: string; patient_name?: string | null;
   member_tail: string; category: string; label: string; amount_minor: number; currency: string; service_date: string;
   state: ClaimState; decision_reason: string | null; payment_ref: string | null; created_at: string;
-  amount_paid_minor?: number | null; paid_on?: string | null;
+  amount_paid_minor?: number | null; paid_on?: string | null; remittance_advice?: string | null;
   decided_at: string | null; paid_at: string | null;
+  attachments?: ClaimAttachment[];
 }
 
 export interface ExchangeRequest {
@@ -491,3 +527,8 @@ export interface FhirQuarantineItem {
   decision_note: string;
 }
 
+/** A clinic's working days and opening times (0 = Monday), or null when it has not set any (DEV-367). */
+export interface BusinessHours { days: number[]; opens: string; closes: string; holidays: string[] }
+export interface BusinessHoursData {
+  business_hours: BusinessHours | null; zone: string; zone_source: string; can_set: boolean;
+}

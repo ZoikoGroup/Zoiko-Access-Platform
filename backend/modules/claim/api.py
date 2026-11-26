@@ -6,6 +6,7 @@ This is the ONLY module other domain modules may import from `modules.claim`.
 
 from .models import DeclineReason
 from .services import (
+    add_attachment,
     announce_consent_needed,
     answer,
     clinic_counts,
@@ -14,17 +15,21 @@ from .services import (
     list_incoming,
     list_sent,
     member_of,
+    open_attachment,
     page_incoming,
     page_sent,
     payer_counts,
     payer_step,
     person_of,
+    remove_attachment,
+    scan_pending_attachments,
     send,
     withdraw,
 )
 
 __all__ = [
     "DeclineReason",
+    "add_attachment",
     "announce_consent_needed",
     "answer",
     "clinic_counts",
@@ -33,11 +38,14 @@ __all__ = [
     "list_incoming",
     "list_sent",
     "member_of",
+    "open_attachment",
     "page_incoming",
     "page_sent",
     "payer_counts",
     "payer_step",
     "person_of",
+    "remove_attachment",
+    "scan_pending_attachments",
     "send",
     "withdraw",
 ]

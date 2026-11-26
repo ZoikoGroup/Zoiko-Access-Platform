@@ -1,8 +1,9 @@
 // The only file that talks to the backend. Pages call these functions, never fetch().
+import { isNotSwitchedOn, NOT_SWITCHED_ON } from "@shared/packMessage";
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
-import type { Claim, ClaimCheck, Dashboard, Delivery, Entitlement, Health, Hook, Incoming, PartnerKey, Overview, PartnerService, Plan, PlanMember, ProgramSummary, TeamMember } from "./types";
+import type { Claim, ClaimAttachment, ClaimCheck, Dashboard, Delivery, Entitlement, Health, Hook, Incoming, PartnerKey, Overview, PartnerService, Plan, PlanMember, ProgramSummary, TeamMember } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -85,7 +86,7 @@ async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError("The server sent something that is not JSON (is the backend reachable?)");
   }
   const body = (await res.json()) as T & { title?: string; code?: string };
-  if (!res.ok) throw new ApiError(body.title ?? `Request failed (${res.status})`, body.code);
+  if (!res.ok) throw new ApiError(isNotSwitchedOn(body.code) ? NOT_SWITCHED_ON : body.title ?? `Request failed (${res.status})`, body.code);
   return body;
 }
 
@@ -242,8 +243,23 @@ export async function clearDisplayName(): Promise<void> {
 export const getClaims = async () => (await v1<{ claims: Claim[] }>("claims/incoming")).claims;
 export const claimCheck = async (id: string) =>
   (await v1<{ check: ClaimCheck }>(`claims/incoming/${encodeURIComponent(id)}/check`)).check;
-export const claimStep = async (id: string, step: "approve" | "decline" | "pay", extra: { reason?: string; payment_ref?: string; amount_paid_minor?: number; paid_on?: string } = {}) =>
+export const claimStep = async (id: string, step: "approve" | "decline" | "pay", extra: { reason?: string; payment_ref?: string; amount_paid_minor?: number; paid_on?: string; remittance_advice?: string } = {}) =>
   (await v1<{ claim: Claim }>(`claims/incoming/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify(extra) })).claim;
+
+export async function downloadClaimAttachmentIncoming(claimId: string, a: ClaimAttachment): Promise<void> {
+  if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
+  const res = await fetch(`/api/v1/claims/incoming/${encodeURIComponent(claimId)}/attachments/${encodeURIComponent(a.id)}`, {
+    headers: { Authorization: `Bearer ${current.token}` },
+  });
+  if (!res.ok) throw new ApiError(`Download failed (${res.status})`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = a.filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 
 // The system this partner receives orders in (DEV-323); "" = the partner app only.
 export interface OrderSystem { system: string; choices: { key: string; simulated: boolean }[] }

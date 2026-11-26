@@ -1,15 +1,12 @@
 // The only file that talks to the backend. Pages call these functions, never fetch().
-import type { IdentityData, MatchesData, MergeInfo } from "./consoleTypes";
+import { isNotSwitchedOn, NOT_SWITCHED_ON } from "@shared/packMessage";
+import { finishSignIn, makeTwoStepApi, needsSetUp, recheckIfAsked, SET_UP_FIRST } from "@shared/twoStepApi";
+import type { IdentityData, InsuranceStatusData, MatchesData, MergeInfo } from "./consoleTypes";
 import type { BookingHistoryData } from "@shared/BookingHistory";
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
-import type {
-  Claim,
-  ClinicSettings, CoverageRow, ExchangeRequest, WorkItem, FamilyRequest, FreeTime, IncomingReferral, ReferralInbox, RightsCase, FeeRow, InvoiceRow, Escalation, WorkflowHistory, WorkflowInstance, InboundEvent, PartnerClient, WebhookDelivery, WebhookEndpoint, MessageThread, Profile, ProviderRow, Reports, ThreadView, WaitingRow,
-  BookingRow, Compliance, Dashboard, Directory, Health, LocationRow, Me, PatientRow, ServiceRow,
-  FhirQuarantineItem,
-} from "./types";
+import type { BookingRow, BusinessHours, BusinessHoursData, Claim, ClaimAttachment, ClinicSettings, Compliance, CoverageRow, Dashboard, Directory, Escalation, ExchangeRequest, FamilyRequest, FeeRow, FhirQuarantineItem, FreeTime, Health, InboundEvent, IncomingReferral, InvoiceRow, LocationRow, Me, MessageThread, PartnerClient, PatientRow, Profile, ProviderRow, ReferralInbox, Reports, RightsCase, ServiceRow, ThreadView, WaitingRow, WebhookDelivery, WebhookEndpoint, WorkItem, WorkflowHistory, WorkflowInstance } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -88,6 +85,9 @@ export function staffFromSession(session: Session | null): Staff | null {
 }
 
 export interface LoginReply {
+  second_step?: boolean;          // two-step sign-in: the code is still to come (DEV-380)
+  ticket?: string;
+  must_set_up_two_step?: boolean;
   token: string;
   home: string;
   tenant: { id: string; name: string };
@@ -123,7 +123,7 @@ export async function signOutEverywhere(): Promise<void> {
   setSession(null);
 }
 
-async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function v1<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
   if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
   const res = await fetch(`/api/v1/${path}`, {
     ...init,
@@ -136,7 +136,17 @@ async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
   const isJson = (res.headers.get("Content-Type") ?? "").includes("json");
   if (!isJson) throw new ApiError("The server sent something that is not JSON (is the backend reachable?)");
   const body = (await res.json()) as T & { title?: string; code?: string };
-  if (!res.ok) throw new ApiError(body.title ?? `Request failed (${res.status})`, body.code);
+  if (!res.ok) {
+    // Two-step sign-in (DEV-380): a risky action may ask for the code again; then retry once.
+    const sent = body as { code?: string; fields?: string[] };
+    const fresh = retried || !current ? null : await recheckIfAsked(res.status, sent, current.token);
+    if (fresh && current) {
+      setSession({ ...current, token: fresh });
+      return v1<T>(path, init, true);
+    }
+    if (needsSetUp(res.status, sent)) throw new ApiError(SET_UP_FIRST, "STEP_UP_REQUIRED");
+    throw new ApiError(isNotSwitchedOn(body.code) ? NOT_SWITCHED_ON : body.title ?? `Request failed (${res.status})`, body.code);
+  }
   return body;
 }
 
@@ -151,6 +161,9 @@ export const markAttendance = (id: string, outcome: "attended" | "no_show") =>
   post(`bookings/${encodeURIComponent(id)}/attendance`, { outcome });
 export const listWaitlist = async () => (await v1<{ entries: WaitingRow[] }>("staff/waitlist")).entries;
 export const removeFromWaitlist = (id: string) => post(`waitlist/${encodeURIComponent(id)}/leave`);
+/** Staff set how soon someone is offered a time (DEV-366). Above routine needs a reason code. */
+export const setWaitlistPriority = (id: string, priority: 0 | 1 | 2, reason: string) =>
+  post(`staff/waitlist/${encodeURIComponent(id)}/priority`, { priority, reason });
 export const getProfile = async (person: string) =>
   (await v1<{ profile: Profile }>(`people/${encodeURIComponent(person)}/profile`)).profile;
 export const saveProfile = (person: string, body: { name: string; birth_date: string; phone: string }) =>
@@ -214,6 +227,13 @@ export async function changePassword(currentPassword: string, newPassword: strin
 
 export const getSettings = () => v1<ClinicSettings>("staff/settings");
 export const setResponseTarget = (hours: number | null) => post("staff/settings", { hours });
+/** The clinic's own waiting-list offer window, 1 to 168 hours, or null for the standard (DEV-366). */
+export const setWaitlistOfferHours = (hours: number | null) =>
+  post("staff/settings", { waitlist_offer_hours: hours });
+/** The clinic's working days and opening times (DEV-367): null clears them. */
+export const getBusinessHours = () => v1<BusinessHoursData>("staff/business-hours");
+export const setBusinessHours = (business_hours: BusinessHours | null) =>
+  post("staff/business-hours", { business_hours });
 export const getProviders = async () =>
   (await v1<{ days: number; can_manage: boolean; bases: Record<string, string>; providers: ProviderRow[] }>("staff/providers"));
 export const verifyProviderName = (id: string, basis: string, note: string) =>
@@ -404,12 +424,44 @@ export const sendClaim = async (body: { payer: string; patient: string; member_i
   (await post<{ claim: Claim }>("claims/sent", body)).claim;
 export const withdrawClaim = async (id: string) =>
   (await post<{ claim: Claim }>(`claims/sent/${encodeURIComponent(id)}/withdraw`)).claim;
+export async function uploadClaimAttachment(claimId: string, file: File): Promise<ClaimAttachment> {
+  if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
+  const res = await fetch(`/api/v1/claims/sent/${encodeURIComponent(claimId)}/attachments?filename=${encodeURIComponent(file.name)}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${current.token}`, "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new ApiError(err.title ?? `Upload failed (${res.status})`, err.code);
+  }
+  const body = (await res.json()) as { attachment: ClaimAttachment };
+  return body.attachment;
+}
+export const deleteClaimAttachment = async (claimId: string, attachmentId: string) =>
+  v1<{ deleted: boolean }>(`claims/sent/${encodeURIComponent(claimId)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
+export async function downloadClaimAttachmentSent(claimId: string, a: ClaimAttachment): Promise<void> {
+  if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
+  const res = await fetch(`/api/v1/claims/sent/${encodeURIComponent(claimId)}/attachments/${encodeURIComponent(a.id)}`, {
+    headers: { Authorization: `Bearer ${current.token}` },
+  });
+  if (!res.ok) throw new ApiError(`Download failed (${res.status})`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = a.filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 export const cancelExchangeRequest = async (id: string) =>
   (await post<{ request: ExchangeRequest }>(`exchange/requests/${encodeURIComponent(id)}/cancel`)).request;
 // Identity matching and proofing (backend/api/identity.py).
 const enc = encodeURIComponent;
 
 export const getMatches = () => v1<MatchesData>("staff/matches");
+/** Insurance status of this clinic's patients and who to ask before a visit (DEV-368). */
+export const getInsuranceStatus = () => v1<InsuranceStatusData>("staff/insurance-status");
 export const decideMatch = (id: string, action: string, note = "") =>
   post(`staff/matches/${enc(id)}/decide`, { action, note });
 // Merging two records of a confirmed link, and undoing it (DEV-365).
@@ -510,3 +562,33 @@ export const setCriticalTexts = async (critical_texts: boolean) =>
   (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ critical_texts }) })).alert_phone;
 export const setHoldTexts = async (hold_texts: boolean) =>
   (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ hold_texts }) })).alert_phone;
+
+// ------------------------------------------------------------------ two-step sign-in (DEV-380)
+/** The session as it is now (the two-step set-up swaps in a fresh token). */
+export const getSession = (): Session | null => current;
+/** The code after the password: the same reply a one-step sign-in gives. */
+export const finishSecondStep = (ticket: string, code: string) => finishSignIn<LoginReply>(ticket, code);
+export const twoStepApi = makeTwoStepApi(
+  <T,>(path: string, body?: unknown) =>
+    body === undefined ? v1<T>(path) : v1<T>(path, { method: "POST", body: JSON.stringify(body) }),
+  (token) => { if (current) setSession({ ...current, token }); },
+);
+/** The customer's rule: two-step sign-in required for every staff login (DEV-380). */
+export interface TwoStepRule { required: boolean; staff_without_two_step: number; can_set: boolean; mine_on: boolean }
+export const getTwoStepRule = () => v1<TwoStepRule>("staff/two-step-rule");
+export const setTwoStepRule = (required: boolean) => post<TwoStepRule>("staff/two-step-rule", { required });
+
+// ------------------------------------------------------------------ short-term support access (DEV-381)
+export interface SupportAccessRow {
+  id: string; requester: string; ticket: string; reason: string; scopes: string[]; minutes: number;
+  state: "requested" | "lapsed" | "active" | "expired" | "refused" | "ended";
+  asked_at: string; decided_by: string; decided_at: string | null; ends_at: string | null;
+  ended_by: string; ended_at: string | null; uses: number; last_used_at: string | null;
+}
+export interface SupportAccessData {
+  access: SupportAccessRow[]; can_decide: boolean; scopes: { code: string; label: string }[];
+}
+export const getSupportAccess = () => v1<SupportAccessData>("staff/support-access");
+/** Approving re-asks for the two-step code when the last one is old (handled by v1). */
+export const supportAccessStep = (id: string, step: "approve" | "refuse" | "end") =>
+  post<{ access: SupportAccessRow }>(`staff/support-access/${encodeURIComponent(id)}/${step}`);
