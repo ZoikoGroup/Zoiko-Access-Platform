@@ -1,0 +1,314 @@
+"""Endpoints behind the staff console's Exceptions, Journeys and Integrations screens, and the
+platform console's Country packs screen.
+
+Every endpoint asks the policy engine first, in the signed-in person's own organization, and every
+list and action is limited to that organization: one clinic never sees or changes another clinic's
+operations, journeys or API clients. Nothing here sends a patient's name or details: only
+references, states and codes.
+"""
+from __future__ import annotations
+
+from django.http import HttpRequest, HttpResponse, JsonResponse
+
+from foundation.cell_context import tenant_transaction
+from foundation.errors import ErrorCode, ZoikoError
+from modules.bookingflow import api as bookingflow
+from modules.connector import api as connector
+from modules.developer import api as developer
+from modules.evidence import api as evidence
+from modules.trust import api as trust
+from modules.workflow import api as workflow
+
+from .support import endpoint, is_allowed, json_body, text
+from .views import _authorize, _platform_only, _staff_only
+
+ATTENTION_STATES = ("unknown", "dead")
+WAITING_STATES = ("pending", "sent", "accepted")
+RECENT_LIMIT = 20
+DELIVERIES_SHOWN = 5
+
+
+def _org(auth: trust.Authenticated) -> str:
+    """The organization this person acts in. Staff-console accounts only."""
+    org = _staff_only(auth)
+    if not org:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    return org
+
+
+def _who(ref: str, labels: dict[str, str]) -> str:
+    return "System" if ref == "system" else labels.get(ref, "Someone")
+
+
+# --------------------------------------------------------------------------- exceptions
+
+
+@endpoint("GET")
+def staff_exceptions(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """What needs a person: partner operations whose outcome is unknown or that gave up, and
+    journey deadlines that ran out. Plus what is in flight and what just finished."""
+    org = _org(auth)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    can_act = is_allowed(auth, "write:workflow", organization_public_id=org)
+    with tenant_transaction():
+        operations = connector.list_operations(organization_ref=org, limit=200)
+        journeys = workflow.list_exceptions(organization_ref=org)
+    return JsonResponse({
+        "can_act": can_act,
+        "connector": {
+            "attention": [o for o in operations if o["state"] in ATTENTION_STATES],
+            "waiting": [o for o in operations if o["state"] in WAITING_STATES],
+            "recent": [o for o in operations
+                       if o["state"] in ("confirmed", "rejected")][:RECENT_LIMIT],
+        },
+        "journeys": journeys,
+    })
+
+
+@endpoint("GET")
+def staff_connector_history(
+    request: HttpRequest, auth: trust.Authenticated, operation_id: str
+) -> HttpResponse:
+    org = _org(auth)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    with tenant_transaction():
+        history = connector.operation_history(operation_id, org)
+        labels = trust.actor_labels()
+    for event in history["events"]:
+        event["by"] = _who(event.pop("actor_ref"), labels)
+    return JsonResponse({"history": history})
+
+
+@endpoint("POST")
+def staff_connector_redrive(
+    request: HttpRequest, auth: trust.Authenticated, operation_id: str
+) -> HttpResponse:
+    org = _org(auth)
+    _authorize(auth, "write:workflow", organization_public_id=org)
+    with tenant_transaction():
+        done = connector.redrive(
+            operation_ref=operation_id, actor_ref=auth.actor_public_id, organization_ref=org)
+    return JsonResponse({"operation": done})
+
+
+@endpoint("POST")
+def staff_connector_resolve(
+    request: HttpRequest, auth: trust.Authenticated, operation_id: str
+) -> HttpResponse:
+    org = _org(auth)
+    _authorize(auth, "write:workflow", organization_public_id=org)
+    outcome = text(json_body(request), "outcome")
+    with tenant_transaction():
+        done = connector.resolve_by_hand(
+            operation_ref=operation_id, outcome=outcome, actor_ref=auth.actor_public_id,
+            organization_ref=org)
+    return JsonResponse({"operation": done})
+
+
+@endpoint("POST")
+def staff_journey_exception_resolve(
+    request: HttpRequest, auth: trust.Authenticated, exception_id: str
+) -> HttpResponse:
+    org = _org(auth)
+    _authorize(auth, "write:workflow", organization_public_id=org)
+    with tenant_transaction():
+        workflow.resolve_exception(
+            exception_id, actor_ref=auth.actor_public_id, organization_ref=org)
+    return JsonResponse({"resolved": exception_id})
+
+
+# --------------------------------------------------------------------------- journeys
+
+
+@endpoint("GET")
+def staff_journeys(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """The journey definitions in force (read only) and this clinic's journeys."""
+    org = _org(auth)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    with tenant_transaction():
+        instances = workflow.list_instances(organization_ref=org)
+    by_state: dict[str, int] = {}
+    for item in instances:
+        key = f"{item['definition_key']}:{item['state']}"
+        by_state[key] = by_state.get(key, 0) + 1
+    return JsonResponse({
+        "definitions": workflow.list_definitions(),
+        "instances": instances,
+        "by_state": by_state,
+    })
+
+
+@endpoint("GET")
+def staff_journey_history(
+    request: HttpRequest, auth: trust.Authenticated, instance_id: str
+) -> HttpResponse:
+    org = _org(auth)
+    _authorize(auth, "read:workflow", organization_public_id=org)
+    with tenant_transaction():
+        history = workflow.instance_history(instance_id, org)
+        labels = trust.actor_labels()
+    for step in history["steps"]:
+        step["by"] = _who(step.pop("actor_ref"), labels)
+    return JsonResponse({"history": history})
+
+
+# --------------------------------------------------------------------------- booking system
+
+
+@endpoint("GET", "POST")
+def staff_booking_system(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Which partner connector confirms this clinic's bookings ("" = the clinic confirms by hand).
+    Anyone on the clinic's staff may read it; only the administrator changes it."""
+    org = _org(auth)
+    _authorize(auth, "read:booking", organization_public_id=org)
+    if request.method == "POST":
+        if "R13" not in auth.roles:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        _authorize(auth, "write:staff", organization_public_id=org)
+        system = json_body(request).get("system", "")
+        if not isinstance(system, str):
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["system"])
+        with tenant_transaction():
+            bookingflow.choose_system(org, system, by=auth.actor_public_id)
+    with tenant_transaction():
+        chosen = bookingflow.system_of(org)
+    return JsonResponse({
+        "system": chosen, "options": bookingflow.options(), "can_set": "R13" in auth.roles})
+
+
+# --------------------------------------------------------------------------- integrations
+
+
+@endpoint("GET")
+def staff_developer(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """API clients of this clinic with their webhooks and the latest deliveries of each."""
+    org = _org(auth)
+    _authorize(auth, "read:partner", organization_public_id=org)
+    can_manage = is_allowed(auth, "write:partner", organization_public_id=org)
+    with tenant_transaction():
+        clients = developer.list_clients(org)
+        for client in clients:
+            hooks = developer.list_webhooks(client["public_id"])
+            for hook in hooks:
+                hook["deliveries"] = developer.list_deliveries(
+                    client["public_id"], hook["public_id"], DELIVERIES_SHOWN)
+            client["webhooks"] = hooks
+    return JsonResponse({
+        "can_manage": can_manage, "clients": clients, "scopes": list(developer.SCOPES),
+        "event_families": list(developer.PUBLIC_EVENT_PREFIXES),
+        "default_rate_limit": developer.DEFAULT_RATE_LIMIT,
+        "max_rate_limit": developer.MAX_RATE_LIMIT,
+    })
+
+
+@endpoint("POST")
+def staff_developer_client_create(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Make an API client. Its key is in this answer and nowhere else, ever: only a hash is kept."""
+    org = _org(auth)
+    _authorize(auth, "write:partner", organization_public_id=org)
+    body = json_body(request)
+    scopes = body.get("scopes")
+    if not isinstance(scopes, list) or not all(isinstance(s, str) for s in scopes):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["scopes"])
+    with tenant_transaction():
+        tenant = trust.tenant_public_id(auth.context.tenant_id)
+    client, key = developer.create_client(
+        tenant_public_id=tenant, name=text(body, "name"), environment=text(body, "environment"),
+        scopes=scopes, created_by_ref=auth.actor_public_id, organization_ref=org,
+        rate_limit_per_minute=body.get("rate_limit", developer.DEFAULT_RATE_LIMIT))
+    response = JsonResponse({"client": client, "key": key}, status=201)
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@endpoint("POST")
+def staff_developer_client_revoke(
+    request: HttpRequest, auth: trust.Authenticated, client_id: str
+) -> HttpResponse:
+    org = _org(auth)
+    _authorize(auth, "write:partner", organization_public_id=org)
+    with tenant_transaction():
+        done = developer.revoke_client(
+            client_id, actor_ref=auth.actor_public_id, organization_ref=org)
+    return JsonResponse({"client": done})
+
+
+@endpoint("POST")
+def staff_developer_client_rotate(
+    request: HttpRequest, auth: trust.Authenticated, client_id: str
+) -> HttpResponse:
+    """Replace an API client's key. The new key is in this answer and nowhere else, ever. The old
+    key keeps working for `grace_hours` (default 24, up to 168; 0 stops it at once)."""
+    org = _org(auth)
+    _authorize(auth, "write:partner", organization_public_id=org)
+    body = json_body(request)
+    with tenant_transaction():
+        tenant = trust.tenant_public_id(auth.context.tenant_id)
+        client, key = developer.rotate_key(
+            client_id, tenant_public_id=tenant, actor_ref=auth.actor_public_id,
+            organization_ref=org,
+            grace_hours=body.get("grace_hours", developer.DEFAULT_GRACE_HOURS))
+    response = JsonResponse({"client": client, "key": key})
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@endpoint("POST")
+def staff_developer_client_expiry(
+    request: HttpRequest, auth: trust.Authenticated, client_id: str
+) -> HttpResponse:
+    """Make a client's key run out in `days` days (1 to 730), or never (`days` null)."""
+    org = _org(auth)
+    _authorize(auth, "write:partner", organization_public_id=org)
+    body = json_body(request)
+    if "days" not in body:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["days"])
+    with tenant_transaction():
+        done = developer.set_expiry(
+            client_id, actor_ref=auth.actor_public_id, organization_ref=org, days=body["days"])
+    return JsonResponse({"client": done})
+
+
+@endpoint("POST")
+def staff_developer_webhook_test(
+    request: HttpRequest, auth: trust.Authenticated, client_id: str, webhook_id: str
+) -> HttpResponse:
+    org = _org(auth)
+    _authorize(auth, "write:partner", organization_public_id=org)
+    with tenant_transaction():
+        developer.client_in_organization(client_id, org)
+        made = developer.send_test_event(client_id, webhook_id)
+    return JsonResponse({"delivery": made}, status=202)
+
+
+@endpoint("POST")
+def staff_developer_delivery_redrive(
+    request: HttpRequest, auth: trust.Authenticated, client_id: str, delivery_id: str
+) -> HttpResponse:
+    org = _org(auth)
+    _authorize(auth, "write:partner", organization_public_id=org)
+    with tenant_transaction():
+        developer.client_in_organization(client_id, org)
+        done = developer.redrive_delivery(client_id, delivery_id)
+    return JsonResponse({"delivery": done}, status=202)
+
+
+# --------------------------------------------------------------------------- platform: keys
+
+
+@endpoint("GET")
+def platform_keys(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """Where this cell's encryption keys come from and which key encrypts now: a fingerprint of each
+    key, never a key. Read only: keys are changed by a command (`manage.py field_keys`). Looking is
+    recorded."""
+    from foundation import keys as key_store
+
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        evidence.record(
+            actor_ref=auth.actor_public_id, action="platform.keys", object_type="platform",
+            object_ref="keys", outcome=evidence.AuditOutcome.ALLOWED)
+    info = key_store.describe()
+    info["sso"] = trust.sso_providers()          # the outside sign-in options this cell offers
+    return JsonResponse(info)

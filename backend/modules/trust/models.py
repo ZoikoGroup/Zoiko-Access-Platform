@@ -1,0 +1,803 @@
+"""Who is who: tenants, organizations, roles, actors and the role assignments between them.
+
+A role alone is NEVER enough to act (docs/schema 07). Assignments only say "this actor may
+hold this role at this organization during this period". The policy module decides requests.
+"""
+from __future__ import annotations
+
+from django.db import models
+from django.db.models import Q
+
+from foundation.ids import new_internal_id, new_public_id
+from foundation.models import CellScopedModel
+from foundation.timeutil import utc_now
+
+
+class TenantType(models.TextChoices):
+    PROVIDER_ORG = "provider_org", "Provider organization"
+    PAYER = "payer", "Payer"
+    EMPLOYER = "employer", "Employer"
+    PARTNER = "partner", "Partner"
+    PLATFORM = "platform", "Platform"
+
+
+class Status(models.TextChoices):
+    ACTIVE = "active", "Active"
+    SUSPENDED = "suspended", "Suspended"
+    ENDED = "ended", "Ended"  # tenants, organizations, assignments: no longer in force
+
+
+class Tenant(models.Model):
+    """The isolation boundary. Its `id` IS the tenant_id stamped on every other row.
+
+    Deliberately NOT row-level-secured: login must find the tenant before any tenant is
+    bound. Only trust code reads it, and it holds no personal data.
+    """
+
+    id = models.UUIDField(primary_key=True, default=new_internal_id, editable=False)
+    public_id = models.CharField(max_length=22, unique=True, default=new_public_id, editable=False)
+    cell_id = models.CharField(max_length=32, editable=False)
+    name = models.CharField(max_length=200)
+    type = models.CharField(max_length=16, choices=TenantType.choices)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
+    authority_ref = models.CharField(max_length=64, blank=True, default="")
+    # Whether patients may create their own account here. Off unless the customer turns it on.
+    self_registration = models.BooleanField(default=False)
+    # ISO 3166 country the customer operates in, set by Zoiko support. Empty = not set (DEV-133).
+    country = models.CharField(max_length=2, blank=True, default="")
+    created_at = models.DateTimeField(default=utc_now, editable=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["cell_id", "name"], name="trust_tenant_name_unique"),
+        ]
+
+    def __str__(self) -> str:
+        return self.public_id
+
+
+class Organization(CellScopedModel):
+    name = models.CharField(max_length=200)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
+    # How long this clinic aims to take to answer a booking, message or referral (DEV-120). Empty
+    # means the service-wide default (RESPONSE_TARGET_HOURS). The specification says there is no
+    # universal timeout: each clinic's own target is what "late" means for it.
+    response_target_hours = models.PositiveSmallIntegerField(null=True, blank=True)
+    # The partner connector that confirms this clinic's bookings (modules/bookingflow). Empty means
+    # the clinic's own staff confirm them by hand, as before.
+    booking_system = models.CharField(max_length=32, blank=True, default="")
+    # The clinic's working days and opening times (foundation/business_time.py): {"days": [0..6],
+    # "opens": "09:00", "closes": "17:00", "holidays": ["2026-12-25"]}. Empty means not set, and
+    # deadlines then count every hour of the day.
+    business_hours = models.JSONField(null=True, blank=True)
+    # The region this site serves, in the clinic's own words ("North", "Lagos Island"), for counts
+    # only (DEV-368). Empty means not set.
+    region = models.CharField(max_length=60, blank=True, default="")
+    # When on, a doctor's times for a service are bookable only while the doctor holds a privilege
+    # for it here (DEV-366). Off by default, so existing clinics work as before.
+    privileges_enforced = models.BooleanField(default=False)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="org_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "name"], name="trust_org_name_unique"),
+        ]
+
+
+class Role(CellScopedModel):
+    """Catalog row (DEV-009): R01..R12 today, more later, without a code change."""
+
+    role_code = models.CharField(max_length=16)
+    name = models.CharField(max_length=100)
+    workspace = models.CharField(max_length=100, blank=True, default="")  # "" = no workspace
+    default_prohibitions = models.JSONField(default=list)  # short plain-language statements
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="role_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "role_code"], name="trust_role_unique"),
+        ]
+
+
+class ActorType(models.TextChoices):
+    PATIENT = "patient", "Patient"
+    CLINICIAN = "clinician", "Clinician or allied practitioner"
+    FACILITY_USER = "facility_user", "Facility or organization user"
+    PROXY = "proxy", "Caregiver, guardian or proxy"
+    PAYER_USER = "payer_user", "Payer user"
+    EMPLOYER_USER = "employer_user", "Employer user"
+    WORKLOAD = "workload", "Partner or service workload"
+    SUPPORT = "support", "Platform support"
+
+
+class Actor(CellScopedModel):
+    """Any authenticated principal. Login is not identity proof, and not a role."""
+
+    actor_type = models.CharField(max_length=16, choices=ActorType.choices)
+    issuer = models.CharField(max_length=100)    # the identity provider
+    subject = models.CharField(max_length=128)   # its id for this person (never a national id)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
+    last_verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="actor_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "issuer", "subject"], name="trust_actor_binding_unique"
+            ),
+        ]
+
+
+class RoleAssignment(CellScopedModel):
+    actor = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="assignments")
+    organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="+")
+    role = models.ForeignKey(Role, on_delete=models.PROTECT, related_name="+")
+    sponsor = models.ForeignKey(
+        Actor, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    effective_from = models.DateTimeField()
+    effective_until = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
+    removal_reason = models.CharField(max_length=64, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="assign_scope_idx"),
+            models.Index(fields=["actor", "status"], name="assign_actor_idx"),
+        ]
+
+
+class IdentityStatus(models.TextChoices):
+    UNVERIFIED = "unverified", "Unverified"
+    VERIFIED = "verified", "Verified"
+
+
+class Person(CellScopedModel):
+    """The patient inside this cell. NOT the same thing as an actor (a login).
+
+    No name, birth date or other demographics yet: those need field-level encryption, which
+    is not built (DEV-024). Until then a person is only an id, a language and a link status.
+    """
+
+    identity_status = models.CharField(
+        max_length=16, choices=IdentityStatus.choices, default=IdentityStatus.UNVERIFIED
+    )
+    preferred_language = models.CharField(max_length=16, blank=True, default="")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
+    # The login this patient uses, if any (a person may have none). One login per person.
+    linked_actor = models.OneToOneField(
+        Actor, null=True, blank=True, on_delete=models.PROTECT, related_name="person"
+    )
+    # Set when this record was merged into another (a confirmed duplicate). The record is kept, with
+    # status "ended", so the merge can be undone; its records live under `merged_into`.
+    merged_into = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="merged_from"
+    )
+    # Recorded by a clinic administrator (DEV-333); withdrawn only by a second person.
+    died_on = models.DateField(null=True, blank=True)
+    death_source = models.CharField(max_length=20, blank=True, default="")
+    death_recorded_by_ref = models.CharField(max_length=22, blank=True, default="")
+    death_recorded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="person_scope_idx")]
+
+
+class PersonProfile(CellScopedModel):
+    """A patient's name, birth date and phone, stored ONLY as ciphertext (foundation/crypto.py).
+
+    Kept apart from `Person` so the identifying details sit in their own table. Each value is bound
+    to this tenant, this field and this person, so it cannot be moved to another row.
+    """
+
+    person = models.OneToOneField(Person, on_delete=models.PROTECT, related_name="profile")
+    legal_name_enc = models.TextField(blank=True, default="")
+    birth_date_enc = models.TextField(blank=True, default="")
+    phone_enc = models.TextField(blank=True, default="")
+    # Keyed fingerprints (foundation/crypto.py blind_index) of the birth date and the phone number,
+    # so possible duplicates can be FOUND without decrypting everyone. They reveal only equality.
+    birth_key = models.CharField(max_length=64, blank=True, default="")
+    phone_key = models.CharField(max_length=64, blank=True, default="")
+    updated_by_ref = models.CharField(max_length=22, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="profile_scope_idx"),
+            models.Index(fields=["birth_key"], name="profile_birthkey_idx"),
+            models.Index(fields=["phone_key"], name="profile_phonekey_idx"),
+        ]
+
+
+class ActorName(CellScopedModel):
+    """The name a staff member, doctor or platform user chose to be shown by, stored ONLY as
+    ciphertext (foundation/crypto.py), bound to this tenant and this person.
+
+    Entered by the person themselves and NOT verified by anyone. Patients and guardians have no
+    row here: their names live in PersonProfile."""
+
+    actor = models.OneToOneField(Actor, on_delete=models.PROTECT, related_name="display_name_row")
+    name_enc = models.TextField()
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="actorname_scope_idx")]
+
+
+class CareBasis(models.TextChoices):
+    CARE_TEAM = "care_team", "Care team assignment"
+    REFERRAL = "referral", "Referral"
+    APPOINTMENT = "appointment", "Appointment"
+
+
+class CareRelationship(CellScopedModel):
+    """A clinician is allowed to deal with this person because of a care reason."""
+
+    actor = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="+")
+    person = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="care_links")
+    basis = models.CharField(max_length=16, choices=CareBasis.choices)
+    valid_from = models.DateTimeField()
+    valid_until = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
+    contested = models.BooleanField(default=False)  # a contested link counts as no link
+    # The site (organization) where the care happens. A link with a site counts only while the
+    # clinician still holds a care role at that site. "" = an older link tied to no site.
+    organization_ref = models.CharField(max_length=22, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="care_scope_idx"),
+            models.Index(fields=["actor", "person"], name="care_pair_idx"),
+        ]
+
+
+class PersonSite(CellScopedModel):
+    """This patient is connected to this clinic site: they booked, were referred, joined a waiting
+    list, wrote to it, or a doctor there treats them. Clinic staff may deal only with patients
+    connected to their own site (audit item 1, DEV-107)."""
+
+    person = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="sites")
+    organization_ref = models.CharField(max_length=22)
+    reason = models.CharField(max_length=16)  # booking, referral, waitlist, message, care
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="personsite_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "person", "organization_ref"], name="personsite_unique"),
+        ]
+
+
+class ProxyStatus(models.TextChoices):
+    """The specification's relationship-grant statuses (GHE-06): proposed, proof required, approval
+    pending, active, rejected, suspended, revoked, expired. EXPIRED is worked out when a grant is
+    read (an active grant past its end date), never stored."""
+
+    PROPOSED = "proposed", "Proposed"
+    PROOF_REQUIRED = "proof_required", "Proof required"
+    APPROVAL_PENDING = "approval_pending", "Approval pending"
+    ACTIVE = "active", "Active"
+    REJECTED = "rejected", "Rejected"
+    SUSPENDED = "suspended", "Suspended"
+    REVOKED = "revoked", "Revoked"
+    EXPIRED = "expired", "Expired"
+
+
+# A grant is "waiting for the clinic" in any of these. It gives access to nothing.
+PENDING_STATES = (ProxyStatus.PROPOSED, ProxyStatus.PROOF_REQUIRED, ProxyStatus.APPROVAL_PENDING)
+
+
+class ProxyGrant(CellScopedModel):
+    """A guardian or caregiver (the delegate) may act for a person; someone else must approve."""
+
+    delegate = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="+")
+    person = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="proxy_grants")
+    relationship_type = models.CharField(max_length=32)  # parent, guardian, caregiver...
+    # What this delegate may do for the person (GHE-06 W05, AT-18): a list of scopes such as
+    # "appointments", "messages", "referrals", "insurance". Empty = nothing beyond the name.
+    rights = models.JSONField(default=list)
+    status = models.CharField(
+        max_length=16, choices=ProxyStatus.choices, default=ProxyStatus.PROPOSED
+    )
+    approved_by = models.ForeignKey(
+        Actor, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    valid_from = models.DateTimeField(null=True, blank=True)
+    valid_until = models.DateTimeField(null=True, blank=True)
+    # What staff saw to establish the legal basis, recorded at approval (DEV-144): a kind from a
+    # fixed list and a short reference to the proof held in the clinic's own records. Never the
+    # document itself.
+    proof_kind = models.CharField(max_length=24, blank=True, default="")
+    proof_ref = models.CharField(max_length=64, blank=True, default="")
+    # Why a suspended grant is waiting for a decision ("age_of_majority": the person has come of age
+    # and must say whether the guardian keeps access). Empty otherwise.
+    review_reason = models.CharField(max_length=24, blank=True, default="")
+    # When the person (now an adult) confirmed the guardian may keep access. A grant that has been
+    # confirmed is never suspended for age again.
+    age_reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="proxy_scope_idx"),
+            models.Index(fields=["delegate", "person"], name="proxy_pair_idx"),
+        ]
+
+
+class Credential(CellScopedModel):
+    """A password login for one actor. A stand-in for the real identity provider (DEV-030).
+
+    Only a salted scrypt hash is stored, never the password. `session_epoch` is put inside every
+    signed token; raising it signs the actor out everywhere at once.
+    """
+
+    actor = models.OneToOneField(Actor, on_delete=models.PROTECT, related_name="credential")
+    login = models.CharField(max_length=128)              # lower-cased; unique per tenant
+    password_hash = models.CharField(max_length=255)
+    session_epoch = models.PositiveIntegerField(default=1)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    last_login_at = models.DateTimeField(null=True, blank=True)
+    password_changed_at = models.DateTimeField(default=utc_now)
+    # Where mail for this person goes. Verified only after they click the link we send to it.
+    email = models.CharField(max_length=254, blank=True, default="")
+    email_verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="cred_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "login"], name="trust_login_unique"),
+        ]
+
+
+class SecondFactor(CellScopedModel):
+    """A person's two-step sign-in (DEV-356): the secret their authenticator app holds, kept
+    encrypted, and hashes of their unused recovery codes. Off until `confirmed_at` is set."""
+
+    actor = models.OneToOneField(Actor, on_delete=models.PROTECT, related_name="second_factor")
+    secret_enc = models.TextField()                       # ciphertext only
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    last_used_step = models.BigIntegerField(default=0)    # a code works once
+    recovery_hashes = models.JSONField(default=list)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="secondfactor_scope_idx")]
+
+
+class TokenPurpose(models.TextChoices):
+    VERIFY_EMAIL = "verify_email", "Verify email"
+    RESET_PASSWORD = "reset_password", "Reset password"
+
+
+class AuthToken(CellScopedModel):
+    """A one-time link sent by email. Only a hash is stored, never the token itself.
+
+    The token a person receives is "<tenant id>.<secret>"; the tenant id lets the server find the
+    right tenant, and only sha256(secret) is kept here.
+    """
+
+    actor = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="+")
+    purpose = models.CharField(max_length=16, choices=TokenPurpose.choices)
+    token_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="authtoken_scope_idx"),
+            models.Index(fields=["token_hash"], name="authtoken_hash_idx"),
+            models.Index(fields=["actor", "purpose", "created_at"], name="authtoken_actor_idx"),
+        ]
+
+
+class ReleaseNote(CellScopedModel):
+    """One line of the platform's release log: what version went live, when, and what changed.
+    Written by Zoiko staff by hand. Add-only: a wrong entry is answered by a new one, never edited.
+    """
+
+    version = models.CharField(max_length=40)
+    summary = models.CharField(max_length=200)
+    details = models.TextField(blank=True, default="")
+    released_on = models.DateField()
+    recorded_by_ref = models.CharField(max_length=64)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="releasenote_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "version"], name="releasenote_one_version"),
+        ]
+
+
+class IncidentSeverity(models.TextChoices):
+    """GHE-20's proposed internal scale (DEV-014, DEV-118). The documents disagree on one scale
+    (GHE-09, GHE-18 and GHE-20 each differ); GHE-20 is the only one that says what each level
+    means, so it is used until the owners choose. Not a legal "notifiable incident" definition."""
+
+    SEV0 = "sev0", "SEV-0: patient safety, a large unlawful disclosure, or a systemic compromise"
+    SEV1 = "sev1", "SEV-1: a major regional loss or a critical workflow failure"
+    SEV2 = "sev2", "SEV-2: a partial service degradation"
+    SEV3 = "sev3", "SEV-3: a minor operational issue"
+    UNKNOWN = "unknown", "Not yet assessed: stays open until a safety officer evaluates it"
+
+
+class IncidentStatus(models.TextChoices):
+    OPEN = "open", "Open"
+    RESOLVED = "resolved", "Resolved"
+
+
+class Incident(CellScopedModel):
+    """One line of the platform's incident log, written by Zoiko staff by hand.
+
+    It must never hold patient details. An entry can be closed once with a resolution note; it is
+    never otherwise edited or deleted.
+    """
+
+    title = models.CharField(max_length=120)
+    severity = models.CharField(max_length=8, choices=IncidentSeverity.choices)
+    happened_on = models.DateField()
+    details = models.TextField(blank=True, default="")
+    status = models.CharField(
+        max_length=10, choices=IncidentStatus.choices, default=IncidentStatus.OPEN)
+    resolution = models.TextField(blank=True, default="")
+    resolved_on = models.DateField(null=True, blank=True)
+    recorded_by_ref = models.CharField(max_length=64)
+    resolved_by_ref = models.CharField(max_length=64, blank=True, default="")
+    assessed_by_ref = models.CharField(max_length=64, blank=True, default="")   # AT38
+    # G-08: an incident that touches patient safety cannot close until a safety officer has
+    # recorded the hand-off or fallback that covers it.
+    safety_impact = models.BooleanField(default=False)
+    handoff_note = models.CharField(max_length=300, blank=True, default="")
+    handoff_by_ref = models.CharField(max_length=64, blank=True, default="")
+    assessment_note = models.CharField(max_length=300, blank=True, default="")
+    # G-01 (DEV-202): an owner and a deputy from Zoiko's support and safety staff; the owner (or
+    # the deputy) acknowledges it; if nobody does in time, it is escalated to the deputy once.
+    owner_ref = models.CharField(max_length=22, blank=True, default="")
+    deputy_ref = models.CharField(max_length=22, blank=True, default="")
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_by_ref = models.CharField(max_length=22, blank=True, default="")
+    escalated_at = models.DateTimeField(null=True, blank=True)
+    # G-10: what customers and partners were told when service came back (SEV-0 and SEV-1).
+    restoration_notice = models.CharField(max_length=1000, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="incident_scope_idx")]
+
+
+class IncidentEvent(CellScopedModel):
+    """One entry of an incident's timeline (DEV-202). Append-only: the database refuses UPDATE
+    and DELETE. Never patient details: a step's kind, who, and a short note."""
+
+    incident = models.ForeignKey(Incident, on_delete=models.PROTECT, related_name="+")
+    kind = models.CharField(max_length=16)        # recorded, assigned, acknowledged, escalated, ...
+    actor_ref = models.CharField(max_length=64)   # a login's public id, or "system"
+    note = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="incident_event_scope_idx")]
+
+
+class SuspensionKind(models.TextChoices):
+    SUSPEND = "suspend", "Suspend"
+    REINSTATE = "reinstate", "Reinstate"
+
+
+class SuspensionStatus(models.TextChoices):
+    PENDING = "pending", "Waiting for a second person"
+    APPLIED = "applied", "Approved and applied"
+    REJECTED = "rejected", "Rejected"
+    CANCELLED = "cancelled", "Cancelled by the requester"
+
+
+class Suspension(CellScopedModel):
+    """A request to suspend or reinstate a customer. It changes nothing until a DIFFERENT support
+    person approves it. Kept in the platform's own tenant; never deleted.
+    """
+
+    customer_ref = models.CharField(max_length=22)           # the customer's tenant public id
+    kind = models.CharField(max_length=10, choices=SuspensionKind.choices)
+    reason = models.CharField(max_length=500)
+    status = models.CharField(
+        max_length=10, choices=SuspensionStatus.choices, default=SuspensionStatus.PENDING)
+    requested_by_ref = models.CharField(max_length=64)
+    decided_by_ref = models.CharField(max_length=64, blank=True, default="")
+    decision_note = models.CharField(max_length=300, blank=True, default="")
+    decided_at = models.DateTimeField(null=True, blank=True)
+    # H-05: who looks after patients still in the middle of something, when there are any.
+    continuity_plan = models.TextField(blank=True, default="")
+    open_items = models.PositiveIntegerField(default=0)    # open referrals + partner requests
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="suspension_scope_idx")]
+        constraints = [
+            # One open request for each customer at a time.
+            models.UniqueConstraint(
+                fields=["tenant_id", "customer_ref"], condition=models.Q(status="pending"),
+                name="suspension_one_pending_per_customer"),
+        ]
+
+
+class NameCheckStatus(models.TextChoices):
+    VERIFIED = "verified", "Verified"
+    WITHDRAWN = "withdrawn", "Withdrawn"
+
+
+class NameCheck(CellScopedModel):
+    """A record that an administrator checked a doctor's display name against something real.
+
+    It stores WHAT was checked and a short note, plus a fingerprint of the name at that moment:
+    if the doctor later changes the name, the check no longer applies (nothing is shown as
+    verified).
+    The name itself stays in ActorName (encrypted). TEMPORARY RULE (DEV-095): one administrator
+    can verify; who really may is open question 25.
+    """
+
+    actor = models.OneToOneField(Actor, on_delete=models.PROTECT, related_name="name_check_row")
+    name_digest = models.CharField(max_length=64)
+    basis = models.CharField(max_length=20)
+    note = models.CharField(max_length=200, blank=True, default="")
+    status = models.CharField(
+        max_length=10, choices=NameCheckStatus.choices, default=NameCheckStatus.VERIFIED)
+    checked_by_ref = models.CharField(max_length=22)
+    checked_at = models.DateTimeField(default=utc_now)
+    withdrawn_by_ref = models.CharField(max_length=22, blank=True, default="")
+    withdrawn_reason = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="namecheck_scope_idx")]
+
+
+class QualificationStatus(models.TextChoices):
+    RECORDED = "recorded", "Written down, not checked"
+    VERIFIED = "verified", "Checked"
+    WITHDRAWN = "withdrawn", "Withdrawn"
+
+
+class Qualification(CellScopedModel):
+    """One qualification a doctor holds, and whether an administrator has checked it (DEV-357)."""
+
+    actor = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="qualifications")
+    kind = models.CharField(max_length=16)
+    title = models.CharField(max_length=120)
+    issuer = models.CharField(max_length=120)
+    reference = models.CharField(max_length=64, blank=True, default="")   # a registration number
+    obtained_on = models.DateField(null=True, blank=True)
+    expires_on = models.DateField(null=True, blank=True)
+    status = models.CharField(
+        max_length=12, choices=QualificationStatus.choices, default=QualificationStatus.RECORDED)
+    added_by_ref = models.CharField(max_length=22)
+    checked_by_ref = models.CharField(max_length=22, blank=True, default="")
+    checked_on = models.DateField(null=True, blank=True)
+    check_note = models.CharField(max_length=200, blank=True, default="")
+    withdrawn_by_ref = models.CharField(max_length=22, blank=True, default="")
+    withdrawn_reason = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="qualification_scope_idx")]
+
+
+class Privilege(CellScopedModel):
+    """What one clinic lets a doctor do there: one of its services, for a time (DEV-357)."""
+
+    actor = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="privileges")
+    organization_ref = models.CharField(max_length=22)
+    service_ref = models.CharField(max_length=22)
+    valid_from = models.DateField()
+    valid_until = models.DateField(null=True, blank=True)
+    note = models.CharField(max_length=200, blank=True, default="")
+    granted_by_ref = models.CharField(max_length=22)
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    withdrawn_by_ref = models.CharField(max_length=22, blank=True, default="")
+    withdrawn_reason = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="privilege_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "actor", "organization_ref", "service_ref"],
+                condition=Q(withdrawn_at__isnull=True), name="privilege_one_live"),
+        ]
+
+
+# --------------------------------------------------------------------------- identity (GHE-06)
+# Matching (are these two records the same person?) and proofing (has someone checked who this is?)
+# are different things, and neither grants access by itself (GHE-06 section 01).
+
+
+class MatchState(models.TextChoices):
+    POSSIBLE_MATCH = "possible_match", "Possible match (held for review)"
+    MATCHED_PENDING_AUTH = "matched_pending_auth", "One reviewer agrees, a second is needed"
+    LINKED = "linked", "Confirmed the same person"
+    SPLIT_REVIEW = "split_review", "Link under review (to be split)"
+    CLOSED_NOT_SAME = "closed_not_same", "Closed: not the same person"
+
+
+OPEN_MATCH_STATES = (
+    MatchState.POSSIBLE_MATCH, MatchState.MATCHED_PENDING_AUTH, MatchState.SPLIT_REVIEW)
+
+
+class MatchCase(CellScopedModel):
+    """Two patient records that might be one person, held for a human to decide. Nothing is ever
+    merged automatically: a confirmed link only records the decision (merging is a separate step,
+    see PersonMerge).
+    Holds no names or details: only how the records compared (same, close, differ) and flags."""
+
+    ref_no = models.CharField(max_length=12)                    # e.g. M-0007
+    person_a = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="match_a")
+    person_b = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="match_b")
+    state = models.CharField(
+        max_length=24, choices=MatchState.choices, default=MatchState.POSSIBLE_MATCH)
+    factors = models.JSONField(default=dict)                    # {"name": "close", ...}
+    conflict_flags = models.JSONField(default=list)             # twin, transposition...
+    confidence = models.CharField(max_length=8)                 # high, medium
+    critical = models.BooleanField(default=False)               # a wrong link could harm someone
+    policy_version = models.CharField(max_length=40)
+    first_reviewer_ref = models.CharField(max_length=22, blank=True, default="")
+    recheck_requested = models.BooleanField(default=False)
+    evidence_digest = models.CharField(max_length=64)           # what was compared at the end
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="matchcase_scope_idx")]
+        constraints = [
+            # One case for each pair of records, for good: "not the same" is remembered.
+            models.UniqueConstraint(
+                fields=["tenant_id", "person_a", "person_b"], name="matchcase_one_per_pair"),
+            models.UniqueConstraint(fields=["tenant_id", "ref_no"], name="matchcase_ref_unique"),
+        ]
+
+
+class MatchAction(models.TextChoices):
+    OPENED = "opened", "Opened"
+    REQUEST_RECHECK = "request_recheck", "Asked for the details to be checked again"
+    CONFIRM_SAME = "confirm_same", "Agreed they are the same person"
+    MARK_NOT_SAME = "mark_not_same", "Decided they are not the same person"
+    SPLIT = "split", "Sent the link back for review"
+    REOPENED = "reopened", "Reopened on new evidence"
+    MERGE = "merge", "Merged the two records"
+    UNMERGE = "unmerge", "Undid the merge"
+
+
+class MatchDecision(CellScopedModel):
+    """One step in a case. Append-only (the database refuses UPDATE and DELETE) and chained: each
+    row carries the digest of the one before it. References and codes only."""
+
+    case = models.ForeignKey(MatchCase, on_delete=models.PROTECT, related_name="decisions")
+    seq = models.PositiveIntegerField()
+    action = models.CharField(max_length=16, choices=MatchAction.choices)
+    state_after = models.CharField(max_length=24)
+    actor_ref = models.CharField(max_length=64)                 # a login's id, or "system"
+    note = models.CharField(max_length=24, blank=True, default="")   # a code, never free text
+    occurred_at = models.DateTimeField()
+    prev_digest = models.CharField(max_length=64)
+    record_digest = models.CharField(max_length=64)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="matchdec_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(fields=["case", "seq"], name="matchdec_one_per_seq"),
+        ]
+
+
+class MergeState(models.TextChoices):
+    MERGED = "merged", "Merged"
+    UNMERGED = "unmerged", "Merge undone"
+
+
+class PersonMerge(CellScopedModel):
+    """One merge of a confirmed duplicate into the surviving record, and what it moved, so it can be
+    undone. References and counts only. The reviewers' steps are in the case's own history."""
+
+    case = models.ForeignKey(MatchCase, on_delete=models.PROTECT, related_name="merges")
+    primary = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="merges_kept")
+    secondary = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="merges_ended")
+    state = models.CharField(max_length=10, choices=MergeState.choices, default=MergeState.MERGED)
+    merged_by_ref = models.CharField(max_length=64)
+    merged_at = models.DateTimeField()
+    unmerged_by_ref = models.CharField(max_length=64, blank=True, default="")
+    unmerged_at = models.DateTimeField(null=True, blank=True)
+    # The secondary's login, if it was moved onto the primary (so unmerge can put it back).
+    login_actor_id = models.UUIDField(null=True, blank=True)
+    left_behind = models.PositiveIntegerField(default=0)    # rows that could not move (clashes)
+    access_not_carried = models.PositiveIntegerField(default=0)    # guardian and care grants
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="personmerge_scope_idx")]
+        constraints = [
+            # Only one merge of a case can be in force at a time.
+            models.UniqueConstraint(
+                fields=["case"], condition=models.Q(state="merged"), name="personmerge_one_live"),
+        ]
+
+
+class PersonMergeItem(CellScopedModel):
+    """One row a merge moved: which table and which row. Unmerge moves back exactly these."""
+
+    merge = models.ForeignKey(PersonMerge, on_delete=models.PROTECT, related_name="items")
+    kind = models.CharField(max_length=40)              # e.g. "scheduling.Booking"
+    row_id = models.CharField(max_length=36)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="mergeitem_scope_idx")]
+
+
+class EvidenceType(models.TextChoices):
+    PASSPORT = "passport", "Passport"
+    NATIONAL_ID = "national_id", "National identity card"
+    DRIVING_LICENCE = "driving_licence", "Driving licence"
+    OTHER_DOCUMENT = "other_document", "Another official document"
+
+
+class ProofingOutcome(models.TextChoices):
+    PASSED = "passed", "Passed"
+    FAILED = "failed", "Failed"
+
+
+class ProofingRecord(CellScopedModel):
+    """A person at a clinic checked who this patient is, against an official document. It records
+    THAT a check was made, by whom, where and when: never the document or its number. Verified means
+    a passed, unwithdrawn, unexpired check made against the details the patient has NOW; changing
+    the name or birth date afterwards lapses it (so the record stays tied to what was checked)."""
+
+    person = models.ForeignKey(Person, on_delete=models.PROTECT, related_name="proofing")
+    evidence_type = models.CharField(max_length=16, choices=EvidenceType.choices)
+    outcome = models.CharField(max_length=8, choices=ProofingOutcome.choices)
+    organization_ref = models.CharField(max_length=22)          # the clinic that checked
+    checked_by_ref = models.CharField(max_length=22)
+    checked_at = models.DateTimeField()
+    valid_until = models.DateTimeField(null=True, blank=True)
+    details_digest = models.CharField(max_length=64)            # fingerprint of name + birth date
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    withdrawn_by_ref = models.CharField(max_length=22, blank=True, default="")
+    withdraw_reason = models.CharField(max_length=16, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id"], name="proofing_scope_idx"),
+            models.Index(fields=["person", "checked_at"], name="proofing_person_idx"),
+        ]
+
+
+class ExternalIdentity(CellScopedModel):
+    """An outside sign-in (Google, a company's identity provider) linked to one actor.
+
+    `subject` is the provider's own stable id for the person (the token's `sub`), which is what a
+    later sign-in is matched on: an email address can change hands, a subject cannot. The email is
+    kept only as what the provider said when the link was made, for the person's own reference.
+    """
+
+    actor = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="external_identities")
+    provider = models.CharField(max_length=32)
+    subject = models.CharField(max_length=255)
+    email = models.CharField(max_length=254, blank=True, default="")
+    linked_at = models.DateTimeField(default=utc_now)
+    last_login_at = models.DateTimeField(null=True, blank=True)
+    # Set when the person unlinked it: kept, so it is refused rather than linked again (DEV-356).
+    unlinked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "provider", "subject"], name="trust_external_identity_uq"),
+        ]
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="extid_scope_idx")]
+
+
+class SsoAttempt(CellScopedModel):
+    """One outside sign-in in progress: made when the person is sent to the provider, used up when
+    they come back. It lives ten minutes and can be used once, whatever happens.
+
+    Only a hash of the `state` and of the `nonce` is kept (the browser holds the originals); the
+    PKCE `code_verifier` is needed again to finish, so it is stored encrypted.
+    """
+
+    provider = models.CharField(max_length=32)
+    state_hash = models.CharField(max_length=64)
+    nonce_hash = models.CharField(max_length=64)
+    verifier_enc = models.TextField()
+    redirect_uri = models.CharField(max_length=300)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "state_hash"], name="trust_sso_state_uq"),
+        ]
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="ssoattempt_scope_idx")]

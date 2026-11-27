@@ -1,0 +1,29 @@
+"""Public interface of the jurisdiction module (D16): country capability packs.
+
+This is the ONLY module other domain modules may import from `modules.jurisdiction`.
+"""
+from .manifest import CAPABILITIES
+from .services import (
+    approve,
+    create_pack,
+    customer_capabilities,
+    data_request_days,
+    edit_pack,
+    emergency_number,
+    enabled_capabilities,
+    get_pack,
+    list_packs,
+    pack_covers,
+    preflight,
+    reject,
+    retire,
+    revalidate,
+    submit,
+    suspend,
+    validate,
+)
+
+__all__ = ["CAPABILITIES", "approve", "create_pack", "customer_capabilities", "data_request_days",
+           "edit_pack",
+           "emergency_number", "enabled_capabilities", "get_pack", "list_packs", "pack_covers",
+           "preflight", "reject", "retire", "revalidate", "submit", "suspend", "validate"]

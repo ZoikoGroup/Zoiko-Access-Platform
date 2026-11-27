@@ -1,0 +1,6 @@
+# Terraform's working files and state hold generated secrets: never commit them.
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+crash.log

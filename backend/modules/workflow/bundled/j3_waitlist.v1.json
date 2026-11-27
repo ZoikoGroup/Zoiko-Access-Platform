@@ -1,0 +1,32 @@
+{
+  "key": "J3.waitlist",
+  "version": 1,
+  "initial": "waiting",
+  "states": {
+    "waiting": {"owner": "clinic"},
+    "offered": {"owner": "patient"},
+    "booked": {"owner": "clinic"},
+    "left": {"owner": "clinic"}
+  },
+  "terminal": {"booked": "completed", "left": "cancelled"},
+  "transitions": {
+    "offer": {
+      "from": ["waiting"], "to": "offered"
+    },
+    "return_to_waiting": {
+      "from": ["offered"], "to": "waiting"
+    },
+    "book": {
+      "from": ["waiting", "offered"], "to": "booked",
+      "guards": ["human_actor"]
+    },
+    "leave": {
+      "from": ["waiting", "offered"], "to": "left",
+      "guards": ["human_actor"]
+    }
+  },
+  "timers": {
+    "wait_by": {"state": "waiting", "after_minutes": 20160},
+    "offer_by": {"state": "offered", "after_minutes": 4320}
+  }
+}

@@ -1,0 +1,70 @@
+/* Layouts every app shares: forms, rows and a few helpers. Before this file some of these classes
+   were defined in one app only, so the same form showed as one run-on line in another.
+   Selectors are wrapped in :where() so they weigh nothing: an app's own rule always wins. */
+
+/* Only inside the page itself: the search box in the top bar has its own look. */
+:where(.content) :where(input:not([type="checkbox"], [type="radio"], [type="file"]), select, textarea) {
+  padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+  color: inherit; font: inherit; max-width: 100%;
+}
+:where(textarea) { min-height: 84px; resize: vertical; }
+
+/* One field under another, each with its name above it. */
+:where(.profile-form, .add-form, .ref-form) { display: grid; gap: 12px; max-width: 560px; }
+:where(.profile-form, .add-form, .ref-form) :where(label) {
+  display: grid; gap: 4px; color: var(--muted); font-size: 13px;
+}
+:where(.profile-form, .add-form, .ref-form) :where(input:not([type="checkbox"], [type="radio"]), select, textarea) {
+  width: 100%;
+}
+:where(.profile-form, .add-form, .ref-form) > :where(.btn) { justify-self: start; }
+
+/* A tick box sits beside its words, never above them. These weigh a little on purpose, so they
+   also beat an app's rule that stacks every label in a form. */
+label.check, label:has(> input[type="checkbox"]), label:has(> input[type="radio"]) {
+  display: flex; align-items: center; gap: 8px;
+}
+label > input[type="checkbox"], label > input[type="radio"] {
+  width: 24px; min-width: 0; flex: none; padding: 0;
+}
+:where(.form-row label) { display: flex; align-items: center; gap: 8px; }
+:where(fieldset) {
+  display: grid; gap: 8px; margin: 0; padding: 10px 12px; min-width: 0;
+  border: 1px solid var(--line); border-radius: 10px;
+}
+
+/* A row with text on the left and actions on the right. */
+:where(.appt) {
+  display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+:where(.appt:last-child) { border-bottom: 0; }
+:where(.appt .info) { flex: 1; min-width: 220px; }
+:where(.appt .info small) { color: var(--muted); display: block; }
+
+/* Buttons side by side. A history that is open takes the whole width below them. */
+:where(.row) { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+:where(.step-history.open) { flex-basis: 100%; }
+
+/* A pill in its "info" colour shares its class name with a row's text column: keep it pill sized. */
+.appt .pill.info { flex: none; min-width: 0; }
+
+/* Present for screen readers, not drawn. */
+:where(.sr-only) {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* The second step of signing in: a small dialog over the sign-in page. */
+.second-step { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px;
+  background: rgb(0 0 0 / 55%); }
+.second-step-box { width: min(420px, 100%); display: grid; gap: 12px; padding: 22px; border-radius: 14px;
+  background: var(--card, #fff); color: var(--ink, inherit); border: 1px solid var(--line, #ccc); }
+.second-step-box label { display: grid; gap: 6px; font-size: 13px; }
+.second-step-box input { padding: 10px 12px; border: 1px solid var(--line, #ccc); border-radius: 10px;
+  background: var(--bg, #fff); color: inherit; font: inherit; font-size: 20px; letter-spacing: 3px; }
+.second-step-problem { color: var(--bad, #b00); font-size: 13px; }
+.second-step-actions { display: flex; gap: 8px; }
+.recovery { columns: 2; margin: 8px 0; padding-left: 18px; }
+.secret-key { font-size: 15px; letter-spacing: 1px; word-break: break-all; }
+

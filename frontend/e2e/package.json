@@ -1,0 +1,14 @@
+{
+  "name": "zoiko-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Browser tests that drive the real apps like a person would. Development only.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.10.1",
+    "@playwright/test": "1.49.1"
+  }
+}

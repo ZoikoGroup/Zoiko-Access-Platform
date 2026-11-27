@@ -1,0 +1,177 @@
+import { useEffect, useState } from "react";
+import { getMyHealth, getServices, type Booking, type Me, type MyHealth, type Notice, type Referral, type Service } from "../api";
+import type { PageId } from "../App";
+import { dateBlock, timeLabel, whenLabel } from "../format";
+import { Card, Icon, Pill, type PillKind } from "../ui";
+
+
+const REFERRAL: Record<Referral["state"], { text: string; kind: PillKind }> = {
+  issued: { text: "Sent, waiting for the clinic", kind: "warn" },
+  accepted: { text: "Accepted", kind: "ok" },
+  needs_info: { text: "Clinic needs more information", kind: "warn" },
+  declined: { text: "Declined", kind: "bad" },
+};
+
+const STATUS: Record<Booking["status"], { text: string; kind: PillKind }> = {
+  requested: { text: "Waiting for the clinic", kind: "warn" },
+  confirmed: { text: "Confirmed", kind: "ok" },
+  cancelled: { text: "Cancelled", kind: "bad" },
+};
+
+/** The patient's health record at a glance (DEV-362). */
+function HealthOverview({ goTo }: { goTo: (page: PageId) => void }) {
+  const [data, setData] = useState<MyHealth | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { getMyHealth().then(setData).catch(() => setFailed(true)); }, []);
+  return (
+    <Card title="My Health Overview" action={<button className="btn ghost" onClick={() => goTo("records")}>Open my records</button>}>
+      {failed ? <div className="error" role="alert">Your records could not be loaded. Try again in a moment.</div>
+        : data === null ? <div className="empty">Loading…</div> : (
+          <div className="info">
+            <b>{data.counts.notes} visit note{data.counts.notes === 1 ? "" : "s"} · {data.counts.results} result{data.counts.results === 1 ? "" : "s"} · {data.counts.references} record{data.counts.references === 1 ? "" : "s"} held by clinics</b>
+            <small style={{ display: "block", marginTop: 6 }}>{data.counts.values_ready > 0 ? `${data.counts.values_ready} result${data.counts.values_ready === 1 ? " has" : "s have"} values you can see.` : "No result values to see yet."}</small>
+          </div>
+        )}
+    </Card>
+  );
+}
+
+export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
+  name: string; me: Me; bookings: Booking[]; notices: Notice[]; referrals: Referral[]; goTo: (p: PageId) => void;
+}) {
+  const [services, setServices] = useState<Service[]>([]);
+  const [servicesFailed, setServicesFailed] = useState(false);
+  useEffect(() => { getServices().then(setServices).catch(() => setServicesFailed(true)); }, []);
+
+  const now = new Date().toISOString();
+  const upcoming = bookings
+    .filter((b) => b.status !== "cancelled" && b.starts_at > now)
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+    .slice(0, 3);
+  const latestReferrals = [...referrals].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 3);
+  const recent = [...bookings].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 4);
+
+  return (
+    <>
+      <div className="hero banner">
+        <div>
+          <h1>Welcome back, {name}!</h1>
+          <p>Find care and manage your appointments with Zoiko Access.</p>
+        </div>
+        <span className="spacer" />
+        <Pill kind="info">{me.persons.length > 0 ? "Patient record linked" : "No patient record linked yet"}</Pill>
+      </div>
+
+      <div className="grid tiles">
+        <button className="tile" onClick={() => goTo("find")}>
+          <span className="icon"><Icon name="search" size={22} /></span>
+          <span><b>Find Healthcare</b><small>Search services and clinics</small></span>
+        </button>
+        <button className="tile" onClick={() => goTo("find")}>
+          <span className="icon"><Icon name="appointments" size={22} /></span>
+          <span><b>Book Appointment</b><small>Schedule an in-person or video visit</small></span>
+        </button>
+        <button className="tile" onClick={() => goTo("records")}>
+          <span className="icon"><Icon name="services" size={22} /></span>
+          <span><b>My Health Records</b><small>See which clinics hold your records</small></span>
+        </button>
+        <button className="tile" onClick={() => goTo("referrals")}>
+          <span className="icon"><Icon name="referrals" size={22} /></span>
+          <span><b>My Referrals</b><small>Track your specialist referrals</small></span>
+        </button>
+      </div>
+
+      <div className="grid cols-2">
+        <Card title="Upcoming Appointments" action={<button className="btn ghost" onClick={() => goTo("appointments")}>View all</button>}>
+          {upcoming.length === 0 ? (
+            <div className="empty">
+              No upcoming appointments. <button className="btn" onClick={() => goTo("find")}>Find care</button>
+            </div>
+          ) : upcoming.map((b) => {
+            const d = dateBlock(b.local_start);
+            return (
+              <div key={b.id} className="appt">
+                <div className="date"><small>{d.month}</small><b>{d.day}</b><small>{d.weekday}</small></div>
+                <div className="info">
+                  <b>{b.service.name}</b>
+                  <small>{b.organization.name}, {b.location.name}</small>
+                  <small>{timeLabel(b.local_start)} ({b.local_zone}) - {b.service.mode === "video" ? "Video" : "In person"}{b.provider ? ` - with ${b.provider.name}` : ""}</small>
+                </div>
+                <Pill kind={STATUS[b.status].kind}>{STATUS[b.status].text}</Pill>
+              </div>
+            );
+          })}
+        </Card>
+
+        <HealthOverview goTo={goTo} />
+      </div>
+
+      <div className="grid cols-2">
+        <Card title="Services you can book" sub="The first few from the clinics' live catalog (not personalised)"
+          action={<button className="btn ghost" onClick={() => goTo("find")}>View all</button>}>
+          {servicesFailed ? <div className="error" role="alert">The list of services could not be loaded. Try again in a moment.</div>
+            : services.length === 0 ? <div className="empty">No services are available yet.</div> : (
+            <div className="service-grid">
+              {services.slice(0, 4).map((s) => (
+                <div key={s.id} className="service">
+                  <h3>{s.name}</h3>
+                  <span className="meta">{s.organization.name} - {s.duration_minutes} min</span>
+                  <span className="next">
+                    {s.next_slot_local && s.next_slot_zone
+                      ? <>Next: <b>{whenLabel(s.next_slot_local, s.next_slot_zone)}</b></>
+                      : <Pill kind="warn">No free times</Pill>}
+                  </span>
+                  <button className="btn" onClick={() => goTo("find")}>Book Appointment</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <div className="grid" style={{ margin: 0 }}>
+          <Card title="Referral Status" sub="Your latest referrals"
+            action={<button className="btn ghost" onClick={() => goTo("referrals")}>View all</button>}>
+            {latestReferrals.length === 0 ? <div className="empty">No referrals yet.</div> : latestReferrals.map((r) => (
+              <div key={r.id} className="appt" style={{ padding: "8px 0" }}>
+                <div className="info">
+                  <b>{r.service.name}</b>
+                  <small>{r.organization.name} - from {r.referrer.name}{r.urgency === "urgent" ? " - urgent" : ""}</small>
+                </div>
+                <Pill kind={REFERRAL[r.state].kind}>{REFERRAL[r.state].text}</Pill>
+              </div>
+            ))}
+          </Card>
+          <Card title="Bills & Payments" action={<button className="btn ghost" onClick={() => goTo("bills")}>View bills</button>}>
+            <div className="empty">See your bills from the clinic, and pay them here where online payment is switched on.</div>
+          </Card>
+        </div>
+      </div>
+
+      <div className="grid cols-2">
+        <Card title="Recent Notifications" sub="Updates about your appointments"
+          action={<button className="btn ghost" onClick={() => goTo("notifications")}>View all</button>}>
+          {notices.length === 0 ? <div className="empty">No notifications yet.</div> : notices.slice(0, 3).map((n) => (
+            <div key={n.id} className="appt" style={{ padding: "8px 0" }}>
+              <div className="info">
+                <b>{!n.read && <span className="unread-dot" role="img" aria-label="unread" />}{n.title}</b>
+                <small>{n.body}</small>
+              </div>
+              <small style={{ color: "var(--muted)" }}>{n.created_at.slice(0, 10)}</small>
+            </div>
+          ))}
+        </Card>
+        <Card title="Recent Activity" sub="Your latest bookings" action={<button className="btn ghost" onClick={() => goTo("appointments")}>View all</button>}>
+          {recent.length === 0 ? <div className="empty">Nothing yet.</div> : recent.map((b) => (
+            <div key={b.id} className="appt" style={{ padding: "8px 0" }}>
+              <div className="info">
+                <b>Appointment {b.status === "cancelled" ? "cancelled" : "booked"}</b>
+                <small>{b.service.name} - {b.organization.name}</small>
+              </div>
+              <small style={{ color: "var(--muted)" }}>{b.created_at.slice(0, 10)}</small>
+            </div>
+          ))}
+        </Card>
+      </div>
+    </>
+  );
+}

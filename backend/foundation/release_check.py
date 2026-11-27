@@ -1,0 +1,132 @@
+"""Development-only settings must never reach a real server.
+
+The development setup runs with an unsigned sign-in, short passwords, placeholder secrets and a
+catch-all development inbox. Each is fine on a developer's computer and dangerous anywhere else.
+This is the one list of them:
+
+* `release_problems()` returns what is wrong, in plain words.
+* `manage.py check --deploy` reports each as an error.
+* The web server and the worker call `assert_release_ready()` as they start: with DEBUG off they
+  refuse to start while any problem remains. With DEBUG on (development) nothing is checked.
+
+The placeholder markers match the values in `.env.example`, so copying that file to a server and
+forgetting to edit it is caught.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from django.conf import settings
+from django.core.checks import Error, Tags, register
+from django.core.exceptions import ImproperlyConfigured
+
+PLACEHOLDER_MARKERS = (
+    "dev-only", "replace-me", "replace-with", "change-me", "changeme", "test-only")
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]", "::1", "testserver"})
+DEVELOPMENT_MAIL_HOSTS = frozenset({"localhost", "127.0.0.1", "mail", "mailpit", "mailhog"})
+MIN_SECRET_KEY_LENGTH = 40
+MIN_PASSWORD_LENGTH = 10
+
+
+def _placeholder(value: str) -> bool:
+    lowered = (value or "").lower()
+    return not lowered or any(marker in lowered for marker in PLACEHOLDER_MARKERS)
+
+
+def release_problems(conf: Any = settings) -> list[str]:
+    """What stops these settings being used on a real server. Empty means nothing found."""
+    problems: list[str] = []
+    if conf.DEBUG:
+        problems.append("DEBUG is on (debug pages show internals)")
+    if conf.DEV_AUTH_STUB:
+        problems.append("the unsigned development sign-in (DEV_AUTH_STUB) is on")
+    if conf.PASSWORD_MIN_LENGTH < MIN_PASSWORD_LENGTH:
+        problems.append(f"passwords may be as short as {conf.PASSWORD_MIN_LENGTH} characters "
+                        f"(a real server needs at least {MIN_PASSWORD_LENGTH})")
+    if _placeholder(conf.SECRET_KEY):
+        problems.append("DJANGO_SECRET_KEY is still a placeholder")
+    elif len(conf.SECRET_KEY) < MIN_SECRET_KEY_LENGTH:
+        problems.append(
+            f"DJANGO_SECRET_KEY is too short (under {MIN_SECRET_KEY_LENGTH} characters)")
+    if _placeholder(str(conf.DATABASES["default"].get("PASSWORD") or "")):
+        problems.append("the database password is still a placeholder (POSTGRES_PASSWORD)")
+    provider = getattr(conf, "FIELD_KEY_PROVIDER", "env") or "env"
+    if provider == "env" and _placeholder(conf.FIELD_KEYS):
+        problems.append("the field encryption keys are still a placeholder (ZOIKO_FIELD_KEYS)")
+    if provider == "env" and not getattr(conf, "ALLOW_ENV_KEYS", False):
+        problems.append("the encryption keys are held in an environment variable; use a key file "
+                        "or wrapped keys (ZOIKO_FIELD_KEY_PROVIDER), or accept the risk with "
+                        "ZOIKO_ALLOW_ENV_KEYS=1")
+    if provider not in ("env", "file", "wrapped"):
+        problems.append("ZOIKO_FIELD_KEY_PROVIDER is not env, file or wrapped")
+    elif provider != "env":
+        from foundation import keys as key_store
+
+        status = key_store.describe()
+        if not status["ok"]:
+            problems.append("the encryption key ring cannot be loaded (ZOIKO_FIELD_KEY_FILE, "
+                            "ZOIKO_KEY_WRAP_KEK)")
+    if _placeholder(getattr(conf, "PACK_SIGNING_KEY", "")):
+        problems.append("the country-pack signing key is not set (ZOIKO_PACK_SIGNING_KEY)")
+    hosts = [h.lower() for h in conf.ALLOWED_HOSTS]
+    if not hosts or "*" in hosts:
+        problems.append("DJANGO_ALLOWED_HOSTS is empty or allows every host")
+    elif all(h in LOCAL_HOSTS for h in hosts):
+        problems.append("DJANGO_ALLOWED_HOSTS lists only local addresses")
+    if conf.ZOIKO_CELL_ID.upper().startswith(("DEV-", "TEST-")):
+        problems.append("ZOIKO_CELL_ID is still a development or test id")
+    provider = getattr(conf, "MAIL_PROVIDER", "smtp")
+    if provider == "console":
+        problems.append("email is set to the development console and nothing would be sent "
+                        "(ZOIKO_MAIL_PROVIDER)")
+    elif provider == "http_api":
+        if not str(getattr(conf, "MAIL_API_URL", "")).startswith("https://"):
+            problems.append("the mail provider's address must be https (ZOIKO_MAIL_API_URL)")
+        if _placeholder(getattr(conf, "MAIL_API_KEY", "")):
+            problems.append("the mail provider's key is not set (ZOIKO_MAIL_API_KEY)")
+        if _placeholder(getattr(conf, "MAIL_WEBHOOK_SECRET", "")):
+            problems.append("delivery receipts cannot be checked: no signing secret is set "
+                            "(ZOIKO_MAIL_WEBHOOK_SECRET)")
+    elif provider != "smtp":
+        problems.append("ZOIKO_MAIL_PROVIDER is not smtp, http_api or console")
+    elif conf.EMAIL_HOST.lower() in DEVELOPMENT_MAIL_HOSTS or conf.EMAIL_PORT == 1025:
+        problems.append("email still goes to a development inbox (EMAIL_HOST, EMAIL_PORT)")
+    if getattr(conf, "ZOIKO_BUILD", "").strip().lower() in ("", "dev"):
+        problems.append("ZOIKO_BUILD is still 'dev' (every audit row records which build wrote it)")
+    for name, label in (
+        ("WEBHOOK_ALLOW_INSECURE", "webhooks may use plain http (WEBHOOK_ALLOW_INSECURE)"),
+        ("WEBHOOK_ALLOW_PRIVATE", "webhooks may reach private addresses (WEBHOOK_ALLOW_PRIVATE)"),
+    ):
+        if getattr(conf, name, False):
+            problems.append(label)
+    if getattr(conf, "COVER_SIMULATOR", False):
+        problems.append("the pretend insurer (COVER_SIMULATOR) is on")
+    # DEV-227: pretend partners and payments see synthetic data only; never on a real server.
+    if getattr(conf, "CONNECTOR_ALLOW_INSECURE", False):
+        problems.append("partner addresses may be plain http (CONNECTOR_ALLOW_INSECURE)")
+    if getattr(conf, "CONNECTOR_SIMULATOR", False):
+        problems.append("the pretend partner (CONNECTOR_SIMULATOR) is on")
+    if getattr(conf, "BILLING_PRETEND_PROVIDER", False):
+        problems.append("the pretend payment provider (BILLING_PRETEND_PROVIDER) is on")
+    if getattr(conf, "BILLING_PAYMENT_PROVIDER", "") == "pretend":
+        problems.append("payments are set to the pretend provider (BILLING_PAYMENT_PROVIDER)")
+    return problems
+
+
+def assert_release_ready() -> None:
+    """Call once when a web server or the worker starts. With DEBUG on, or with the test-only switch
+    REQUIRE_PRODUCTION_SETTINGS off, nothing is checked. Otherwise refuse to start while any
+    development-only setting remains."""
+    if settings.DEBUG or not settings.REQUIRE_PRODUCTION_SETTINGS:
+        return
+    problems = release_problems()
+    if problems:
+        raise ImproperlyConfigured(
+            "Refusing to start: these development-only settings are still in use: "
+            + "; ".join(problems) + ". Set real values (see docs/DEPLOYMENT.md).")
+
+
+@register(Tags.security, deploy=True)
+def release_check(app_configs: Any, **kwargs: Any) -> list[Error]:
+    """`manage.py check --deploy`: each problem is an error."""
+    return [Error(problem, id=f"zoiko.E{n:03d}") for n, problem in enumerate(release_problems(), 1)]
