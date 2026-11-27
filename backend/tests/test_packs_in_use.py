@@ -1,5 +1,5 @@
-"""Booking, messaging and referrals switched on by the one country-pack system: a signed, current pack
-for the customer's own country (GHE-04, DEV-181, DEV-364)."""
+"""Booking, messaging and referrals switched on by the one country-pack system: a signed, current
+pack for the customer's own country (GHE-04, DEV-181, DEV-364)."""
 import json
 
 import pytest
