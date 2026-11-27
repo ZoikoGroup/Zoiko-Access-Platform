@@ -42,7 +42,10 @@ def collect() -> dict[str, list[str]]:
                 if shaped is None:
                     continue
                 end = hits[i + 1].start() if i + 1 < len(hits) else len(text)
-                method = METHOD.search(text[m.end():min(end, m.end() + 400)])
+                # Only this call's own statement: never the method of the code after it.
+                stop = text.find(";", m.end())
+                end = min(end, m.end() + 400, stop if stop != -1 else len(text))
+                method = METHOD.search(text[m.end():end])
                 calls.add(f"{method.group(1) if method else 'GET'} {shaped}")
         found[app] = calls
     return {app: sorted(calls) for app, calls in found.items()}

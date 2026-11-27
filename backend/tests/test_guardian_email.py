@@ -103,7 +103,8 @@ def test_the_choice_appears_on_the_patients_own_page_with_its_own_wording(p):
     setup(p, agreed=False)
     shown = {c["purpose"]: c for c in mine(p)["consents"]}
     assert set(shown) == {"insurance_details", "guardian_email", "doctor_messages",
-                          "appointment_reminders"}               # DEV-358 added two
+                          "appointment_reminders",               # DEV-358 added two
+                          "cross_matching"}                      # DEV-363
     mail = shown["guardian_email"]
     assert mail["shared"] is False and mail["state"] == "withdrawn"
     assert (mail["yes_label"], mail["no_label"]) == ("Allow emails", "Stop the emails")

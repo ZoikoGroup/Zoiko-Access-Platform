@@ -114,7 +114,13 @@ DESTRUCTIVE_OPERATIONS = (migrations.RemoveField, migrations.DeleteModel, migrat
 DESTRUCTIVE_SQL = re.compile(
     r"\b(DROP\s+(TABLE|COLUMN)|RENAME\s+(TO|COLUMN)|TRUNCATE|DELETE\s+FROM)\b", re.IGNORECASE)
 # (app, migration) pairs a person has reviewed and accepted, with the register entry. Empty today.
-REVIEWED: dict[tuple[str, str], str] = {}
+REVIEWED: dict[tuple[str, str], str] = {
+    # Each drops the tables of a module that was merged away; reviewed and recorded in the register.
+    ("jurisdiction", "0004_one_pack_system"):
+        "DEV-364: drops the retired cell-wide packs tables (configuration only, no patient data)",
+    ("workflow", "0007_one_engine"):
+        "DEV-370: drops the merged orchestration module's tables (development data only)",
+}
 
 
 def _our_migrations():
