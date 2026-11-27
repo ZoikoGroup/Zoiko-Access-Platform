@@ -11,6 +11,7 @@ from .services import (
     list_payments,
     patient_invoices,
     payer_payments,
+    refresh_by_provider_ref,
     refresh_payment,
     set_fee,
     start_payment,
@@ -19,4 +20,4 @@ from .services import (
 
 __all__ = ["create_invoice", "credit_note", "get_invoice", "list_fees", "list_invoices",
            "list_payments", "patient_invoices", "payer_payments", "refresh_payment", "set_fee",
-           "start_payment", "step"]
+           "refresh_by_provider_ref", "start_payment", "step"]

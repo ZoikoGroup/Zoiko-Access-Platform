@@ -334,8 +334,8 @@ def test_logins_without_two_step_are_not_rechecked(site, clock):
 
 
 def test_administrator_can_reset_a_staff_members_lost_two_step(site, clock):
-    boss, _, _ = switch_on(site, clock, who="boss")
-    ops_tok, _, _ = switch_on(site, clock, who="ops")
+    boss, _, _ = switch_on(site, clock, login="boss")
+    ops_tok, _, _ = switch_on(site, clock, login="ops")
     ops_id = call("GET", "me", ops_tok).json()["actor"]
     staff = call("GET", "staff/directory", boss).json()["staff"]
     assert next(s for s in staff if s["id"] == ops_id)["two_step_on"] is True

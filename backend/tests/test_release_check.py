@@ -32,6 +32,8 @@ def good(**over):
         "ALLOWED_HOSTS": ["care.example.org"], "ZOIKO_CELL_ID": "EU-WEST-01",
         "EMAIL_HOST": "smtp.example.org", "EMAIL_PORT": 587, "ZOIKO_BUILD": "2026.11.07-a1b2c3d",
         "PACK_SIGNING_KEY": "pK3vR8mQ2xN7wT4yL9sB6hD1fJ5cA0eU3oG8iV2nZ7k=",
+        "FIELD_KEY_SOURCE": "aws_kms",                   # DEV-396
+        "PAGER_PROVIDER": "pagerduty", "PAGERDUTY_ROUTING_KEY": "R0utingKeyReal",  # DEV-400
     }
     values.update(over)
     return SimpleNamespace(**values)
@@ -309,3 +311,9 @@ def test_both_web_entry_points_run_the_settings_check_first():
 def test_a_pretend_partner_or_payment_provider_never_reaches_a_real_server(over, needle):
     """DEV-227: they only ever see synthetic data."""
     assert any(needle in p for p in one(**over))
+
+
+@pytest.mark.parametrize("source", ["env", "", "vault"])
+def test_the_master_key_must_be_held_by_the_key_service(source):
+    """DEV-396 (decided 27 Nov 2026): never a plain key in a real server's environment."""
+    assert any("ZOIKO_KEY_SOURCE" in p for p in one(FIELD_KEY_SOURCE=source))

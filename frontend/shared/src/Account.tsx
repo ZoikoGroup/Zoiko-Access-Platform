@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { useEffect, useState } from "react";
 import { ChangePassword } from "./ChangePassword";
 import { EmailCard, type EmailStatus } from "./EmailCard";
@@ -17,15 +18,15 @@ function NameCheckCard({ load }: { load: () => Promise<NameCheckInfo> }) {
   useEffect(() => { void load().then(setInfo).catch(() => setInfo(null)); }, [load]);
   if (!info) return null;
   const words: Record<NameCheckInfo["state"], string> = {
-    none: "Your name has not been checked yet. An administrator at your clinic can check it.",
-    verified: `Your name was checked: ${info.basis_text ?? ""} on ${info.checked_on ?? ""}. Patients see a "Name checked" mark next to it. This is a desk check by your clinic, not a licence check by Zoiko.`,
-    name_changed: "You changed your name after it was checked, so the \"Name checked\" mark is off until an administrator checks the new name.",
-    withdrawn: `The check of your name was withdrawn${info.reason ? `: ${info.reason}` : ""}. Patients do not see a "Name checked" mark.`,
+    none: t("account.nameNone"),
+    verified: t("account.nameVerified", { basis: info.basis_text ?? "", date: info.checked_on ?? "" }),
+    name_changed: t("account.nameChanged"),
+    withdrawn: t("account.nameWithdrawn", { reason: info.reason ? `: ${info.reason}` : "" }),
   };
   return (
-    <Card title="Is my name checked?">
+    <Card title={t("account.isNameChecked")}>
       <p><Pill kind={info.state === "verified" ? "ok" : info.state === "none" ? "info" : "warn"}>
-        {info.state === "verified" ? "Name checked" : info.state === "none" ? "Not checked" : info.state === "name_changed" ? "Check ended" : "Check withdrawn"}
+        {info.state === "verified" ? t("account.nameChecked") : info.state === "none" ? t("account.notChecked") : info.state === "name_changed" ? t("account.checkEnded") : t("account.checkWithdrawn")}
       </Pill></p>
       <p>{words[info.state]}</p>
     </Card>
@@ -55,11 +56,11 @@ export function Account({ login, tenantName, roles, onChangePassword, name, emai
   return (
     <>
       <div className="hero"><div>
-        <h1>My account</h1>
-        <p>Who you are signed in as, your password and two-step sign-in.</p>
+        <h1>{t("account.title")}</h1>
+        <p>{t("account.lead")}</p>
       </div></div>
       <div className="grid">
-        <Card title="Signed in as">
+        <Card title={t("account.signedInAs")}>
           <p><b>{login}</b></p>
           <p>Organization: {tenantName}</p>
           <p>Roles: {roles.length ? roles.join(", ") : "none"}</p>

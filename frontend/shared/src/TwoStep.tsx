@@ -2,6 +2,7 @@
 // account, the set-up a required login sees right after its password, and the code form of sign-in.
 import { useCallback, useEffect, useState } from "react";
 import type { TwoStepApi, TwoStepStatus } from "./twoStepApi";
+import { formatDate, t } from "./i18n";
 import { Card, Pill } from "./ui";
 
 const groups = (secret: string) => secret.match(/.{1,4}/g)?.join(" ") ?? secret;
@@ -10,10 +11,10 @@ const groups = (secret: string) => secret.match(/.{1,4}/g)?.join(" ") ?? secret;
 function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div role="region" aria-label="Recovery codes">
+    <div role="region" aria-label={t("twoStep.recoveryCodes")}>
       <div className="notice" role="status">
-        Save these recovery codes somewhere safe, away from your phone. Each one signs you in once if you lose
-        your phone. <b>They are shown only now.</b>
+        {t("twoStep.saveCodes")}{" "}
+        <b>{t("twoStep.shownOnce")}</b>
       </div>
       <ol style={{ fontFamily: "ui-monospace, monospace", columns: 2, margin: "12px 0" }}>
         {codes.map((c) => <li key={c}>{c}</li>)}
@@ -21,8 +22,8 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
       <div style={{ display: "flex", gap: 8 }}>
         <button className="btn ghost" type="button" onClick={() => {
           void navigator.clipboard?.writeText(codes.join("\n")).then(() => setCopied(true)).catch(() => setCopied(false));
-        }}>{copied ? "Copied" : "Copy codes"}</button>
-        <button className="btn" type="button" onClick={onDone}>I have saved them</button>
+        }}>{copied ? t("common.copied") : t("twoStep.copyCodes")}</button>
+        <button className="btn" type="button" onClick={onDone}>{t("twoStep.saved")}</button>
       </div>
     </div>
   );
@@ -38,7 +39,7 @@ function SetUp({ api, onOn }: { api: TwoStepApi; onOn: (codes: string[]) => void
 
   async function run(step: () => Promise<void>) {
     setBusy(true); setError("");
-    try { await step(); } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong"); }
+    try { await step(); } catch (e) { setError(e instanceof Error ? e.message : t("common.somethingWrong")); }
     finally { setBusy(false); }
   }
 
@@ -46,28 +47,27 @@ function SetUp({ api, onOn }: { api: TwoStepApi; onOn: (codes: string[]) => void
     return (
       <form onSubmit={(e) => { e.preventDefault(); void run(async () => { setMade(await api.start(password)); setPassword(""); }); }}
         style={{ display: "grid", gap: 8, maxWidth: 380 }}>
-        <p>You will need an authenticator app on your phone (for example Google Authenticator, Microsoft
-          Authenticator or 1Password). After your password, sign-in will ask for the 6-digit code it shows.</p>
-        <input type="password" className="field" autoComplete="current-password" aria-label="Your password"
-          placeholder="Your password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <p>{t("twoStep.needApp")}</p>
+        <input type="password" className="field" autoComplete="current-password" aria-label={t("common.yourPassword")}
+          placeholder={t("common.yourPassword")} value={password} onChange={(e) => setPassword(e.target.value)} />
         {error && <div className="error" role="alert">{error}</div>}
-        <div><button className="btn" type="submit" disabled={busy || !password}>{busy ? "Checking…" : "Set up two-step sign-in"}</button></div>
+        <div><button className="btn" type="submit" disabled={busy || !password}>{busy ? t("common.checking") : t("twoStep.setUp")}</button></div>
       </form>
     );
   }
   return (
     <form onSubmit={(e) => { e.preventDefault(); void run(async () => onOn(await api.confirm(code.trim()))); }}
       style={{ display: "grid", gap: 8, maxWidth: 420 }}>
-      <p><b>1.</b> In your authenticator app, add an account and type this setup key
-        (or, on this device, <a href={made.link}>open it in your app</a>):</p>
-      <p aria-label="Setup key" style={{ fontFamily: "ui-monospace, monospace", fontSize: 18, letterSpacing: 1, wordBreak: "break-all" }}>
+      <p><b>1.</b> {t("twoStep.step1")}
+        ({t("twoStep.orOnDevice")} <a href={made.link}>{t("twoStep.openInApp")}</a>):</p>
+      <p aria-label={t("twoStep.setupKey")} style={{ fontFamily: "ui-monospace, monospace", fontSize: 18, letterSpacing: 1, wordBreak: "break-all" }}>
         {groups(made.secret)}
       </p>
-      <p><b>2.</b> Type the 6-digit code the app now shows:</p>
-      <input className="field" inputMode="numeric" autoComplete="one-time-code" aria-label="Code from the app"
+      <p><b>2.</b> {t("twoStep.step2")}</p>
+      <input className="field" inputMode="numeric" autoComplete="one-time-code" aria-label={t("twoStep.codeFromApp")}
         placeholder="123456" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
       {error && <div className="error" role="alert">{error}</div>}
-      <div><button className="btn" type="submit" disabled={busy || code.length !== 6}>{busy ? "Checking…" : "Turn on"}</button></div>
+      <div><button className="btn" type="submit" disabled={busy || code.length !== 6}>{busy ? t("common.checking") : t("twoStep.turnOn")}</button></div>
     </form>
   );
 }
@@ -83,31 +83,31 @@ function Manage({ api, state, onChange }: { api: TwoStepApi; state: TwoStepStatu
 
   async function run(step: () => Promise<void>) {
     setBusy(true); setError("");
-    try { await step(); setCode(""); setPassword(""); } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong"); }
+    try { await step(); setCode(""); setPassword(""); } catch (e) { setError(e instanceof Error ? e.message : t("common.somethingWrong")); }
     finally { setBusy(false); }
   }
 
   if (codes) return <RecoveryCodes codes={codes} onDone={() => { setCodes(null); onChange(); }} />;
   return (
     <div style={{ display: "grid", gap: 8, maxWidth: 380 }}>
-      <p>On since {state.on_since ? new Date(state.on_since).toLocaleDateString() : "—"}.{" "}
-        {state.recovery_codes_left} recovery code{state.recovery_codes_left === 1 ? "" : "s"} left.</p>
-      {state.recovery_codes_left <= 2 && <div className="notice" role="status">Few recovery codes left: make new ones.</div>}
-      <input className="field" inputMode="numeric" autoComplete="one-time-code" aria-label="Code from the app"
-        placeholder="Code from your app" value={code} onChange={(e) => setCode(e.target.value)} />
+      <p>{t("twoStep.onSince", { date: state.on_since ? formatDate(state.on_since) : "—" })}{" "}
+        {t(state.recovery_codes_left === 1 ? "twoStep.codeLeft" : "twoStep.codesLeft", { count: state.recovery_codes_left })}</p>
+      {state.recovery_codes_left <= 2 && <div className="notice" role="status">{t("twoStep.fewLeft")}</div>}
+      <input className="field" inputMode="numeric" autoComplete="one-time-code" aria-label={t("twoStep.codeFromApp")}
+        placeholder={t("twoStep.codeFromYourApp")} value={code} onChange={(e) => setCode(e.target.value)} />
       {off && (
-        <input type="password" className="field" autoComplete="current-password" aria-label="Your password"
-          placeholder="Your password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input type="password" className="field" autoComplete="current-password" aria-label={t("common.yourPassword")}
+          placeholder={t("common.yourPassword")} value={password} onChange={(e) => setPassword(e.target.value)} />
       )}
       {error && <div className="error" role="alert">{error}</div>}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {!off && <button className="btn" type="button" disabled={busy || !code.trim()}
-          onClick={() => void run(async () => setCodes(await api.newCodes(code.trim())))}>New recovery codes</button>}
-        {!state.required && !off && <button className="btn ghost" type="button" onClick={() => setOff(true)}>Turn off…</button>}
+          onClick={() => void run(async () => setCodes(await api.newCodes(code.trim())))}>{t("twoStep.newCodes")}</button>}
+        {!state.required && !off && <button className="btn ghost" type="button" onClick={() => setOff(true)}>{t("twoStep.turnOffStart")}</button>}
         {off && <>
           <button className="btn" type="button" disabled={busy || !code.trim() || !password}
-            onClick={() => void run(async () => { await api.off(password, code.trim()); setOff(false); onChange(); })}>Turn off two-step sign-in</button>
-          <button className="btn ghost" type="button" onClick={() => setOff(false)}>Keep it on</button>
+            onClick={() => void run(async () => { await api.off(password, code.trim()); setOff(false); onChange(); })}>{t("twoStep.turnOff")}</button>
+          <button className="btn ghost" type="button" onClick={() => setOff(false)}>{t("twoStep.keepOn")}</button>
         </>}
       </div>
     </div>
@@ -126,25 +126,24 @@ export function TwoStepCard({ api, onSetUp }: { api: TwoStepApi; onSetUp?: () =>
 
   let body;
   if (error) body = <div className="error" role="alert">{error}</div>;
-  else if (!state) body = <p>Loading…</p>;
-  else if (!state.available) body = <p>A development link has no password login. Sign in with your login and password to set this up.</p>;
+  else if (!state) body = <p>{t("common.loading")}</p>;
+  else if (!state.available) body = <p>{t("twoStep.devLink")}</p>;
   else if (codes) body = <RecoveryCodes codes={codes} onDone={() => { setCodes(null); load(); onSetUp?.(); }} />;
   else if (state.on) body = <Manage api={api} state={state} onChange={load} />;
   else body = <SetUp api={api} onOn={setCodes} />;
 
   return (
-    <Card title="Two-step sign-in"
-      sub="After your password, a code from an app on your phone: a stolen password alone is then not enough.">
+    <Card title={t("auth.twoStepTitle")}
+      sub={t("twoStep.sub")}>
       {state && (
         <p>
-          <Pill kind={state.on ? "ok" : state.required ? "warn" : "info"}>{state.on ? "On" : "Off"}</Pill>{" "}
-          {state.required && <Pill kind="info">Required by your organization</Pill>}
+          <Pill kind={state.on ? "ok" : state.required ? "warn" : "info"}>{state.on ? t("common.on") : t("common.off")}</Pill>{" "}
+          {state.required && <Pill kind="info">{t("twoStep.required")}</Pill>}
         </p>
       )}
       {body}
       {state?.on && <p className="muted" style={{ fontSize: 13 }}>
-        For sensitive actions (team changes, merging records) you are asked for a code again if your last one is
-        more than {state.recheck_minutes} minutes old.</p>}
+        {t("twoStep.recheck", { minutes: state.recheck_minutes })}</p>}
     </Card>
   );
 }
@@ -153,10 +152,10 @@ export function TwoStepCard({ api, onSetUp }: { api: TwoStepApi; onSetUp?: () =>
 export function RequiredSetUp({ api, onDone, onCancel }: { api: TwoStepApi; onDone: () => void; onCancel: () => void }) {
   return (
     <div className="auth-card">
-      <h2>Set up two-step sign-in</h2>
-      <p className="lead">Your organization requires it for every staff login. It takes about two minutes.</p>
+      <h2>{t("twoStep.setUp")}</h2>
+      <p className="lead">{t("twoStep.requiredLead")}</p>
       <TwoStepCard api={api} onSetUp={onDone} />
-      <p className="switch"><button className="btn ghost" type="button" onClick={onCancel}>Sign out</button></p>
+      <p className="switch"><button className="btn ghost" type="button" onClick={onCancel}>{t("common.signOut")}</button></p>
     </div>
   );
 }
@@ -168,13 +167,13 @@ export function SecondStepForm({ onCode, onBack, error, busy }: {
   const [code, setCode] = useState("");
   return (
     <form onSubmit={(e) => { e.preventDefault(); onCode(code.trim()); setCode(""); }}>
-      <label htmlFor="two-step-code">Code from your authenticator app</label>
+      <label htmlFor="two-step-code">{t("twoStep.codeLabel")}</label>
       <input id="two-step-code" className="field" inputMode="numeric" autoComplete="one-time-code" autoFocus
         value={code} onChange={(e) => setCode(e.target.value)} required />
-      <p className="muted" style={{ fontSize: 13 }}>Lost your phone? Type one of your recovery codes instead.</p>
+      <p className="muted" style={{ fontSize: 13 }}>{t("twoStep.lostPhone")}</p>
       {error && <div className="error" role="alert">{error}</div>}
-      <button className="btn wide" type="submit" disabled={busy || !code.trim()}>{busy ? "Checking…" : "Continue"}</button>
-      <button className="btn ghost wide" type="button" onClick={onBack}>Back</button>
+      <button className="btn wide" type="submit" disabled={busy || !code.trim()}>{busy ? t("common.checking") : t("common.continue")}</button>
+      <button className="btn ghost wide" type="button" onClick={onBack}>{t("common.back")}</button>
     </form>
   );
 }

@@ -4,8 +4,9 @@ import { Card, Pill } from "../ui";
 
 const NAMES: { id: PartnerCheckName; label: string; hint: string }[] = [
   { id: "identity", label: "Identity", hint: "Who is this partner, and who signs for them?" },
-  { id: "legal", label: "Legal", hint: "Is there a contract or agreement that allows it?" },
-  { id: "security", label: "Security", hint: "Has their way of keeping the secret been reviewed?" },
+  { id: "legal", label: "Signed contract", hint: "Is the contract signed by both sides? Note where it is kept." },
+  { id: "security", label: "Security questionnaire", hint: "Did they complete Zoiko's security questionnaire, and was it reviewed?" },
+  { id: "sandbox_test", label: "Passed sandbox test", hint: "Did their system pass a test run with a sandbox key (synthetic data only)?" },
 ];
 
 function friendly(e: unknown): string {
@@ -61,7 +62,7 @@ export function PartnerChecks({ canWrite }: { canWrite: boolean }) {
   useEffect(() => { void load(); }, [load]);
   return (
     <Card title="Partner checks"
-      sub="A customer's new partner has no secret. Record an identity, a legal and a security check, each with a note of what you looked at, and the customer can then issue the secret. Nothing here is checked automatically: it is your statement, and it is written to the audit log.">
+      sub="A customer's new partner has no secret. Record four checks (identity, a signed contract, the security questionnaire and a passed sandbox test run), each with a note of what you looked at. Only laboratories and pharmacies can go live first, and the customer can then issue the secret. Nothing here is checked automatically: it is your statement, and it is written to the audit log.">
       {error && <div className="error" role="alert">{error}</div>}
       {rows === null ? <div className="empty">Loading…</div> : rows.length === 0
         ? <div className="empty">No partner is waiting for checks.</div>

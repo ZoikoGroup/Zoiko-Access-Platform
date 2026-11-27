@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { t } from "./i18n";
 import { Icon } from "./ui";
 
 export interface AuthTab { id: string; label: string }
@@ -47,7 +48,7 @@ export function AuthShell({
             {chips.map((c) => <div key={c.title} className="auth-chip"><b>{c.title}</b><small>{c.sub}</small></div>)}
           </div>
         )}
-        <p className="fine">Your information stays in your region. Every access to it is recorded.</p>
+        <p className="fine">{t("auth.regionNote")}</p>
         <div className="auth-strip" aria-hidden="true">{strip ?? "PATIENTS / CLINICS / DOCTORS / SAFETY"}</div>
       </aside>
       <main className="auth-form" id="main">

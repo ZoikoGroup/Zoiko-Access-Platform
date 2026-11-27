@@ -228,6 +228,8 @@ export interface ClinicSettings {
   waitlist_offer_hours: number;
   waitlist_offer_default?: number;        // what it is when the clinic has not chosen (DEV-366)
   late_email_recipients: number;
+  weekly_report?: boolean;                // the weekly summary email to administrators (DEV-392)
+  weekly_report_recipients?: number;      // administrators with a verified address
 }
 
 export interface NameCheck {
@@ -319,6 +321,36 @@ export interface WorkflowInstance {
   path: string[];
 }
 
+/** A timer runs out after fixed minutes, or after one of the clinic's own settings (DEV-394). */
+export type TimerPolicy =
+  | { state: string; kind: string; after_minutes: number }
+  | { state: string; kind: string; after_setting: "response_target" | "offer_window"; times: number };
+
+export interface WorkflowDefinition {
+  public_id: string;
+  key: string;
+  version: number;
+  journey: string;
+  path: string[];
+  timer_policies: TimerPolicy[];
+  status: "draft" | "published" | "retired";
+}
+
+export interface JourneyTemplate {
+  template: string;
+  key: string;
+  journey: string;
+  label: string;
+  path: string[];
+  timer_policies: TimerPolicy[];
+}
+
+export interface WorkflowDefinitions {
+  definitions: WorkflowDefinition[];
+  templates: JourneyTemplate[];
+  can_write: boolean;
+}
+
 export interface WorkflowStep {
   seq: number;
   kind: "transition" | "overlay" | "owner" | "timer";
@@ -381,7 +413,7 @@ export interface PartnerClient {
   state: "pending" | "active" | "suspended" | "revoked";
   rate_per_minute: number;
   created_at: string;
-  checks: { identity: boolean; legal: boolean; security: boolean };    // what Zoiko has recorded so far
+  checks: { identity: boolean; legal: boolean; security: boolean; sandbox_test?: boolean };    // what Zoiko has recorded so far
   last_used_at: string | null;
   secret?: string;                  // only in the answer to "issue the secret" and "new secret"
 }

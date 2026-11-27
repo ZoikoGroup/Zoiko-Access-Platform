@@ -6,7 +6,7 @@ import type { BookingHistoryData } from "@shared/BookingHistory";
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
-import type { BookingRow, BusinessHours, BusinessHoursData, Claim, ClaimAttachment, ClinicSettings, Compliance, CoverageRow, Dashboard, Directory, Escalation, ExchangeRequest, FamilyRequest, FeeRow, FhirQuarantineItem, FreeTime, Health, InboundEvent, IncomingReferral, InvoiceRow, LocationRow, Me, MessageThread, PartnerClient, PatientRow, Profile, ProviderRow, ReferralInbox, Reports, RightsCase, ServiceRow, ThreadView, WaitingRow, WebhookDelivery, WebhookEndpoint, WorkItem, WorkflowHistory, WorkflowInstance } from "./types";
+import type { BookingRow, BusinessHours, BusinessHoursData, Claim, ClaimAttachment, ClinicSettings, Compliance, CoverageRow, Dashboard, Directory, Escalation, ExchangeRequest, FamilyRequest, FeeRow, FhirQuarantineItem, FreeTime, Health, InboundEvent, IncomingReferral, InvoiceRow, LocationRow, Me, MessageThread, PartnerClient, PatientRow, Profile, ProviderRow, ReferralInbox, Reports, RightsCase, ServiceRow, ThreadView, WaitingRow, WebhookDelivery, WebhookEndpoint, WorkItem, WorkflowDefinitions, WorkflowHistory, WorkflowInstance } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, readonly code?: string) {
@@ -184,6 +184,9 @@ export const rejectFamily = (id: string) => post(`staff/family-requests/${encode
 export const listMessageThreads = async () => (await v1<{ threads: MessageThread[] }>("messages/threads")).threads;
 export const getMessageThread = async (id: string) =>
   (await v1<{ thread: ThreadView }>(`messages/threads/${encodeURIComponent(id)}`)).thread;
+/** DEV-399: a draft for staff to read, change and send (only under an authorized AI permit). */
+export const draftMessageReply = (id: string) =>
+  post<{ draft: string; decision: string; note: string }>(`messages/threads/${encodeURIComponent(id)}/draft-reply`, {});
 export const replyMessageThread = (id: string, body: string) =>
   post(`messages/threads/${encodeURIComponent(id)}/reply`, { body });
 export const closeMessageThread = (id: string) => post(`messages/threads/${encodeURIComponent(id)}/close`);
@@ -230,6 +233,8 @@ export const setResponseTarget = (hours: number | null) => post("staff/settings"
 /** The clinic's own waiting-list offer window, 1 to 168 hours, or null for the standard (DEV-366). */
 export const setWaitlistOfferHours = (hours: number | null) =>
   post("staff/settings", { waitlist_offer_hours: hours });
+/** The weekly summary email to the clinic's administrators, on or off (DEV-392). */
+export const setWeeklyReport = (on: boolean) => post("staff/settings", { weekly_report: on });
 /** The clinic's working days and opening times (DEV-367): null clears them. */
 export const getBusinessHours = () => v1<BusinessHoursData>("staff/business-hours");
 export const setBusinessHours = (business_hours: BusinessHours | null) =>
@@ -289,6 +294,13 @@ export const listRightsCases = async () =>
   await v1<{ requests: RightsCase[]; can_close: boolean }>("staff/rights");
 export const listWorkflows = async (workbench: boolean) =>
   (await v1<{ instances: WorkflowInstance[] }>(`staff/workflows${workbench ? "?view=workbench" : ""}`)).instances;
+export const listWorkflowDefinitions = () => v1<WorkflowDefinitions>("staff/workflows/definitions");
+/** Add one standard journey (referral or waiting list) and publish it: two audited steps by the
+ *  administrator. Its deadlines follow the clinic's own settings (DEV-394). */
+export async function addStandardJourney(template: string) {
+  const made = await post<{ definition: { public_id: string } }>("staff/workflows/definitions", { template });
+  return post(`staff/workflows/definitions/${encodeURIComponent(made.definition.public_id)}/publish`, {});
+}
 export const getWorkflowHistory = (id: string) =>
   v1<WorkflowHistory>(`staff/workflows/${encodeURIComponent(id)}`);
 export const listEscalations = async () =>
@@ -487,15 +499,28 @@ export interface RetentionRule {
 export interface RetentionClass {
   data_class: string; label: string; age_from: string;
   rule: RetentionRule | null; proposal: RetentionRule | null; past_period: number | null;
+  /** DEV-398: a period proposed for Legal to confirm (never in force by itself). */
+  suggested_days: number | null; can_anonymise: boolean;
+}
+export interface RetentionBatch {
+  public_id: string; data_class: string; cutoff: string; expected_count: number; done_count: number | null;
+  status: "prepared" | "done" | "withdrawn"; prepared_by_ref: string; decided_by_ref: string;
+  decided_at: string | null; created_at: string;
 }
 export interface RetentionReport {
   classes: RetentionClass[]; patients_on_hold: number; deletes_anything: false; can_set: boolean;
+  batches: RetentionBatch[];
 }
 export const getRetention = () => v1<RetentionReport>("staff/retention");
 export const proposeRetention = (data_class: string, period_days: number | null, basis: string) =>
   post<RetentionReport>("staff/retention", { data_class, period_days, basis });
 export const decideRetention = (rule: string, step: "approve" | "withdraw") =>
   post<{ rule: RetentionRule }>(`staff/retention/${rule}/${step}`);
+/** DEV-398: one administrator prepares a batch; a different one approves it and it runs. */
+export const prepareRetentionBatch = (data_class: string) =>
+  post<{ batch: RetentionBatch }>("staff/retention-batches", { data_class });
+export const decideRetentionBatch = (batch: string, step: "approve" | "withdraw") =>
+  post<{ batch: RetentionBatch }>(`staff/retention-batches/${encodeURIComponent(batch)}/${step}`);
 
 // ------------------------------------------------------------------ partner systems (DEV-217)
 export interface BookingSystem {

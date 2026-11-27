@@ -25,3 +25,8 @@ class FoundationConfig(AppConfig):
         from .error_budget import forget_old as forget_old_minutes
 
         periodic.register("foundation.slo_minutes", 86400.0, forget_old_minutes)
+
+        # Every minute: page the on-call person for an error-budget alert (DEV-400, PagerDuty).
+        from .paging import page_budget_alerts
+
+        periodic.register("foundation.paging", 60.0, page_budget_alerts)

@@ -26,6 +26,9 @@ from .inbound import (
     set_client_state,
 )
 from .models import FhirQuarantineState
+from .public_keys import ApiCaller
+from .public_keys import authenticate as authenticate_api_key
+from .public_keys import require_scope as require_api_scope
 from .services import (
     create_endpoint,
     deliver_all_tenants,
@@ -42,6 +45,7 @@ from .services import (
 
 __all__ = [
     "parse_payload",
+    "ApiCaller", "authenticate_api_key", "require_api_scope",          # DEV-393
     "ask_egress", "decide_egress", "egress_mode", "egress_permits",     # DEV-384
     "retry_code_held",
     "retry_quarantined",

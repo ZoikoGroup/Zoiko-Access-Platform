@@ -16,6 +16,6 @@ CAPABILITY = "messaging"
 
 
 def texts_allowed() -> bool:
-    if getattr(settings, "TEXT_PROVIDER", "") != "twilio":
+    if getattr(settings, "TEXT_PROVIDER", "") not in ("twilio", "sns"):   # real providers
         return True
     return CAPABILITY in jurisdiction.customer_capabilities(require_context().tenant_id)

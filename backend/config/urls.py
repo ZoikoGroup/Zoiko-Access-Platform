@@ -5,6 +5,8 @@ from foundation.error_views import unsupported_version
 urlpatterns: list[URLPattern | URLResolver] = [
     path("", include("foundation.urls")),
     path("api/v1/", include("api.urls")),
+    # The public partner API (DEV-393): API keys, not people. Before the catch-all below.
+    path("api/public/v1/", include("api.public_urls")),
 ]
 
 # Any other /api/<version>/ answers safely and says which versions exist (GHE-13 T-05).

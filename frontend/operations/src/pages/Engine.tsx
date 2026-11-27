@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { getWorkflowHistory, listEscalations, listWorkflows, recordEscalation } from "../api";
-import type { Escalation, WorkflowHistory, WorkflowInstance } from "../types";
+import { addStandardJourney, getWorkflowHistory, listEscalations, listWorkflowDefinitions, listWorkflows, recordEscalation } from "../api";
+import type { Escalation, TimerPolicy, WorkflowDefinitions, WorkflowHistory, WorkflowInstance } from "../types";
 import { Card, Pill, type PillKind } from "../ui";
 
 const STATE_TEXT: Record<string, string> = {
@@ -80,6 +80,61 @@ function EscalationRow({ e, onDone }: { e: Escalation; onDone: () => Promise<voi
   );
 }
 
+const SETTING_TEXT: Record<string, string> = {
+  response_target: "your response target (in your opening hours)",
+  offer_window: "the time you give a person to use an offered time",
+};
+
+function timerText(t: TimerPolicy) {
+  const when = "after_minutes" in t ? `${t.after_minutes} minutes`
+    : `${t.times > 1 ? `${t.times} times ` : ""}${SETTING_TEXT[t.after_setting] ?? t.after_setting}`;
+  return `${STATE_TEXT[t.state] ?? t.state}: escalate after ${when}`;
+}
+
+/** The referral and waiting-list journeys (DEV-394). Deadlines follow the clinic's own settings, so
+ *  changing the response target or offer window changes them for new steps. */
+function StandardJourneys() {
+  const [data, setData] = useState<WorkflowDefinitions | null>(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    try { setData(await listWorkflowDefinitions()); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load the journeys"); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  async function add(template: string) {
+    setBusy(template); setError("");
+    try { await addStandardJourney(template); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(""); }
+  }
+  if (!data) return null;
+  return (
+    <Card title="Standard journeys" sub="Referrals and the waiting list. Once published, each new referral or waiting-list entry starts one by itself, for the doctor who answers referrals (or you). Deadlines come from your own settings, never from a fixed number.">
+      {error && <small role="alert" style={{ color: "var(--bad)" }}>{error}</small>}
+      {data.templates.map((t) => {
+        const have = data.definitions.find((d) => d.key === t.key && d.status === "published");
+        return (
+          <div key={t.template} className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
+            <div className="info">
+              <b>{t.label} {have && <Pill kind="ok">In use (v{have.version})</Pill>}</b>
+              {t.timer_policies.map((p, i) => <small key={i}>{timerText(p)}.</small>)}
+            </div>
+            {!have && data.can_write && (
+              <div className="form-row">
+                <button className="btn" disabled={busy !== ""} onClick={() => void add(t.template)}>
+                  {busy === t.template ? "Adding…" : "Add and publish"}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {!data.can_write && <small>Only a clinic administrator can add a journey.</small>}
+    </Card>
+  );
+}
+
 /** The workflow engine: what needs a person, everything running, and each one's history. */
 export function Engine() {
   const [needs, setNeeds] = useState<WorkflowInstance[] | null>(null);
@@ -113,6 +168,7 @@ export function Engine() {
         <Card title={`Everything (${all.length})`}>
           {all.length === 0 ? <div className="empty">No workflow has been started.</div> : all.map((w) => <InstanceRow key={w.public_id} w={w} />)}
         </Card>
+        <StandardJourneys />
       </div>
     </>
   );

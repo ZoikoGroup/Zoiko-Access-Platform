@@ -104,6 +104,10 @@ class PartnerClient(CellScopedModel):
     # {"identity"|"legal"|"security": {"by": actor ref, "note": str, "at": iso time}} (T-43)
     validation = models.JSONField(default=dict, blank=True)
     rate_per_minute = models.PositiveSmallIntegerField(default=60)
+    # The public API (DEV-393): what this key may do there, and whether it is a SANDBOX key (which
+    # only ever sees synthetic data). Older keys keep what they did: send events.
+    scopes = models.JSONField(default=list, blank=True)
+    environment = models.CharField(max_length=8, default="live")
     created_by_ref = models.CharField(max_length=22)
     last_used_at = models.DateTimeField(null=True, blank=True)
 

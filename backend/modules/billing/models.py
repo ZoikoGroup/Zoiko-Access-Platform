@@ -51,7 +51,7 @@ class Invoice(CellScopedModel):
     due_on = models.DateField(null=True, blank=True)
     issued_at = models.DateTimeField(null=True, blank=True)
     paid_at = models.DateTimeField(null=True, blank=True)
-    payment_ref = models.CharField(max_length=64, blank=True, default="")
+    payment_ref = models.CharField(max_length=128, blank=True, default="")   # DEV-400: Stripe ids
     void_reason = models.CharField(max_length=24, blank=True, default="")
     created_by_ref = models.CharField(max_length=22)
 
@@ -112,7 +112,7 @@ class PaymentAttempt(CellScopedModel):
 
     invoice = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="+")
     provider = models.CharField(max_length=24)                # a provider's short code
-    provider_ref = models.CharField(max_length=64, blank=True, default="")
+    provider_ref = models.CharField(max_length=128, blank=True, default="")
     amount_minor = models.PositiveBigIntegerField()
     currency = models.CharField(max_length=3)
     status = models.CharField(max_length=10, default="pending")  # payments.PaymentStatus

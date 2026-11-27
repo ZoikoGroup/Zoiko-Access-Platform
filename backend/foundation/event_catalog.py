@@ -27,6 +27,7 @@ EVENTS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "booking.reminder.v1": _BOOKING,
     "booking.attendance.v1": ("booking", ("booking_ref", "status", "attendance"), ()),
     "slot.opened.v1": ("service", ("service_ref",), ()),
+    "waitlist.joined.v1": ("waitlist", ("entry_ref", "state"), ()),
     "waitlist.offered.v1": ("waitlist", ("entry_ref", "state"), ()),
     "message.sent.v1": ("thread", ("thread_ref", "side"), ("actor_ref",)),
     "referral.issued.v1": _REFERRAL,

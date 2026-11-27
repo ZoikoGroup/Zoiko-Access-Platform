@@ -247,6 +247,9 @@ FIELDS: dict[str, str] = {
 # Every name for a login: who did, approved, checked, owns or watches something.
 FIELDS.update(dict.fromkeys((
     "actor_ref", "delegate_ref", "acknowledged_by_ref", "added_by_ref", "approved_by_ref",
+    "holder_ref", "appointed_by_ref",                               # DEV-396
+    "prepared_by_ref",                                              # DEV-398
+    "zoiko_signer_ref",                                             # DEV-399
     "approver_ref", "approver_refs", "assessed_by_ref", "assigned_to_ref", "attendance_by_ref",
     "author_ref", "blocked_owner_ref", "booked_by_ref", "cancelled_by_ref", "changed_by_ref",
     "checked_by_ref", "clinical_owner_ref", "closed_by_ref", "consent_by_ref", "signed_by_ref",

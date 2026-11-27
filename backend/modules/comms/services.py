@@ -21,7 +21,7 @@ from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
 
-from .models import EmailPreference, Notification
+from .models import EmailPreference, Notification, ReportSchedule
 
 WRITE_COMMS = "write:comms"
 
@@ -193,4 +193,29 @@ def set_email_notices(actor_ref: str, enabled: bool) -> bool:
             if address and cancel_queued(kind="patient_update", to_address=address):
                 record(actor_ref=actor_ref, action="comms.queued_emails_cancelled",
                        object_type="actor", object_ref=actor_ref, outcome=AuditOutcome.ALLOWED)
+    return enabled
+
+
+# ------------------------------------------------------------------ the weekly summary (DEV-392)
+def weekly_report_enabled(organization_ref: str) -> bool:
+    """Does this clinic get the weekly summary email? Off unless its administrator turned it on."""
+    return ReportSchedule.objects.filter(
+        organization_ref=organization_ref, weekly=True, **_scope()).exists()
+
+
+def set_weekly_report(organization_ref: str, enabled: Any, *, by: str) -> bool:
+    """Turn the clinic's weekly summary email on or off. Choosing the same thing again is
+    harmless. Returns what is now in force."""
+    if not isinstance(enabled, bool):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["weekly_report"])
+    with transaction.atomic():
+        row, _ = ReportSchedule.objects.select_for_update().get_or_create(
+            organization_ref=organization_ref, defaults={"weekly": enabled}, **_scope())
+        if row.weekly != enabled:
+            row.weekly = enabled
+            row.entity_version += 1
+            row.save(update_fields=["weekly", "entity_version", "updated_at"])
+        record(actor_ref=by, action="comms.set_weekly_report", object_type="report_schedule",
+               object_ref=row.public_id, outcome=AuditOutcome.ALLOWED,
+               reason_code="on" if enabled else "off")
     return enabled

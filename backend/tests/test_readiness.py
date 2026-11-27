@@ -33,7 +33,22 @@ def make_world():
         w.staff(subject, "R11")
     for subject in ("iyer", "c1", "c2"):
         w.staff(subject, "R12")
+    setattr(w, "named", {"cto": w.staff("cto", "R11"), "lead": w.staff("lead", "R12"),  # noqa: B010
+                         "kh1": w.staff("kh1", "R11"), "kh2": w.staff("kh2", "R12")})
     return w
+
+
+def name_everyone(w):
+    """The CTO, the Clinical safety lead and two key holders, named and confirmed (DEV-396/397)."""
+    for title, who, extra in (("cto", "cto", {}), ("clinical_safety_lead", "lead", {}),
+                              ("key_recovery", "kh1", {"envelope_code": "safe-a-1"}),
+                              ("key_recovery", "kh2", {"envelope_code": "safe-b-1"})):
+        r = call(w, "POST", "platform/named-roles",
+                 {"title": title, "holder": w.named[who], **extra}, "sam")
+        assert r.status_code == 201, r.content
+        made = json.loads(r.content)["named"]
+        r = call(w, "POST", f"platform/named-roles/{made['public_id']}/confirm", {}, who)
+        assert r.status_code == 200, r.content
 
 
 def require_zoiko_two_step(w, required=True):
@@ -88,6 +103,7 @@ def world():
     approve_purposes(w)
     seed_matrix(w)
     require_zoiko_two_step(w)
+    name_everyone(w)
     return w
 
 
@@ -130,6 +146,9 @@ def show(w, rel, who="sam"):
 def sign_g3(w, rel):
     for n, requirement in enumerate(G3, start=1):
         assert attest(w, rel, requirement, f"s{n}").status_code == 200
+    # DEV-397: the named CTO and Clinical safety lead sign every production release.
+    assert attest(w, rel, "cto_signoff", "cto").status_code == 200
+    assert attest(w, rel, "clinical_lead_signoff", "lead").status_code == 200
 
 
 def sign_g4(w, rel):
@@ -147,11 +166,12 @@ def decision_of(w, rel):
 def test_a_new_release_is_not_ready_and_lists_everything_missing(world):
     rel = release(world)
     assert rel["decision"] == "no_go" and len(rel["tuple_digest"]) == 64
-    assert len(rel["blockers"]) == 11                       # six G3, four G4, and the country pack
+    assert len(rel["blockers"]) == 13            # eight G3, four G4, and the country pack
     assert "g4.country_pack:missing" in rel["blockers"]
     # the six system checks (hazards, incidents, purposes, matrix and, DEV-388, the error
-    # budget with no traffic yet, and DEV-390, Zoiko staff two-step) are already clear here
-    assert sorted(q["status"] for q in rel["requirements"]) == ["missing"] * 11 + ["signed"] * 6
+    # budget with no traffic yet, DEV-390, Zoiko staff two-step, and DEV-396, two key holders)
+    # are already clear here
+    assert sorted(q["status"] for q in rel["requirements"]) == ["missing"] * 13 + ["signed"] * 7
 
 
 def test_only_support_creates_a_release_and_nobody_else_can_see_them(world):
@@ -354,10 +374,9 @@ def test_the_decision_history_gets_a_row_only_when_the_decision_or_its_blockers_
     rel = release(world)
     sign_g3(world, rel)
     history = show(world, rel)["history"]
-    assert [h["decision"] for h in history] == ["no_go", "no_go", "no_go", "no_go", "no_go",
-                                                "no_go", "g3_ready"]
+    assert [h["decision"] for h in history] == ["no_go"] * 8 + ["g3_ready"]
     assert history[0]["trigger"] == "created"
-    assert history[-1]["trigger"] == "signed:operations_staffed"
+    assert history[-1]["trigger"] == "signed:clinical_lead_signoff"       # DEV-397: the last
     again = call(world, "POST", f"platform/readiness/{rel['public_id']}/evaluate", {}, "sam")
     assert again.status_code == 200 and len(show(world, rel)["history"]) == len(history)
 
@@ -380,6 +399,7 @@ def test_every_step_is_audited_without_free_text(world):
     stop(world, rel, "security_signoff", "c1", note="Private reason for stopping")
     with tenant_transaction(world.ctx):
         events = list(AuditEvent.objects.filter(action__startswith="readiness.")
+                      .exclude(action__startswith="readiness.named")   # DEV-396/397 set-up
                       .order_by("chain_seq"))
     steps = [e.action for e in events if not e.action.startswith("readiness.decision_")]
     assert steps == ["readiness.release_created", "readiness.signed", "readiness.vetoed"]
@@ -390,6 +410,7 @@ def test_every_step_is_audited_without_free_text(world):
 # --------------------------------------------------------- the hazard register (GHE-08 AT42)
 def test_an_empty_hazard_register_holds_a_release_back_even_with_everything_signed(bare):
     rel = release(bare)
+    name_everyone(bare)
     sign_g3(bare, rel)
     now = show(bare, rel)
     assert now["decision"] == "no_go" and "g3.hazard_register:missing" in now["blockers"]
@@ -400,6 +421,7 @@ def test_an_empty_hazard_register_holds_a_release_back_even_with_everything_sign
 @pytest.mark.parametrize("status", ["OPEN", "VERIFIED", "REJECTED"])
 def test_a_hazard_that_is_not_accepted_or_retired_holds_a_release_back(bare, status):
     rel = release(bare)
+    name_everyone(bare)
     sign_g3(bare, rel)
     settle_hazards(bare, leave=status)
     now = show(bare, rel)
@@ -411,6 +433,7 @@ def test_a_hazard_that_is_not_accepted_or_retired_holds_a_release_back(bare, sta
 def test_accepted_and_retired_hazards_let_it_through_and_resolving_the_last_one_releases_it(bare):
     from modules.safety.models import Hazard
     rel = release(bare)
+    name_everyone(bare)                          # DEV-396/397: named signers and key holders
     sign_g3(bare, rel)
     require_zoiko_two_step(bare)                 # DEV-390: the other G3 system checks pass
     settle_hazards(bare, leave="VERIFIED")

@@ -241,6 +241,14 @@
     }
    }
   },
+  "waitlist_joined_v1": {
+   "address": "waitlist.joined.v1",
+   "messages": {
+    "waitlist_joined_v1": {
+     "$ref": "#/components/messages/waitlist_joined_v1"
+    }
+   }
+  },
   "waitlist_offered_v1": {
    "address": "waitlist.offered.v1",
    "messages": {
@@ -1067,6 +1075,28 @@
     },
     "x-schema-hash": "9db136fdeeaf4e72"
    },
+   "waitlist_joined_v1": {
+    "contentType": "application/json",
+    "name": "waitlist.joined.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "entry_ref": {
+       "type": "string"
+      },
+      "state": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "entry_ref",
+      "state"
+     ],
+     "type": "object",
+     "x-aggregate": "waitlist"
+    },
+    "x-schema-hash": "7ab7c17908cfb1fe"
+   },
    "waitlist_offered_v1": {
     "contentType": "application/json",
     "name": "waitlist.offered.v1",
@@ -1354,6 +1384,13 @@
     "$ref": "#/channels/slot_opened_v1"
    },
    "summary": "Zoiko publishes slot.opened.v1"
+  },
+  "publish_waitlist_joined_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/waitlist_joined_v1"
+   },
+   "summary": "Zoiko publishes waitlist.joined.v1"
   },
   "publish_waitlist_offered_v1": {
    "action": "send",

@@ -4,11 +4,13 @@ This is the ONLY module other domain modules may import from `modules.orchestrat
 """
 from .definitions import (
     create_definition,
+    create_from_template,
     edit_definition,
     list_definitions,
     new_version,
     publish_definition,
     retire_definition,
+    templates,
 )
 from .engine import (
     advance,
@@ -23,12 +25,14 @@ from .engine import (
     resume,
     set_overlay,
     start,
+    start_automatically,
 )
 
 __all__ = [
-    "advance", "create_definition", "edit_definition", "fire_all_tenants", "fire_due_timers",
+    "advance", "create_definition", "create_from_template",
+    "edit_definition", "fire_all_tenants", "fire_due_timers",
     "history", "list_definitions", "list_escalations", "list_instances", "new_version",
     "ownerless_count",
     "publish_definition", "reassign", "record_escalation", "resume", "retire_definition",
-    "set_overlay", "start",
+    "set_overlay", "start", "start_automatically", "templates",
 ]

@@ -18,7 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from foundation import fhir, metrics, pagination, synthetic
-from foundation.cell_context import tenant_transaction
+from foundation.cell_context import bind_context, tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.idempotency import IdempotentOutcome
 from foundation.idempotency import run as run_once
@@ -1226,12 +1226,17 @@ def staff_settings(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
             if "waitlist_offer_hours" in sent:
                 waitlist.set_offer_hours(
                     org, sent["waitlist_offer_hours"], by=auth.actor_public_id)
-            if "hours" in sent or "waitlist_offer_hours" not in sent:
+            # The clinic's weekly summary email to its administrators (DEV-392).
+            if "weekly_report" in sent:
+                comms.set_weekly_report(org, sent["weekly_report"], by=auth.actor_public_id)
+            if "hours" in sent or not {"waitlist_offer_hours", "weekly_report"} & set(sent):
                 trust.set_response_target(org, sent.get("hours"), by=auth.actor_public_id)
     with tenant_transaction():
         recipients = len(trust.verified_emails_for_role(org, "R04"))
         target = trust.response_target_hours(org)
         offer_hours = waitlist.offer_hours_for(org)
+        weekly = comms.weekly_report_enabled(org)
+        admins = len(trust.verified_emails_for_role(org, "R13"))
     return JsonResponse(
         {
             "response_target_hours": target,
@@ -1241,6 +1246,8 @@ def staff_settings(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
             "waitlist_offer_hours": offer_hours,
             "waitlist_offer_default": settings.WAITLIST_OFFER_HOURS,
             "late_email_recipients": recipients,
+            "weekly_report": weekly,
+            "weekly_report_recipients": admins,
         }
     )
 
@@ -1456,7 +1463,7 @@ def platform_overview(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
     }
     now = utc_now()
     since = now - dt.timedelta(hours=24)
-    rows = []
+    rows: list[dict[str, Any]] = []
     for t in tenants:
         on = (
             caps_by_country.get(t["country"], frozenset()) & all_caps
@@ -1486,6 +1493,25 @@ def platform_overview(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
                     "decisions": policy.decision_counts(since),
                 }
             )
+    broken = [
+        (r["id"], r["audit"]["chain_bad_seq"]) for r in rows if not r["audit"]["chain_ok"]
+    ]
+    if broken:
+        with tenant_transaction():
+            open_titles = {i["title"] for i in incidents}
+            for tid, bad_seq in broken:
+                title = f"Audit chain integrity failure ({tid})"
+                if title not in open_titles:
+                    trust.record_system_incident(
+                        title=title,
+                        details=(
+                            f"Tenant {tid} audit chain failed verification at entry #{bad_seq}."
+                        ),
+                        safety_impact=True,
+                    )
+                    open_titles.add(title)
+                    platform_work["open_incidents"] = int(platform_work["open_incidents"]) + 1
+                    platform_work["high_incidents"] = int(platform_work["high_incidents"]) + 1
     return JsonResponse(
         {
             "cell": auth.context.cell_id,
@@ -1840,6 +1866,59 @@ def platform_readiness_step(
             )
         labels = trust.actor_labels()
     return JsonResponse({"release": _release_json(done, labels)})
+
+
+# ------------------------------------------------------------------ named people (DEV-396, DEV-397)
+def _named_json(n: dict[str, Any], labels: dict[str, str]) -> dict[str, Any]:
+    return {**n, "holder_name": labels.get(n["holder"], "Zoiko staff"),
+            "appointed_by_name": labels.get(n["appointed_by"], "Zoiko staff")}
+
+
+@endpoint("GET", "POST")
+def platform_named_roles(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET: who holds the master key's recovery copies and who signs releases. POST {title,
+    holder, envelope_code}: name someone (support officer, never yourself)."""
+    org = _platform_only(auth)
+    if request.method == "POST":
+        body = json_body(request)
+        decision = _authorize(auth, "write:platform", organization_public_id=org)
+        with tenant_transaction():
+            made = readiness.appoint(
+                title=body.get("title"), holder_ref=body.get("holder"),
+                envelope_code=body.get("envelope_code", ""),
+                actor_public_id=auth.actor_public_id, decision=decision, organization_ref=org)
+            labels = trust.actor_labels()
+        return JsonResponse({"named": _named_json(made, labels)}, status=201)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    with tenant_transaction():
+        rows = readiness.list_named()
+        holders = readiness.key_holders()
+        labels = trust.actor_labels()
+    return JsonResponse({"named": [_named_json(r, labels) for r in rows],
+                         "key_holders_confirmed": len(holders), "key_holders_needed": 2,
+                         "can_name": "R11" in auth.roles, "me": auth.actor_public_id})
+
+
+@endpoint("POST")
+def platform_named_role_step(
+    request: HttpRequest, auth: trust.Authenticated, named_id: str, step: str
+) -> HttpResponse:
+    """confirm (only the person named) | withdraw (a support officer, or the person)."""
+    org = _platform_only(auth)
+    if step not in ("confirm", "withdraw"):
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    json_body(request)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    decision = (_authorize(auth, "write:platform", organization_public_id=org)
+                if step == "withdraw" and "R11" in auth.roles else None)
+    with tenant_transaction():
+        if step == "confirm":
+            done = readiness.confirm(named_ref=named_id, actor_public_id=auth.actor_public_id)
+        else:
+            done = readiness.withdraw(named_ref=named_id, actor_public_id=auth.actor_public_id,
+                                      decision=decision, organization_ref=org)
+        labels = trust.actor_labels()
+    return JsonResponse({"named": _named_json(done, labels)})
 
 
 # ------------------------------------------------------------------ country packs (DEV-128)
@@ -5664,11 +5743,17 @@ def _owners(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 @endpoint("GET", "POST")
 def staff_workflow_definitions(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
-    """GET: the workflow definitions. POST {key, journey, path, timer_policies}: a draft (admin)."""
+    """GET: definitions and standard journeys. POST: a draft (admin), own or {template}."""
     org = _staff_only(auth)
     if request.method == "POST":
         body = json_body(request)
         decision = _authorize(auth, "write:workflow", organization_public_id=org)
+        if "template" in body:            # one of the standard journeys (DEV-394)
+            with tenant_transaction():
+                made = orchestration.create_from_template(
+                    template=body.get("template"), actor_public_id=auth.actor_public_id,
+                    decision=decision, organization_ref=org)
+            return JsonResponse({"definition": made}, status=201)
         with tenant_transaction():
             made = orchestration.create_definition(
                 key=text(body, "key"),
@@ -5684,7 +5769,8 @@ def staff_workflow_definitions(request: HttpRequest, auth: trust.Authenticated) 
     _authorize(auth, "read:workflow", organization_public_id=org)
     with tenant_transaction():
         rows = orchestration.list_definitions()
-    return JsonResponse({"definitions": rows, "can_write": "R13" in auth.roles})
+    return JsonResponse({"definitions": rows, "templates": orchestration.templates(),
+                         "can_write": "R13" in auth.roles})
 
 
 @endpoint("POST")
@@ -5977,6 +6063,8 @@ def staff_partners(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
             made = integration.create_client(
                 label=text(body, "label"),
                 allowed_types=body.get("allowed_types"),
+                scopes=body.get("scopes"),                      # DEV-393
+                environment=body.get("environment", "live"),
                 organization_ref=org,
                 actor_public_id=auth.actor_public_id,
                 decision=decision,
@@ -6085,6 +6173,64 @@ def sendgrid_events(request: HttpRequest) -> HttpResponse:
         changed += record_delivery(
             ref, status, _dt.datetime.fromtimestamp(when, tz=_dt.timezone.utc))
     return JsonResponse({"recorded": changed})
+
+
+@csrf_exempt
+@require_POST
+def ses_events(request: HttpRequest) -> HttpResponse:
+    """AWS SES delivery events through SNS (DEV-403). No sign-in: SNS's signature over the message,
+    from our one topic, IS the credential, checked before anything is used. Only our email id and
+    the outcome are kept."""
+    import datetime as _dt
+
+    from foundation import sns_events
+    from foundation.mail import record_delivery
+
+    body = request.read(300_001)
+    if len(body) > 300_000:
+        return HttpResponse(status=413)
+    try:
+        message = json.loads(body)
+    except ValueError:
+        return HttpResponse(status=400)
+    if not isinstance(message, dict) or not sns_events.verify(message):
+        return HttpResponse(status=401)
+    if message.get("Type") == "SubscriptionConfirmation":
+        return HttpResponse(status=200 if sns_events.confirm_subscription(message) else 502)
+    found = sns_events.receipt(message) if message.get("Type") == "Notification" else None
+    changed = record_delivery(found[0], found[1], _dt.datetime.now(_dt.timezone.utc)) \
+        if found else False
+    return JsonResponse({"recorded": int(changed)})
+
+
+@csrf_exempt
+@require_POST
+def stripe_events(request: HttpRequest) -> HttpResponse:
+    """Stripe's payment events (DEV-403). No sign-in: Stripe's signature is the credential, checked
+    first. The event only says WHICH payment changed; its outcome is asked of Stripe again."""
+    import time as _time
+
+    from modules.billing import stripe_provider
+
+    body = request.read(500_001)
+    if len(body) > 500_000:
+        return HttpResponse(status=413)
+    if not stripe_provider.verify_webhook(body, request.headers.get("Stripe-Signature", ""),
+                                          _time.time()):
+        return HttpResponse(status=401)
+    try:
+        session = stripe_provider.session_of(json.loads(body))
+    except ValueError:
+        return HttpResponse(status=400)
+    if session is None:
+        return JsonResponse({"used": False})
+    for tenant in trust.list_tenants():
+        if tenant["type"] == "platform" or tenant["status"] != "active":
+            continue
+        with bind_context(trust.context_for(tenant["public_id"])):
+            if billing.refresh_by_provider_ref(session):
+                return JsonResponse({"used": True})
+    return JsonResponse({"used": False})
 
 
 @csrf_exempt
@@ -6371,16 +6517,21 @@ def staff_ai_permits(request: HttpRequest, auth: trust.Authenticated) -> HttpRes
     _ai_admin(auth)
     if request.method == "POST":
         body = json_body(request)
-        model, prompt = text(body, "model"), text(body, "prompt")
+        feature = text(body, "feature_id")
+        # DEV-399: a feature whose provider is registered (the reply draft, Claude when switched
+        # on) is pinned to exactly what that provider runs; otherwise the stated model and prompt.
+        pinned_model, pinned_prompt = ai.feature_digests(feature)
+        model_digest = pinned_model or ai.digest(text(body, "model"))
+        prompt_digest = pinned_prompt or ai.digest(text(body, "prompt"))
         tools = [t for t in text(body, "tools", False).replace(",", " ").split() if t]
         with tenant_transaction():
             made = ai.create_permit(
-                feature_id=text(body, "feature_id"),
+                feature_id=feature,
                 purpose=text(body, "purpose"),
                 lane=text(body, "lane"),
                 level=text(body, "level"),
-                model_digest=ai.digest(model),
-                prompt_digest=ai.digest(prompt),
+                model_digest=model_digest,
+                prompt_digest=prompt_digest,
                 allowed_tools=tools,
                 created_by_ref=auth.actor_public_id,
                 clinical_owner_ref=text(body, "clinical_owner", False),
@@ -6426,6 +6577,63 @@ def staff_ai_permit_advance(
             expiry=expiry,
         )
     return JsonResponse({"permit": done})
+
+
+@endpoint("GET")
+def platform_ai_permits(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """GET ?customer=<id>: that customer's AI permits, for a Zoiko officer to sign (DEV-399)."""
+    org = _platform_only(auth)
+    _authorize(auth, "read:platform", organization_public_id=org)
+    customer = request.GET.get("customer", "")
+    try:
+        ctx = trust.context_for(customer)
+    except ZoikoError:
+        raise ZoikoError(ErrorCode.NOT_FOUND) from None
+    with tenant_transaction(ctx):
+        rows = ai.list_permits()
+    return JsonResponse({"permits": [{k: v for k, v in r.items() if k != "steps"} for r in rows],
+                         "me": auth.actor_public_id})
+
+
+@endpoint("POST")
+def platform_ai_permit_sign(
+    request: HttpRequest, auth: trust.Authenticated, customer_id: str, permit_id: str
+) -> HttpResponse:
+    """A Zoiko officer signs a customer's AI permit: one of the two signatures (DEV-399)."""
+    org = _platform_only(auth)
+    _authorize(auth, "attest:platform" if "R12" in auth.roles and "R11" not in auth.roles
+               else "write:platform", organization_public_id=org)
+    try:
+        ctx = trust.context_for(customer_id)
+    except ZoikoError:
+        raise ZoikoError(ErrorCode.NOT_FOUND) from None
+    with tenant_transaction(ctx):
+        done = ai.zoiko_sign(permit_id, officer_ref=auth.actor_public_id)
+    return JsonResponse({"permit": done})
+
+
+@endpoint("POST")
+def message_draft_reply(
+    request: HttpRequest, auth: trust.Authenticated, thread_id: str
+) -> HttpResponse:
+    """A draft reply to the patient's last message, for staff to read, change and send themselves
+    (DEV-399). Personal details are removed before any text leaves; nothing is sent or stored."""
+    if not _clinic_side(auth):
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    json_body(request)
+    thread, _org, _decision = _thread_access(auth, thread_id, "write:comms")
+    with tenant_transaction():
+        rows = messaging.read_messages(thread_id)
+        labels = trust.actor_labels()
+    last = next((m for m in reversed(rows) if m["side"] == "patient"), None)
+    if last is None or not last["body"]:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["nothing_to_answer"])
+    names = [*_names(auth, {thread["person_ref"]}).values(), *labels.values()]
+    with tenant_transaction():
+        done = ai.run(ai.REPLY_DRAFT, actor_ref=auth.actor_public_id, purpose_code="OPERATIONS",
+                      input_text=ai.redact(last["body"], names)[:8000])
+    return JsonResponse({"draft": done["output"], "decision": done["decision"],
+                         "note": "A draft only: read it, change it and send it yourself."})
 
 
 # --------------------------------------------------------------------------- retention (DEV-213)
@@ -6481,6 +6689,36 @@ def staff_retention_step(
     with tenant_transaction():
         rule = actions[step](organization_ref=org, rule_ref=rule_id, by=auth.actor_public_id)
     return JsonResponse({"rule": rule})
+
+
+@endpoint("POST")
+def staff_retention_batches(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
+    """POST {data_class}: prepare a batch anonymising what is past the period in force (DEV-398).
+    Nothing changes until a different administrator approves it."""
+    from modules.retention import api as retention
+
+    org = _retention_org(auth, write=True)
+    body = json_body(request)
+    with tenant_transaction():
+        made = retention.prepare_batch(organization_ref=org, data_class=text(body, "data_class"),
+                                       by=auth.actor_public_id)
+    return JsonResponse({"batch": made}, status=201)
+
+
+@endpoint("POST")
+def staff_retention_batch_step(
+    request: HttpRequest, auth: trust.Authenticated, batch_id: str, step: str
+) -> HttpResponse:
+    """approve (a different administrator; it runs at once) | withdraw."""
+    from modules.retention import api as retention
+
+    actions = {"approve": retention.approve_batch, "withdraw": retention.withdraw_batch}
+    if step not in actions:
+        raise ZoikoError(ErrorCode.NOT_FOUND)
+    org = _retention_org(auth, write=True)
+    with tenant_transaction():
+        done = actions[step](organization_ref=org, batch_ref=batch_id, by=auth.actor_public_id)
+    return JsonResponse({"batch": done})
 
 
 # ------------------------------------------------------------------ partner booking system

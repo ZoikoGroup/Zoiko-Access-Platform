@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { changePassword, clearDisplayName, getDisplayName, getEmailStatus, getSettings, resendVerification, saveDisplayName, setEmail, setResponseTarget, setWaitlistOfferHours, getBusinessHours, setBusinessHours, getTwoStepRule, setTwoStepRule, twoStepApi, getSupportAccess, supportAccessStep, type SupportAccessRow, type Staff } from "../api";
+import { changePassword, clearDisplayName, getDisplayName, getEmailStatus, getSettings, resendVerification, saveDisplayName, setEmail, setResponseTarget, setWaitlistOfferHours, setWeeklyReport, getBusinessHours, setBusinessHours, getTwoStepRule, setTwoStepRule, twoStepApi, getSupportAccess, supportAccessStep, type SupportAccessRow, type Staff } from "../api";
 import { TwoStepCard } from "@shared/TwoStep";
 import { ChangePassword } from "../ChangePassword";
 import { EmailCard } from "../EmailCard";
@@ -204,6 +204,30 @@ function OpeningHours() {
   );
 }
 
+/** The weekly summary email to the clinic's administrators (DEV-392): counts only, small numbers
+ *  hidden, sent once a week when the clinic turns it on. */
+function WeeklySummary({ on, recipients, canSet, onSaved }: {
+  on: boolean; recipients: number; canSet: boolean; onSaved: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function flip() {
+    setBusy(true); setError("");
+    try { await setWeeklyReport(!on); onSaved(); }
+    catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Card title="Weekly summary email" sub="Once a week, to this clinic's administrators: bookings, visits and the waiting list for the last seven days. Counts only; numbers under 5 are not shown.">
+      <p><Pill kind={on ? "ok" : "info"}>{on ? "On" : "Off"}</Pill>{" "}
+        {on && recipients === 0 ? "No administrator has a verified email address, so nobody would receive it."
+          : on ? `${recipients} administrator${recipients === 1 ? "" : "s"} will receive it.` : "Nobody receives it."}</p>
+      {canSet && <button className="btn ghost" disabled={busy} onClick={() => void flip()}>{on ? "Turn it off" : "Turn it on"}</button>}
+      {error && <div className="error" role="alert">{error}</div>}
+    </Card>
+  );
+}
+
 export function Settings({ staff }: { staff: Staff | null }) {
   const [version, setVersion] = useState(0);
   const result = useLoad(getSettings, 60_000, version);
@@ -233,6 +257,8 @@ export function Settings({ staff }: { staff: Staff | null }) {
                   ["Waiting-list offer", `${s.waitlist_offer_hours} hours`, "An offered time nobody used goes back to the next person after this."],
                 ]} />
             </Card>
+            <WeeklySummary on={!!s.weekly_report} recipients={s.weekly_report_recipients ?? 0}
+              canSet={!!s.can_set_target} onSaved={() => setVersion((v) => v + 1)} />
             <Card title="Daily late-work email">
               {s.late_email_recipients === 0
                 ? <p><Pill kind="warn">nobody would receive it</Pill> No clinic operations staff member has a verified email address, so late work is only visible on screen. An address is verified when its owner clicks the link in the email we send them (for example the invitation).</p>

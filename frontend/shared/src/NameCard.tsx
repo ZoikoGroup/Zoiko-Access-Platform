@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { useEffect, useState } from "react";
 import { Card } from "./ui";
 
@@ -17,7 +18,7 @@ export function NameCard({ load, onSave, onClear }: {
 
   useEffect(() => {
     load().then((n) => { setSaved(n); setText(n); })
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not load"));
+      .catch((e) => setError(e instanceof Error ? e.message : t("common.couldNotLoad")));
   }, [load]);
 
   async function save(e: React.FormEvent) {
@@ -25,9 +26,9 @@ export function NameCard({ load, onSave, onClear }: {
     setBusy(true); setError(""); setNote("");
     try {
       const name = await onSave(text);
-      setSaved(name); setText(name); setNote("Saved.");
+      setSaved(name); setText(name); setNote(t("common.saved"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the name");
+      setError(err instanceof Error ? err.message : t("name.couldNotSave"));
     } finally {
       setBusy(false);
     }
@@ -37,20 +38,20 @@ export function NameCard({ load, onSave, onClear }: {
     setBusy(true); setError(""); setNote("");
     try {
       await onClear();
-      setSaved(""); setText(""); setNote("Removed. You are shown by your login again.");
+      setSaved(""); setText(""); setNote(t("name.removed"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not remove the name");
+      setError(err instanceof Error ? err.message : t("name.couldNotRemove"));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Card title="The name I am shown by"
-      sub="Patients see it next to their appointments and colleagues see it in lists, instead of your login. You type it yourself and nobody checks it, so use your real name and title.">
+    <Card title={t("name.title")}
+      sub={t("name.sub")}>
       {saved === null ? <div className="empty">{error || "Loading…"}</div> : (
         <form onSubmit={(e) => void save(e)} style={{ display: "grid", gap: 8, maxWidth: 360 }}>
-          <input aria-label="Display name" placeholder="e.g. Dr. Asha Rao" maxLength={80} value={text}
+          <input aria-label={t("name.label")} placeholder={t("name.example")} maxLength={80} value={text}
             onChange={(e) => setText(e.target.value)} />
           {error && <div className="error" role="alert">{error}</div>}
           {note && <div className="notice" role="status" style={{ background: "var(--ok-bg)", color: "var(--ok)" }}>{note}</div>}
@@ -68,8 +69,8 @@ export function NameCard({ load, onSave, onClear }: {
 export function friendlyNameError(e: unknown): Error {
   const code = (e as { code?: string } | null)?.code;
   if (code === "VALIDATION_FAILED") {
-    return new Error("That name is not accepted. Use 2 to 80 characters, no email address.");
+    return new Error(t("name.invalid"));
   }
-  if (code === "POLICY_DENIED") return new Error("Patients and guardians do not have a display name: your name is in My Profile.");
-  return e instanceof Error ? e : new Error("Could not save the name");
+  if (code === "POLICY_DENIED") return new Error(t("name.patientsHaveNone"));
+  return e instanceof Error ? e : new Error(t("name.couldNotSave"));
 }

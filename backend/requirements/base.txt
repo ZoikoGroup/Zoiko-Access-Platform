@@ -7,3 +7,5 @@ tzdata>=2024.1
 # 50.0.2 or later (DEV-364): earlier versions did not check that a loaded EC public key is valid
 # (the SendGrid receipt check loads one) and bundled a vulnerable OpenSSL.
 cryptography>=50.0.2,<51
+# Claude drafts staff replies when AI_PROVIDER=anthropic (DEV-399). Imported only then.
+anthropic>=1.0,<2

@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import Any
 
 import pytest
 from django.db import DatabaseError, connection, transaction
@@ -46,7 +47,8 @@ def walk(permit, *, upto="RELEASE_REVIEW"):
             break
 
 
-def authorize(permit, **over):
+def authorize(permit, zoiko="zoiko-officer", **over):
+    """A clinic signer and (DEV-399) a Zoiko platform officer, then authorize."""
     args = {
         "actor_ref": "lead",
         "approver_refs": ["legal", "clinical"],
@@ -54,6 +56,11 @@ def authorize(permit, **over):
         "clock": CLOCK,
         **over,
     }
+    if zoiko:
+        try:
+            ai.zoiko_sign(permit["id"], officer_ref=zoiko)
+        except ZoikoError:
+            pass                      # not in review: the advance below says why
     return ai.advance(permit["id"], "AUTHORIZED", **args)
 
 
@@ -161,14 +168,14 @@ def test_authorizing_needs_two_other_people_and_a_sensible_expiry(ctx_a):
     with tenant_transaction(ctx_a):
         p = propose()
         walk(p)
-        for bad in (
-            {"approver_refs": ["legal"]},  # only one signer
-            {"approver_refs": ["legal", "legal"]},  # the same person twice
+        cases: list[dict[str, Any]] = [
+            {"approver_refs": []},  # no clinic administrator signed (DEV-399)
             {"approver_refs": ["legal", "creator"]},  # the creator signing off their own work
             {"expiry": None},
             {"expiry": NOW},  # no expiry / already over
             {"expiry": NOW + dt.timedelta(days=366)},
-        ):  # too long
+        ]
+        for bad in cases:  # the last one is too long
             with pytest.raises(ZoikoError) as e:
                 authorize(p, **bad)
             assert code(e) in (ErrorCode.POLICY_DENIED, ErrorCode.VALIDATION_FAILED), bad
@@ -176,18 +183,35 @@ def test_authorizing_needs_two_other_people_and_a_sensible_expiry(ctx_a):
         assert AiPermitEvent.objects.filter(permit_ref=p["id"], to_state="AUTHORIZED").count() == 1
 
 
-def test_a_clinical_content_feature_needs_a_named_clinical_owner(ctx_a):
+def test_authorizing_needs_a_zoiko_officer_as_well_as_a_clinic_administrator(ctx_a):
+    """Decided 27 Nov 2026 (DEV-399)."""
     with tenant_transaction(ctx_a):
-        p = propose(lane="B", level="A2")
+        p = propose()
         walk(p)
         with pytest.raises(ZoikoError) as e:
-            authorize(p)
-        assert code(e) == ErrorCode.VALIDATION_FAILED
+            authorize(p, zoiko=None)
+        assert code(e) == ErrorCode.POLICY_DENIED
+        with pytest.raises(ZoikoError) as own:
+            ai.zoiko_sign(p["id"], officer_ref="creator")      # never the creator
+        assert code(own) == ErrorCode.POLICY_DENIED
+        ai.zoiko_sign(p["id"], officer_ref="zoiko-1")
+        with pytest.raises(ZoikoError) as second:
+            ai.zoiko_sign(p["id"], officer_ref="zoiko-2")      # one officer per permit
+        assert code(second) == ErrorCode.CONFLICT_VERSION
+        done = authorize(p, zoiko=None, approver_refs=["legal"])
+        assert done["state"] == "AUTHORIZED" and done["zoiko_signed"] is True
+
+
+def test_no_clinical_content_feature_can_be_authorized_even_with_a_clinical_owner(ctx_a):
+    """Decided 27 Nov 2026 (DEV-399): no clinical content at all for now."""
+    with tenant_transaction(ctx_a):
         q = propose(
             feature_id="notes.summary_assist", lane="B", level="A2", clinical_owner_ref="doc_1"
         )
         walk(q)
-        assert authorize(q)["state"] == "AUTHORIZED"
+        with pytest.raises(ZoikoError) as e:
+            authorize(q)
+        assert code(e) == ErrorCode.CLINICAL_ACCEPTANCE_ABSENT
 
 
 @pytest.mark.parametrize("over", [{"level": "A3"}, {"lane": "C"}, {"lane": "D"}])
@@ -514,6 +538,7 @@ def test_a_change_review_goes_to_validation_if_material_or_back_to_authorized_if
         assert code(unsigned) == ErrorCode.POLICY_DENIED
         ai.sign_off(p["id"], actor_ref="legal")
         ai.sign_off(p["id"], actor_ref="clinical")
+        ai.zoiko_sign(p["id"], officer_ref="zoiko-officer")    # DEV-399: fresh, after a change
         back = ai.advance(p["id"], "AUTHORIZED", actor_ref="lead", expiry=LATER, clock=CLOCK)
         assert back["state"] == "AUTHORIZED"
         ran = ai.run(

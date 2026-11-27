@@ -15,6 +15,14 @@ class TrustConfig(AppConfig):
 
         rotation.register("trust", rotate)
 
+        # Counted for the retention report (DEV-398, suggested 2 years); never closed here.
+        from foundation import retention
+
+        from .retention import count_older
+
+        retention.register("unused_accounts", "Accounts nobody has signed in to",
+                           "the last sign-in", count_older, suggested_days=2 * retention.YEAR)
+
         # Hourly: a patient whose identity check has expired stops showing as verified.
         from foundation import periodic
 

@@ -25,6 +25,10 @@ from modules.evidence.api import AuditOutcome, record
 
 from .models import AiPermitEvent, AiUsePermit, Lane, Level, PermitState
 
+# Decided 27 Nov 2026 (DEV-399): no clinical content at all for now (lane B joins C and D), and
+# only these features may be answered by an outside model.
+NO_CLINICAL_LANES = frozenset({Lane.CLINICAL_CONTENT})
+OUTSIDE_MODEL_FEATURES = frozenset({"message.reply_draft"})
 # Agents never order medication or release critical results (docs, file 05 section G rules).
 FORBIDDEN_TOOLS = frozenset({"order_medication", "release_critical_result"})
 NEEDS_REGULATORY_LEVELS = frozenset({Level.A3})
@@ -93,6 +97,7 @@ def permit_dict(p: AiUsePermit) -> dict[str, Any]:
         "two_person_tools": p.two_person_tools,
         "max_steps": p.max_steps,
         "approvers": len(p.approver_refs),
+        "zoiko_signed": bool(p.zoiko_signer_ref),
         "expiry": p.expiry.isoformat() if p.expiry else None,
     }
 
@@ -202,9 +207,11 @@ def advance(
             raise _bad("reason")
         if to_state == S.CHANGE_REVIEW:
             p.approver_refs = []  # a change needs fresh sign-offs; the old ones do not carry over
+            p.zoiko_signer_ref = ""
         before = p.state
         p.state = to_state
-        p.save(update_fields=["state", "approver_refs", "expiry", "updated_at"])
+        p.save(update_fields=["state", "approver_refs", "zoiko_signer_ref", "expiry",
+                              "updated_at"])
         AiPermitEvent.objects.create(
             permit_ref=p.public_id,
             from_state=before,
@@ -231,8 +238,13 @@ def _check_can_authorize(
 ) -> None:
     if p.level in NEEDS_REGULATORY_LEVELS or p.lane in NEEDS_REGULATORY_LANES:
         raise ZoikoError(ErrorCode.CLINICAL_ACCEPTANCE_ABSENT)  # no regulatory qualification exists
+    if p.lane in NO_CLINICAL_LANES:
+        raise ZoikoError(ErrorCode.CLINICAL_ACCEPTANCE_ABSENT)  # no clinical content (DEV-399)
     people = {a for a in (approvers or []) if a}
-    if len(people) < MIN_APPROVERS or p.created_by_ref in people:
+    if p.created_by_ref in people or p.created_by_ref == p.zoiko_signer_ref:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    # A clinic administrator of this customer AND a Zoiko platform officer (DEV-399): two people.
+    if not people or not p.zoiko_signer_ref or len(people | {p.zoiko_signer_ref}) < MIN_APPROVERS:
         raise ZoikoError(ErrorCode.POLICY_DENIED)
     if p.lane == Lane.CLINICAL_CONTENT and not p.clinical_owner_ref:
         raise _bad("clinical_owner")
@@ -274,6 +286,25 @@ def sign_off(permit_ref: str, *, actor_ref: str) -> dict[str, Any]:
             object_ref=p.public_id,
             outcome=AuditOutcome.ALLOWED,
         )
+    return permit_dict(p)
+
+
+def zoiko_sign(permit_ref: str, *, officer_ref: str) -> dict[str, Any]:
+    """A Zoiko platform officer signs this customer's permit (DEV-399). The caller has checked the
+    officer is Zoiko staff and bound THIS customer's context. Once per permit; never its creator."""
+    with transaction.atomic():
+        p = _own(permit_ref)
+        if p.state not in (S.RELEASE_REVIEW, S.CHANGE_REVIEW):
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        if not officer_ref or officer_ref == p.created_by_ref or officer_ref in p.approver_refs:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        if p.zoiko_signer_ref and p.zoiko_signer_ref != officer_ref:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)      # already signed by another officer
+        if not p.zoiko_signer_ref:
+            p.zoiko_signer_ref = officer_ref
+            p.save(update_fields=["zoiko_signer_ref", "updated_at"])
+            record(actor_ref=officer_ref, action="ai.permit.zoiko_sign", object_type="ai_permit",
+                   object_ref=p.public_id, outcome=AuditOutcome.ALLOWED)
     return permit_dict(p)
 
 

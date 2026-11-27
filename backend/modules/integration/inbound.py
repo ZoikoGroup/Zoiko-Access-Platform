@@ -28,6 +28,7 @@ import re
 import secrets
 from typing import Any
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 
 from foundation import pagination
@@ -45,7 +46,11 @@ from .models import ClientState, InboundEvent, InboundState, PartnerClient
 
 WRITE = "write:integration"
 WRITE_PLATFORM = "write:platform"
-CHECKS = ("identity", "legal", "security")       # T-43: what Zoiko records before a secret exists
+# T-43: what Zoiko records before a secret exists. Decided 27 Nov 2026 (DEV-401): identity, a
+# signed contract ("legal"), the security questionnaire, and a passed sandbox test run.
+CHECKS = ("identity", "legal", "security", "sandbox_test")
+CHECK_WORDS = {"identity": "Identity checked", "legal": "Signed contract",
+               "security": "Security questionnaire", "sandbox_test": "Passed sandbox test run"}
 # R10: a partner developer manages its own keys and webhooks (DEV-161)
 MANAGING_ROLES = frozenset({"R13", "R10"})
 MAX_BODY = 4096
@@ -73,6 +78,7 @@ def client_dict(c: PartnerClient) -> dict[str, Any]:
         "public_id": c.public_id, "label": c.label, "key_id": c.key_id,
         "allowed_types": list(c.allowed_types), "state": c.state,
         "rate_per_minute": c.rate_per_minute, "created_at": c.created_at.isoformat(),
+        "scopes": scopes_of(c), "environment": c.environment,
         "checks": {name: name in (c.validation or {}) for name in CHECKS},
         "last_used_at": c.last_used_at.isoformat() if c.last_used_at else None,
     }
@@ -110,9 +116,27 @@ def _clean_types(types: Any) -> list[str]:
     return clean
 
 
+# What a key may do on the public API (DEV-393). events:send is what every key always did.
+SCOPES = ("events:send", "catalog:read")
+ENVIRONMENTS = ("live", "sandbox")
+
+
+def scopes_of(c: PartnerClient) -> list[str]:
+    """A key made before scopes existed (none recorded) does what keys always did: send events."""
+    return sorted(c.scopes) if c.scopes else ["events:send"]
+
+
+def _clean_scopes(scopes: Any) -> list[str]:
+    if scopes is None:
+        return ["events:send"]
+    if not isinstance(scopes, list) or not scopes or any(s not in SCOPES for s in scopes):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["scopes"])
+    return sorted(set(scopes))
+
+
 def create_client(
     *, label: str, allowed_types: Any, organization_ref: str | None, actor_public_id: str,
-    decision: policy.Decision,
+    decision: policy.Decision, scopes: Any = None, environment: Any = "live",
 ) -> dict[str, Any]:
     """Register a partner. It has NO secret yet (T-43): a Zoiko support person records the
     identity, legal and security checks first, then `issue_client_secret` shows the secret once."""
@@ -121,6 +145,9 @@ def create_client(
     if not 2 <= len(name) <= 80 or any(ord(ch) < 32 for ch in name):
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["label"])
     chosen = _clean_types(allowed_types)
+    granted = _clean_scopes(scopes)
+    if environment not in ENVIRONMENTS:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["environment"])
     ctx = require_context()
     tenant_public = trust.tenant_public_id(ctx.tenant_id)
     with transaction.atomic():
@@ -129,6 +156,7 @@ def create_client(
             raise ZoikoError(ErrorCode.RATE_LIMITED)
         row = PartnerClient(label=name, key_id=f"pc.{tenant_public}.{secrets.token_hex(4)}",
                             secret_enc="", allowed_types=chosen, created_by_ref=actor_public_id,
+                            scopes=granted, environment=str(environment),
                             state=ClientState.PENDING, **_scope())
         row.save()
         record(actor_ref=actor_public_id, action="integration.partner_created",
@@ -241,6 +269,10 @@ def issue_client_secret(
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         if any(name not in (row.validation or {}) for name in CHECKS):
             raise ZoikoError(ErrorCode.POLICY_DENIED)
+        # DEV-401: the first partners are a laboratory and a pharmacy; other kinds wait.
+        live = tuple(getattr(settings, "PARTNER_LIVE_KINDS", ()))
+        if any(not t.startswith(live) for t in (row.allowed_types or [])):
+            raise ZoikoError(ErrorCode.POLICY_DENIED, fields=["partner_kind"])
         secret = f"pcsec_{secrets.token_urlsafe(32)}"
         row.secret_enc = encrypt(secret, tenant_id=row.tenant_id,
                                  context=_secret_context(row.public_id))
@@ -306,6 +338,8 @@ def receive(*, raw_body: bytes, signature: str, delivery_id: str, clock: Clock |
             raise ZoikoError(ErrorCode.UNAUTHENTICATED) from None
         if not hmac.compare_digest(sign(secret, stamp, delivery_id, raw_body), given):
             raise ZoikoError(ErrorCode.UNAUTHENTICATED)
+        if "events:send" not in scopes_of(client):             # a read-only key (DEV-393)
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
         return _accept(client, raw_body, delivery_id, now)
 
 

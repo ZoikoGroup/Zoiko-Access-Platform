@@ -5,8 +5,11 @@ import App from "./App";
 import "./styles.css";
 import "@shared/auth.css";
 import "./clinician.css";
+import { startLanguage } from "@shared/i18n";
 
 installFatalNotice();
+
+startLanguage();              // DEV-402: English for now; the framework is ready
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

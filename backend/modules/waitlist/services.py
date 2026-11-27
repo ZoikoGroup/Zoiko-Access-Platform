@@ -87,6 +87,10 @@ def join(
                 **_scope())
             trust.link_person_to_site(person_ref, service["organization_ref"], "waitlist")
             _audit(actor_public_id, "waitlist.join", entry.public_id)
+            # References only: which entry, and that it is waiting (DEV-395).
+            emit(event_type="waitlist.joined.v1", aggregate_type="waitlist",
+                 aggregate_ref=entry.public_id,
+                 payload={"entry_ref": entry.public_id, "state": entry.state})
             return entry_dict(entry)
     except IntegrityError:
         raise ZoikoError(ErrorCode.CONFLICT_VERSION) from None            # already on the list

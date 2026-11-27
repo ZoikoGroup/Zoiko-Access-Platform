@@ -147,8 +147,8 @@ export const checkEntitlement = (member_id: string, category: string, on?: strin
 export const getDashboard = () => v1<Dashboard>("portal/dashboard");
 
 export const getKeys = async () => (await v1<{ clients: PartnerKey[] }>("staff/integrations/partners")).clients;
-export const addKey = async (label: string, allowed_types: string[]) =>
-  (await v1<{ client: PartnerKey }>("staff/integrations/partners", { method: "POST", body: JSON.stringify({ label, allowed_types }) })).client;
+export const addKey = async (label: string, allowed_types: string[], scopes: string[], environment: "live" | "sandbox") =>
+  (await v1<{ client: PartnerKey }>("staff/integrations/partners", { method: "POST", body: JSON.stringify({ label, allowed_types, scopes, environment }) })).client;
 export const keyStep = async (id: string, step: "suspend" | "resume" | "revoke" | "rotate-secret" | "issue-secret") =>
   (await v1<{ client: PartnerKey }>(`staff/integrations/partners/${encodeURIComponent(id)}/${step}`, { method: "POST", body: "{}" })).client;
 export const getHooks = async () => (await v1<{ endpoints: Hook[] }>("staff/integrations/webhooks")).endpoints;

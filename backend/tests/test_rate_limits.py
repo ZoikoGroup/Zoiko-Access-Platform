@@ -151,3 +151,16 @@ def test_a_real_server_must_enforce(value):
     assert any("ZOIKO_RATE_LIMITING" in x
                for x in release_problems(good(ZOIKO_RATE_LIMITING=value)))
     assert release_problems(good(ZOIKO_RATE_LIMITING="enforce")) == []
+
+
+def test_throttled_summary_counts_exceeded_windows_without_leaking_keys(settings):
+    from foundation import ratelimit
+
+    settings.ZOIKO_RATE_LIMITING = "enforce"
+    settings.RATE_LIMITS = {"ip_auth": 2}
+    for _ in range(3):
+        sign_in_attempt("10.9.9.9")
+    summary = ratelimit.throttled_summary()
+    assert summary["throttled_by_kind"]["ip_auth"] >= 1
+    assert summary["active_throttles"] >= 1
+    assert "10.9.9.9" not in str(summary)

@@ -16,6 +16,13 @@ class BillingConfig(AppConfig):
         # tests). No real provider has been chosen, so production registers none.
         if getattr(settings, "BILLING_PRETEND_PROVIDER", False):
             payments.register(payments.pretend_provider)
+        # DEV-400 (decided 27 Nov 2026): Stripe, when this deployment chooses it.
+        from django.conf import settings as conf
+
+        if getattr(conf, "BILLING_PAYMENT_PROVIDER", "") == "stripe":
+            from .stripe_provider import stripe_provider
+
+            payments.register(stripe_provider)
 
         # A patient-record merge (DEV-365): these rows never move, they are only counted.
         from foundation import person_refs

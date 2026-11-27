@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { useEffect, useState } from "react";
 import { Card } from "./ui";
 
@@ -24,22 +25,22 @@ export function EmailCard({ load, onSave, onResend }: {
   const [note, setNote] = useState("");
 
   useEffect(() => {
-    load().then(setStatus).catch((e) => setError(e instanceof Error ? e.message : "Could not load"));
+    load().then(setStatus).catch((e) => setError(e instanceof Error ? e.message : t("common.couldNotLoad")));
   }, [load]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim() || !password) { setError("Enter the new address and your password."); return; }
+    if (!email.trim() || !password) { setError(t("email.enterBoth")); return; }
     setBusy(true); setError(""); setNote("");
     try {
       const done = await onSave(email.trim(), password);
       setStatus({ email: done.email, verified: done.verified });
       setNote(done.sent
-        ? "We sent a link to that address. Open it to confirm the address is yours."
-        : "Saved. A link was sent a moment ago: wait a minute before asking for another.");
+        ? t("email.linkSent")
+        : t("email.savedWait"));
       setEditing(false); setEmail(""); setPassword("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the address");
+      setError(err instanceof Error ? err.message : t("email.couldNotSave"));
     } finally {
       setBusy(false);
     }
@@ -48,23 +49,23 @@ export function EmailCard({ load, onSave, onResend }: {
   async function resend() {
     setBusy(true); setError(""); setNote("");
     try {
-      setNote((await onResend()) === "sent" ? "We sent the link again." : "Please wait a minute before asking again.");
+      setNote((await onResend()) === "sent" ? t("email.sentAgain") : t("email.waitMinute"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not send the link");
+      setError(err instanceof Error ? err.message : t("email.couldNotSend"));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Card title="My email address"
-      sub="Used for password resets and notices. Only an address you have confirmed can reset your password.">
+    <Card title={t("email.title")}
+      sub={t("email.sub")}>
       {status === null ? <div className="empty">{error || "Loading…"}</div> : (
         <>
           <p>
             {status.email
               ? <><b>{status.email}</b> {status.verified ? "(confirmed)" : "(not confirmed yet)"}</>
-              : "No email address yet."}
+              : t("email.none")}
           </p>
           {status.email && !status.verified && !editing && (
             <button className="btn ghost" disabled={busy} onClick={() => void resend()}>Send the confirmation link again</button>
@@ -72,9 +73,9 @@ export function EmailCard({ load, onSave, onResend }: {
           {!editing && <button className="btn ghost" onClick={() => { setEditing(true); setNote(""); }}>{status.email ? "Change address" : "Add an address"}</button>}
           {editing && (
             <form onSubmit={(e) => void save(e)} style={{ display: "grid", gap: 8, maxWidth: 360, marginTop: 8 }}>
-              <input type="email" autoComplete="email" aria-label="New email address" placeholder="New email address"
+              <input type="email" autoComplete="email" aria-label={t("email.new")} placeholder={t("email.new")}
                 value={email} onChange={(e) => setEmail(e.target.value)} />
-              <input type="password" autoComplete="current-password" aria-label="Your password" placeholder="Your password, to confirm it is you"
+              <input type="password" autoComplete="current-password" aria-label={t("common.yourPassword")} placeholder={t("email.passwordToConfirm")}
                 value={password} onChange={(e) => setPassword(e.target.value)} />
               <div>
                 <button className="btn" type="submit" disabled={busy}>{busy ? "Saving…" : "Save address"}</button>{" "}
@@ -95,8 +96,8 @@ export function EmailCard({ load, onSave, onResend }: {
 export function friendlyEmailError(e: unknown): Error {
   const code = (e as { code?: string } | null)?.code;
   if (code === "VALIDATION_FAILED") {
-    return new Error("That did not work. Check that the address is valid and that your password is right.");
+    return new Error(t("email.invalid"));
   }
-  if (code === "RATE_LIMITED") return new Error("Too many tries. Wait a little and try again.");
-  return e instanceof Error ? e : new Error("Could not save the address");
+  if (code === "RATE_LIMITED") return new Error(t("common.tooManyTries"));
+  return e instanceof Error ? e : new Error(t("email.couldNotSave"));
 }

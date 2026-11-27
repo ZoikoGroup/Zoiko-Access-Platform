@@ -309,6 +309,7 @@ def test_changes_are_audited_without_the_secret(p):
     assert [e.action for e in found] == [
         "integration.partner_created", "integration.partner_check_identity",
         "integration.partner_check_legal", "integration.partner_check_security",
+        "integration.partner_check_sandbox_test",                       # DEV-401
         "integration.partner_secret_issued", "integration.partner_suspend",
         "integration.partner_resume", "integration.partner_secret_rotated"]
     dump = json.dumps([e.details for e in found])
@@ -352,21 +353,22 @@ def test_values_inside_the_data_never_move_a_message_to_another_customer(p):
 def test_a_new_partner_has_no_secret_and_cannot_send_until_zoiko_has_checked_it(p):
     made = json.loads(add(p).content)["client"]
     assert made["state"] == "pending" and "secret" not in made
-    assert made["checks"] == {"identity": False, "legal": False, "security": False}
+    assert made["checks"] == {"identity": False, "legal": False, "security": False,
+                              "sandbox_test": False}
     with tenant_transaction(p.clinic.ctx):
         assert PartnerClient.objects.get(public_id=made["public_id"]).secret_enc == ""
     r = p.post(f"staff/integrations/partners/{made['public_id']}/issue-secret", subject="boss")
     assert r.status_code == 403                                         # nothing checked yet
 
 
-def test_all_three_checks_are_needed_before_a_secret_is_issued(p):
+def test_all_four_checks_are_needed_before_a_secret_is_issued(p):
     from tests.partner_support import check
     made = json.loads(add(p).content)["client"]
     url = f"staff/integrations/partners/{made['public_id']}/issue-secret"
-    for which in ("identity", "legal"):
+    for which in ("identity", "legal", "security"):                     # DEV-401: four checks
         assert check(p, made["public_id"], which).status_code == 200
         assert p.post(url, subject="boss").status_code == 403           # still one missing
-    assert check(p, made["public_id"], "security").status_code == 200
+    assert check(p, made["public_id"], "sandbox_test").status_code == 200
     r = p.post(url, subject="boss")
     got = json.loads(r.content)["client"]
     assert r.status_code == 200 and got["state"] == "active" and got["secret"].startswith("pcsec_")
@@ -398,7 +400,8 @@ def test_only_zoiko_support_records_a_check_and_it_needs_a_note(p):
                  ).status_code == 404                                    # not Zoiko's own tenant
     assert check(p, "no-such-partner", "identity").status_code == 404
     assert check(p, made["public_id"], "identity").status_code == 200
-    assert clients(p)[0]["checks"] == {"identity": True, "legal": False, "security": False}
+    assert clients(p)[0]["checks"] == {"identity": True, "legal": False, "security": False,
+                                       "sandbox_test": False}
 
 
 def test_support_sees_waiting_partners_without_notes_or_secrets_and_a_clinic_does_not(p):

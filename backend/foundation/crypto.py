@@ -65,9 +65,48 @@ def parse_keys(raw: str) -> dict[str, bytes]:
     return keys
 
 
+KEY_SOURCES = ("env", "aws_kms")
+_unwrapped: dict[str, dict[str, bytes]] = {}
+
+
+def key_source() -> str:
+    """Where the master keys come from (decided 27 Nov 2026, DEV-396): "env" (development: the
+    keys themselves are in ZOIKO_FIELD_KEYS) or "aws_kms" (production: ZOIKO_FIELD_KEYS holds each
+    key ENCRYPTED by AWS KMS, "id:base64(CiphertextBlob)", unwrapped by KMS when first needed)."""
+    value = str(getattr(settings, "FIELD_KEY_SOURCE", "env") or "env").strip().lower()
+    return value if value in KEY_SOURCES else "env"
+
+
+def unwrap_with_kms(raw: str) -> dict[str, bytes]:
+    """Each "id:wrapped" entry, unwrapped by KMS. Kept in memory for this process only."""
+    from .aws import AwsError, kms_decrypt
+
+    found: dict[str, bytes] = {}
+    for part in (p.strip() for p in raw.split(",") if p.strip()):
+        key_id, sep, wrapped = part.partition(":")
+        if not sep or not key_id.isalnum() or not wrapped:
+            raise ValueError("a wrapped key entry must look like id:base64")
+        try:
+            key = kms_decrypt(wrapped)
+        except AwsError:
+            raise ValueError("the key service could not unwrap a field key") from None
+        if len(key) != KEY_BYTES:
+            raise ValueError("a field key must be 32 bytes")
+        found[key_id] = key
+    if not found:
+        raise ValueError("no field keys configured")
+    return found
+
+
 def _keys() -> dict[str, bytes]:
+    raw = settings.FIELD_KEYS
     try:
-        return parse_keys(settings.FIELD_KEYS)
+        if key_source() == "aws_kms":
+            if raw not in _unwrapped:
+                _unwrapped.clear()                   # only the current setting is ever kept
+                _unwrapped[raw] = unwrap_with_kms(raw)
+            return _unwrapped[raw]
+        return parse_keys(raw)
     except ValueError:
         raise CryptoError from None
 

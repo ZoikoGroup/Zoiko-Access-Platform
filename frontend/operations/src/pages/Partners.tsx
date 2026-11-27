@@ -36,7 +36,7 @@ function PartnerRow({ c, onDone }: { c: PartnerClient; onDone: () => Promise<voi
       </div>
       {c.state === "pending" && (
         <div className="form-row">
-          <button className="btn" disabled={busy || !c.checks.identity || !c.checks.legal || !c.checks.security} onClick={() => void run("issue-secret")}>Get the secret</button>
+          <button className="btn" disabled={busy || !c.checks.identity || !c.checks.legal || !c.checks.security || !c.checks.sandbox_test} onClick={() => void run("issue-secret")}>Get the secret</button>
           <button className="btn ghost" disabled={busy} onClick={() => void run("revoke")}>Revoke</button>
         </div>
       )}

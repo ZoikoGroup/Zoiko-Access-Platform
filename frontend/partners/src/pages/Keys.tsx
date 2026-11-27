@@ -25,12 +25,13 @@ function Row({ k, onChanged }: { k: PartnerKey; onChanged: (secret?: string) => 
         {k.state === "pending" && (
           <small data-testid="checks">Zoiko records three checks before a secret exists: {(Object.keys(CHECK_NAME) as (keyof typeof CHECK_NAME)[]).map((c) => `${CHECK_NAME[c]} ${k.checks[c] ? "done" : "waiting"}`).join(", ")}.</small>
         )}
+        <small>{k.environment === "sandbox" ? "Sandbox key (made-up data only)" : "Live key"} · may {(k.scopes ?? ["events:send"]).map((x) => x === "catalog:read" ? "read services" : "send events").join(" and ")}</small>
         <small>Key id {k.key_id} · may send {k.allowed_types.join(", ") || "nothing"} · {k.rate_per_minute} a minute{k.last_used_at ? ` · last used ${k.last_used_at.slice(0, 16).replace("T", " ")}` : " · never used"}</small>
         {error && <div className="error" role="alert">{error}</div>}
       </div>
       {k.state === "pending" && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn" disabled={busy || !k.checks.identity || !k.checks.legal || !k.checks.security} onClick={() => void run("issue-secret")}>Get the secret</button>
+          <button className="btn" disabled={busy || !k.checks.identity || !k.checks.legal || !k.checks.security || !k.checks.sandbox_test} onClick={() => void run("issue-secret")}>Get the secret</button>
           <button className="btn ghost" disabled={busy} onClick={() => void run("revoke")}>Revoke</button>
         </div>
       )}
@@ -50,13 +51,15 @@ function Row({ k, onChanged }: { k: PartnerKey; onChanged: (secret?: string) => 
 function Add({ onDone }: { onDone: (secret?: string) => void }) {
   const [label, setLabel] = useState("");
   const [types, setTypes] = useState("partner.booking.");
+  const [scopes, setScopes] = useState<string[]>(["events:send"]);
+  const [environment, setEnvironment] = useState<"live" | "sandbox">("sandbox");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setError("");
     try {
-      const made = await addKey(label, types.split(/[\s,;]+/).filter(Boolean));
+      const made = await addKey(label, types.split(/[\s,;]+/).filter(Boolean), scopes, environment);
       setLabel("");
       onDone(`${made.label} was added. It has no secret yet: Zoiko checks who you are first, then you can get the secret here.`);
     } catch (err) {
@@ -67,8 +70,24 @@ function Add({ onDone }: { onDone: (secret?: string) => void }) {
     <form className="ref-form" onSubmit={(e) => void submit(e)}>
       <label>Name<input className="field" value={label} onChange={(e) => setLabel(e.target.value)} required maxLength={80} /></label>
       <label>Event types it may send (separated by commas)<input className="field" value={types} onChange={(e) => setTypes(e.target.value)} required /></label>
+      <fieldset style={{ border: 0, padding: 0 }}>
+        <legend>What the key may do</legend>
+        {[["events:send", "Send events to Zoiko"], ["catalog:read", "Read the published services (public API)"]].map(([code, text]) => (
+          <label key={code} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input type="checkbox" checked={scopes.includes(code)}
+              onChange={(e) => setScopes((cur) => e.target.checked ? [...cur, code] : cur.filter((x) => x !== code))} />
+            {text}
+          </label>
+        ))}
+      </fieldset>
+      <label>Environment
+        <select className="field" value={environment} onChange={(e) => setEnvironment(e.target.value as "live" | "sandbox")}>
+          <option value="sandbox">Sandbox: only made-up data (for building and testing)</option>
+          <option value="live">Live: the customer's real published services</option>
+        </select>
+      </label>
       {error && <div className="error" role="alert">{error}</div>}
-      <button className="btn" type="submit" disabled={busy || !label.trim()}>{busy ? "Adding…" : "Add key"}</button>
+      <button className="btn" type="submit" disabled={busy || !label.trim() || scopes.length === 0}>{busy ? "Adding…" : "Add key"}</button>
     </form>
   );
 }

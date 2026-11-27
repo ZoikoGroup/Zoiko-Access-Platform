@@ -448,6 +448,8 @@ export interface Invoice {
 export const getInvoices = async () => (await request<{ invoices: Invoice[] }>("billing/invoices")).body.invoices;
 
 export interface PaymentAttempt {
+  /** DEV-400: the provider's own payment page (Stripe), when the patient pays there. */
+  pay_url?: string | null;
   public_id: string;
   invoice_ref: string;
   invoice_number: string;

@@ -72,3 +72,39 @@ class GateDecision(CellScopedModel):
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="readiness_gd_scope_idx")]
+
+
+class NamedTitle(models.TextChoices):
+    """Who Zoiko named for what (decided 27 Nov 2026, DEV-396 and DEV-397)."""
+
+    KEY_RECOVERY = "key_recovery", "Holds a sealed recovery copy of the master key"
+    CTO = "cto", "Chief technology officer: signs production releases"
+    CLINICAL_SAFETY_LEAD = "clinical_safety_lead", "Clinical safety lead: signs production releases"
+
+
+class NamedRole(CellScopedModel):
+    """One person named for one responsibility. A support officer names them; only the person
+    named can confirm (they accept, or confirm they hold the sealed copy); withdrawing ends it.
+    A name never counts until it is confirmed, and never after it is withdrawn."""
+
+    title = models.CharField(max_length=24, choices=NamedTitle.choices)
+    holder_ref = models.CharField(max_length=22)
+    key_id = models.CharField(max_length=32, blank=True, default="")      # key holders only
+    envelope_code = models.CharField(max_length=40, blank=True, default="")  # where it is sealed
+    appointed_by_ref = models.CharField(max_length=22)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    withdrawn_by_ref = models.CharField(max_length=22, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="readiness_named_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "title", "holder_ref", "key_id"],
+                condition=models.Q(withdrawn_at__isnull=True), name="readiness_named_once"),
+            models.UniqueConstraint(
+                fields=["tenant_id", "title"],
+                condition=models.Q(withdrawn_at__isnull=True,
+                                   title__in=["cto", "clinical_safety_lead"]),
+                name="readiness_one_signer_each"),
+        ]

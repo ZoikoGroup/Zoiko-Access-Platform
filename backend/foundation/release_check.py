@@ -52,6 +52,10 @@ def release_problems(conf: Any = settings) -> list[str]:
         problems.append("the database password is still a placeholder (POSTGRES_PASSWORD)")
     if _placeholder(conf.FIELD_KEYS):
         problems.append("the field encryption keys are still a placeholder (ZOIKO_FIELD_KEYS)")
+    # DEV-396: the master key lives in AWS KMS, never as a plain value in the environment.
+    if str(getattr(conf, "FIELD_KEY_SOURCE", "env")).strip().lower() != "aws_kms":
+        problems.append("the field encryption keys are not held by the key service "
+                        "(ZOIKO_KEY_SOURCE must be aws_kms)")
     if _placeholder(getattr(conf, "PACK_SIGNING_KEY", "")):
         problems.append("the country-pack signing key is not set (ZOIKO_PACK_SIGNING_KEY)")
     hosts = [h.lower() for h in conf.ALLOWED_HOSTS]
@@ -91,6 +95,16 @@ def release_problems(conf: Any = settings) -> list[str]:
     # DEV-389: no report number without an approved measure.
     if str(getattr(conf, "ZOIKO_MEASURE_GATING", "enforce")).strip().lower() != "enforce":
         problems.append("report measures are not enforced (ZOIKO_MEASURE_GATING must be enforce)")
+    # DEV-400: somebody must be paged, and texts must really go out (or not be configured at all).
+    if getattr(conf, "PAGER_PROVIDER", "") != "pagerduty" or not getattr(
+            conf, "PAGERDUTY_ROUTING_KEY", ""):
+        problems.append("nobody is paged for alerts (PAGER_PROVIDER=pagerduty and "
+                        "PAGERDUTY_ROUTING_KEY)")
+    if getattr(conf, "TEXT_PROVIDER", "") == "console":
+        problems.append("text messages go to the development console (TEXT_PROVIDER)")
+    if getattr(conf, "BILLING_PAYMENT_PROVIDER", "") == "stripe" and not getattr(
+            conf, "STRIPE_SECRET_KEY", ""):
+        problems.append("payments are set to Stripe without a key (STRIPE_SECRET_KEY)")
     small = getattr(conf, "REPORT_SMALL_CELL_K", 5)
     if not isinstance(small, int) or small < 5:
         problems.append("reports would show counts under 5 (REPORT_SMALL_CELL_K must be 5 or more)")

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, createRelease, getReleasesReadiness, overrideBudget, releaseStep, type ReleaseReadiness } from "../api";
+import { ApiError, createRelease, getNamedPeople, getOnCallStaff, getReleasesReadiness, namePerson, namedStep, overrideBudget, releaseStep, type NamedPeople, type OnCallPerson, type ReleaseReadiness } from "../api";
 import { Card, Pill } from "../ui";
 
 type PillKind = "ok" | "warn" | "bad" | "info";
@@ -23,7 +23,72 @@ const WORDS: Record<string, string> = {
   intended_purpose: "Every capability has an approved intended purpose (checked by the system)",
   clinical_safety_matrix: "No clinical-safety requirement is marked not built (checked by the system)",
   error_budget: "The 30-day error budget is not used up (checked by the system)",
+  zoiko_two_step: "Zoiko staff must use two-step sign-in (checked by the system)",
+  cto_signoff: "Signed by the CTO", clinical_lead_signoff: "Signed by the Clinical safety lead",
+  key_recovery: "Two people hold a sealed copy of the master key (checked by the system)",
 };
+const TITLES: Record<string, string> = {
+  key_recovery: "Holds a sealed copy of the master key", cto: "CTO (signs releases)",
+  clinical_safety_lead: "Clinical safety lead (signs releases)",
+};
+
+/** Who holds the master key's recovery copies and who signs releases (decided 27 Nov 2026). */
+function NamedPeopleCard() {
+  const [data, setData] = useState<NamedPeople | null>(null);
+  const [staff, setStaff] = useState<OnCallPerson[]>([]);
+  const [form, setForm] = useState({ title: "key_recovery", holder: "", envelope: "" });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try { setData(await getNamedPeople()); setError(""); } catch (e) { setError(friendly(e)); }
+  }, []);
+  useEffect(() => { void load(); getOnCallStaff().then(setStaff).catch(() => setStaff([])); }, [load]);
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true); setError("");
+    try { await fn(); await load(); } catch (e) { setError(friendly(e)); } finally { setBusy(false); }
+  }
+  if (!data) return null;
+  const live = data.named.filter((n) => n.status !== "withdrawn");
+  return (
+    <Card title="Named people" sub={`Master key recovery copies confirmed: ${data.key_holders_confirmed} of ${data.key_holders_needed} needed. Every production release is signed by the CTO and the Clinical safety lead. A name counts only after that person confirms it.`}>
+      {error && <small role="alert" style={{ color: "var(--bad)" }}>{error}</small>}
+      {live.length === 0 && <div className="empty">Nobody has been named yet.</div>}
+      {live.map((n) => (
+        <div key={n.public_id} className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
+          <div className="info">
+            <b>{n.holder_name}: {TITLES[n.title]} <Pill kind={n.status === "confirmed" ? "ok" : "warn"}>{n.status === "confirmed" ? "Confirmed" : "Waiting for them to confirm"}</Pill></b>
+            <small>Named by {n.appointed_by_name}.{n.title === "key_recovery" ? ` Key ${n.key_id}, sealed at ${n.envelope_code}.` : ""}</small>
+          </div>
+          <div className="form-row">
+            {n.holder === data.me && n.status !== "confirmed" && (
+              <button className="btn" disabled={busy} onClick={() => void run(() => namedStep(n.public_id, "confirm"))}>
+                {n.title === "key_recovery" ? "I hold the sealed copy" : "I accept"}
+              </button>
+            )}
+            {(data.can_name || n.holder === data.me) && (
+              <button className="btn ghost" disabled={busy} onClick={() => void run(() => namedStep(n.public_id, "withdraw"))}>Withdraw</button>
+            )}
+          </div>
+        </div>
+      ))}
+      {data.can_name && (
+        <form className="add-form" onSubmit={(e) => { e.preventDefault(); void run(() => namePerson(form.title, form.holder, form.envelope)); }}>
+          <label>Responsibility<select value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}>
+            {Object.entries(TITLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select></label>
+          <label>Person<select value={form.holder} onChange={(e) => setForm({ ...form, holder: e.target.value })} required>
+            <option value="">Choose…</option>
+            {staff.filter((p) => p.id !== data.me).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select></label>
+          {form.title === "key_recovery" && (
+            <label>Where it is sealed (a short code, never the key)<input value={form.envelope} maxLength={40} placeholder="safe-a-1" onChange={(e) => setForm({ ...form, envelope: e.target.value })} required /></label>
+          )}
+          <div><button className="btn" type="submit" disabled={busy || !form.holder}>Name them</button></div>
+        </form>
+      )}
+    </Card>
+  );
+}
 const CAPABILITIES = ["provider_directory", "booking", "messaging", "referrals", "waiting_list"];
 
 function friendly(e: unknown): string {
@@ -153,7 +218,7 @@ export function Readiness({ canWrite, canAttest }: { canWrite: boolean; canAttes
     <>
       <div className="hero"><div>
         <h1>Go-live readiness</h1>
-        <p>For one release in one country: six production requirements (G3) and four country requirements (G4), each signed for that exact release by a different person, plus a signed country pack that switches on everything the release uses. Any support or safety officer can veto; a veto cannot be undone. An approval stops counting when it expires. This page only records and works out a decision: it never deploys or switches anything on, and "authorised" is not a licence.</p>
+        <p>For one release in one country: eight production requirements (G3, including the CTO's and the Clinical safety lead's signatures) and four country requirements (G4), each signed for that exact release by a different person, plus a signed country pack that switches on everything the release uses. Any support or safety officer can veto; a veto cannot be undone. An approval stops counting when it expires. This page only records and works out a decision: it never deploys or switches anything on, and "authorised" is not a licence.</p>
       </div></div>
       {error && <div className="error" role="alert">{error}</div>}
       <div className="grid">
@@ -173,6 +238,7 @@ export function Readiness({ canWrite, canAttest }: { canWrite: boolean; canAttes
             </form>
           </Card>
         )}
+        <NamedPeopleCard />
         <Card title={`${rows?.length ?? 0} release${rows?.length === 1 ? "" : "s"}`}>
           {rows === null ? <div className="empty">Loading…</div> : rows.length === 0 ? <div className="empty">No release yet.</div>
             : rows.map((r) => <ReleaseCard key={r.public_id} r={r} canWrite={canWrite} canAttest={canAttest} onDone={load} />)}

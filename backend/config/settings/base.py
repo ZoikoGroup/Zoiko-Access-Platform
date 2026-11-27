@@ -61,7 +61,8 @@ ZOIKO_SLO_RECORDING = True
 # (enforce), shown and logged (report) or not checked (off). Production must enforce.
 ZOIKO_MEASURE_GATING = env("ZOIKO_MEASURE_GATING", "enforce")
 # The email provider's API may only be one of these hosts (a mistyped setting sends nothing).
-EGRESS_PROVIDER_HOSTS = ("api.sendgrid.com", "api.eu.sendgrid.com")
+EGRESS_PROVIDER_HOSTS = ("api.sendgrid.com", "api.eu.sendgrid.com", "api.stripe.com",
+                         "events.pagerduty.com", "api.anthropic.com")  # DEV-400, DEV-399
 # Lets a monitoring system read /metrics (request numbers by route). Empty = the endpoint is off.
 METRICS_TOKEN = env("ZOIKO_METRICS_TOKEN", "")
 # Clinical workflow paths (review, handoff) stay unpublishable until this is "true" (DEV-132).
@@ -188,18 +189,31 @@ SENDGRID_API_HOST = env("SENDGRID_API_HOST", "")
 SENDGRID_WEBHOOK_PUBLIC_KEY = env("SENDGRID_WEBHOOK_PUBLIC_KEY", "")  # DEV-354, base64 DER
 if MAIL_PROVIDER == "sendgrid":
     EMAIL_BACKEND = "foundation.sendgrid_backend.SendGridBackend"
+# DEV-400 (decided 27 Nov 2026): AWS SES. Credentials and region from the environment (AWS_*).
+SES_CONFIGURATION_SET = env("SES_CONFIGURATION_SET", "")
+# DEV-403: the one SNS topic SES publishes delivery events to; any other topic is refused.
+SES_EVENTS_TOPIC_ARN = env("SES_EVENTS_TOPIC_ARN", "")
+# The first market is the UK (decided 27 Nov 2026): AWS in London unless the server says otherwise.
+AWS_REGION = env("AWS_REGION", "eu-west-2")
+if MAIL_PROVIDER == "ses":
+    EMAIL_BACKEND = "foundation.ses_backend.SesBackend"
 # Where the links in emails point (the patient web app).
 # Field-level encryption (foundation/crypto.py). "id:base64(32 bytes),id:base64(...)". No default:
 # a deployment without a key must not start. FIELD_KEY_ID picks the key that encrypts (default:
 # the first listed); the others stay valid for reading while keys are rotated.
 FIELD_KEYS = env("ZOIKO_FIELD_KEYS", required=True)
 FIELD_KEY_ID = env("ZOIKO_FIELD_KEY_ID", "")
+# Where the master keys come from (DEV-396): "env" (development) or "aws_kms" (production: the
+# entries above are KMS-encrypted and unwrapped by KMS; AWS credentials and region come from the
+# server's environment). The release check requires aws_kms.
+FIELD_KEY_SOURCE = env("ZOIKO_KEY_SOURCE", "env")
 # Country-pack signing key (DEV-210): base64 of 32 bytes (Ed25519). Empty in development, where a
 # key is derived from the secret key; the release check refuses that on a real server.
 PACK_SIGNING_KEY = env("ZOIKO_PACK_SIGNING_KEY", "")
 
-# Text messages (DEV-194): "twilio" sends for real, "console" is the development stand-in, ""
-# (the default) sends nothing. Twilio values come from the environment and are never logged.
+# Text messages (DEV-194): "sns" (AWS SNS, decided 27 Nov 2026, DEV-400) or "twilio" send for
+# real, "console" is the development stand-in, "" (the default) sends nothing. Provider values come
+# from the environment and are never logged.
 TEXT_PROVIDER = env("TEXT_PROVIDER", "")
 # Virus scanning of uploaded files (DEV-345): "clamav" (with CLAMAV_HOST/PORT) or "" (files wait,
 # never opened). Development uses "pretend" (dev.py).
@@ -218,9 +232,24 @@ REMINDER_LEAD_HOURS = int(env("REMINDER_LEAD_HOURS", "24"))
 WAITLIST_OFFER_HOURS = int(env("WAITLIST_OFFER_HOURS", "24"))
 # The clinic's response target: a booking or message waiting longer than this is flagged late.
 RESPONSE_TARGET_HOURS = int(env("RESPONSE_TARGET_HOURS", "24"))
+# AI (DEV-399): "" (the fixed template) or "anthropic" (Claude drafts staff replies, with
+# personal details removed, only under a permit signed by a clinic administrator and a Zoiko
+# officer). The key is ANTHROPIC_API_KEY in the server's environment, read by the SDK.
+AI_PROVIDER = env("AI_PROVIDER", "")
+AI_MODEL = env("AI_MODEL", "claude-opus-5-5")
 # Online payment of invoices: which provider ("" = switched off; none has been chosen yet).
 BILLING_PAYMENT_PROVIDER = env("BILLING_PAYMENT_PROVIDER", "")
 BILLING_PRETEND_PROVIDER = False  # pretend payment provider; only dev and test settings turn it on
+# DEV-400: Stripe (BILLING_PAYMENT_PROVIDER=stripe). The secret key only from the environment.
+STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", "")          # DEV-403, "whsec_..."
+# DEV-401 (decided 27 Nov 2026): which partner kinds may go live. First a laboratory and a
+# pharmacy; "partner.booking." is a clinic's own booking-system connection, not a care partner.
+PARTNER_LIVE_KINDS = ("partner.lab.", "partner.pharmacy.", "partner.booking.")
+# DEV-400: who is paged when an error budget burns or a serious incident is not acknowledged:
+# "pagerduty" (with PAGERDUTY_ROUTING_KEY) or "" (development: logged only, nobody is paged).
+PAGER_PROVIDER = env("PAGER_PROVIDER", "")
+PAGERDUTY_ROUTING_KEY = env("PAGERDUTY_ROUTING_KEY", "")
 PATIENT_APP_URL = env("PATIENT_APP_URL", "http://localhost:5174").rstrip("/")
 STAFF_APP_URL = env("STAFF_APP_URL", "http://localhost:5173").rstrip("/")
 CLINICIAN_APP_URL = env("CLINICIAN_APP_URL", "http://localhost:5176").rstrip("/")

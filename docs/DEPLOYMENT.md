@@ -48,7 +48,15 @@ before starting anything:
    ```
 
    Use two different long random passwords. Optional `-v owner_role=... -v app_role=...` changes the names.
-3. **Run migrations as the owner.** Set the connection variables to the owner's, run, then switch back:
+3. **Check the release is approved** (DEV-397). The deploy job runs this first and stops on a non-zero exit:
+
+   ```
+   python manage.py release_gate --release <release name> --build "$ZOIKO_BUILD" [--country GB]
+   ```
+
+   It passes only when the readiness register approves that exact release and build now: every production requirement signed, including the CTO's and the Clinical safety lead's, two confirmed holders of the master key's recovery copy, and every system check. The master key must come from AWS KMS (`ZOIKO_KEY_SOURCE=aws_kms`, DEV-396); the release check refuses anything else.
+
+   **Run migrations as the owner.** Set the connection variables to the owner's, run, then switch back:
 
    ```
    POSTGRES_DB=zoiko POSTGRES_USER=zoiko_owner POSTGRES_PASSWORD=<owner password> \

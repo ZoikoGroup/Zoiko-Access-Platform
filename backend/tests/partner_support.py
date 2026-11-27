@@ -9,7 +9,7 @@ from typing import Any
 from tests.test_api import API
 from tests.test_platform import Platform
 
-CHECKS = ("identity", "legal", "security")
+CHECKS = ("identity", "legal", "security", "sandbox_test")      # DEV-401
 
 
 def zoiko(world: Any) -> Platform:

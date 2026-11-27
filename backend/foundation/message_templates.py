@@ -34,6 +34,8 @@ _SCOPES = re.compile(r"^[a-z_]+(, [a-z_]+){0,4}$")
 _DIGEST = re.compile(r"^(- \d{1,4} [a-z ]{3,60}(\n|$)){1,3}$")
 _REQUESTS = re.compile(r"^\d{1,4} partner requests? ha(s|ve)$")
 _SWITCHED = re.compile(r"^switched (on|OFF)$")
+# The weekly summary's lines (DEV-392): counts, "fewer than 5" or "not shown", never a name.
+_SUMMARY = re.compile(r"^(- [A-Za-z0-9 ,().%:-]{3,120}(\n|$)){1,6}$")
 
 
 @dataclass(frozen=True)
@@ -141,6 +143,12 @@ EMAIL_TEMPLATES: dict[str, EmailTemplate] = {t.key: t for t in (
         "Approve or refuse it in the staff console, under Settings > Support access. If you did "
         "not expect this, refuse it." + _SIGN,
         {"requester": _NAME, "minutes": _NUMBER, "ticket": _TICKET, "scopes": _SCOPES}),
+    EmailTemplate(
+        "weekly_report", ADMIN, "staff", "Weekly summary for {name}: {week}",
+        "{name}: the week {first} to {last}\n\n{summary}\n\nCounts under 5 are not shown, so "
+        "nobody can be picked out.\n\nOpen the staff app for the full report: {app_url}\n",
+        {"name": _NAME, "week": re.compile(r"^\d{4}-W\d{2}$"), "first": _DAY, "last": _DAY,
+         "summary": _SUMMARY, "app_url": _URL}),
 )}
 
 

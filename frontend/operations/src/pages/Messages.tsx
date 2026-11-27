@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { closeMessageThread, getMessageThread, listMessageThreads, replyMessageThread, type Staff } from "../api";
+import { closeMessageThread, draftMessageReply, getMessageThread, listMessageThreads, replyMessageThread, type Staff } from "../api";
 import type { MessageThread, ThreadView } from "../types";
 import { Card, Patient, Pill } from "../ui";
 import { NoStaff } from "./Appointments";
@@ -13,6 +13,16 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [drafted, setDrafted] = useState(false);
+
+  async function draft() {
+    setBusy(true); setError("");
+    try {
+      const got = await draftMessageReply(id);
+      if (got.draft) { setText(got.draft); setDrafted(true); } else setError("No draft this time: please write the reply yourself.");
+    } catch { setError("A draft is not available here: AI help is switched off for your clinic."); }
+    finally { setBusy(false); }
+  }
 
   const load = useCallback(async () => {
     try { setView(await getMessageThread(id)); setError(""); await onChanged(); }
@@ -47,8 +57,12 @@ function Conversation({ id, onChanged }: { id: string; onChanged: () => Promise<
         <form className="add-form" style={{ marginTop: 12 }} onSubmit={(e) => { e.preventDefault(); void run(() => replyMessageThread(id, text)); }}>
           <textarea value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} aria-label="Your reply"
             placeholder="Write a reply" style={{ minHeight: 80, padding: "9px 12px", border: "1px solid var(--line)", borderRadius: 10, background: "var(--bg)" }} />
+          {drafted && <small>A suggested draft: personal details were removed before it was written. Read it and change it before you send; nothing has been sent.</small>}
           {error && <div className="error" role="alert">{error}</div>}
-          <div><button className="btn" type="submit" disabled={busy || !text.trim()}>{busy ? "Sending…" : "Send reply"}</button></div>
+          <div>
+            <button className="btn" type="submit" disabled={busy || !text.trim()}>{busy ? "Sending…" : "Send reply"}</button>{" "}
+            <button className="btn ghost" type="button" disabled={busy} onClick={() => void draft()}>Suggest a draft</button>
+          </div>
         </form>
       )}
     </Card>

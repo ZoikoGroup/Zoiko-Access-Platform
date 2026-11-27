@@ -2724,6 +2724,281 @@ Given in this session by Venkatesh, answering for the project. **Recorded so the
   - `GET /api/v1/platform/overview` includes `missing_control_tests` and `unverified_controls` in `work`; `frontend/platform/src/pages/Overview.tsx` surfaces them under "Needs attention" with links to Hazards.
 - **Cursor pagination on messaging and waiting list endpoints (T-07):**
   - `GET messages/threads`, `GET clinician/messages`, and `GET waitlist` now accept optional `?limit=` and `?cursor=` via `foundation.pagination` (`next_cursor` returned when paged, existing shape preserved when omitted).
+- **Rate-limit throttling visibility, broken-chain incident opening, and patient sign-in assistance:**
+  - `foundation.ratelimit.throttled_summary` counts windows over limit (last 10 minutes, zero PII) and `GET /api/v1/platform/error-budget` + `frontend/platform/src/pages/ServiceLevels.tsx` display active throttling per limit kind (DEV-387).
+  - `GET /api/v1/platform/overview` automatically opens an unassessed safety incident when any tenant reports a broken audit chain, avoiding duplicate open incidents (conformance audit DEV-114).
+  - Patient sign-in (`frontend/patient/src/pages/SignIn.tsx`) now provides a "Get assistance" panel before sign-in (WF-03).
+
+### DEV-392: the weekly summary email to a clinic's administrators (ported from the maruthi branch), under this branch's report and template rules
+
+- **Why:** the maruthi branch had a weekly summary email for clinic administrators (bookings, visits, waiting list), one of the three items still to bring over. It sent raw counts in free text; this branch now requires approved wording (DEV-386) and small-number protection (DEV-389), so it is ported to those rules.
+- **What was done:**
+  - **The choice.** `comms.ReportSchedule` (migration `comms/0008`, row-level security), one row per clinic, **off** until the clinic administrator (R13) turns it on in the staff console's Settings ("Weekly summary email": on or off, and how many administrators with a verified address would receive it). `POST staff/settings {"weekly_report": true|false}`; anything else is 422, and only the administrator may change it (403). Turning it on does not touch the clinic's other settings. Audited (`comms.set_weekly_report`).
+  - **The email** (`modules/comms/report_email.py`, hourly job `comms.weekly_report`). For each clinic that turned it on: the seven whole days before today on the clinic's own clock, to the VERIFIED addresses of its administrators, at most once per ISO week (the week is in the subject).
+    - **Counts only:** bookings made (confirmed, cancelled), visits (attended, missed), the missed-visit rate, and the waiting list (joined, booked, waiting now).
+    - **The Reports page's rules (DEV-389):** a count under 5 says "fewer than 5"; the rate is given only from 5 or more decided visits and never when a count is hidden; a part whose measure is not approved (when enforced) says "not shown (measure not approved)".
+    - **Approved wording (DEV-386):** a new template `weekly_report` whose summary gap accepts only short count lines, so it is held until a safety officer and privacy approve it.
+  - **Differences from maruthi:** maruthi's cancellation rate and utilisation measures are not on this branch, so the summary uses the measures that are.
+- **Also fixed (the other session's newest work, so CI passes):**
+  - a type error in the platform overview's broken-chain check (`rows` typed);
+  - `foundation.ratelimit.throttled_summary` typed as a mapping of any values;
+  - `tests/test_two_step.py`'s admin-reset test called its helper with `who=` instead of `login=` (it would have failed when run).
+  - The whole backend's mypy is clean again (671 files).
+- **Checked:**
+  - New `tests/test_weekly_report.py`, 9 tests:
+    - off until turned on; only the administrator, only true or false; the response target untouched;
+    - one summary a week; counts only with small numbers hidden; an unverified administrator gets nothing;
+    - unapproved measures say "not shown"; unapproved wording held; the summary lines hide small numbers and a rate from few cases.
+  - The OpenAPI, identifier, message-template and late-digest suites: 68 passed. The repaired two-step reset and throttled-summary tests pass.
+  - Ruff, mypy (whole backend), import contracts and migrations clean; the staff console type-checks.
+
+### DEV-393: the public partner API, version 1, on this branch's partner keys (ported from the maruthi branch, GHE-13)
+
+- **Why:** the maruthi branch had a public API for partners' own systems (`/api/public/v1/`: API keys with scopes, per-key rate limits, sandbox keys that see only synthetic data). This branch already had partner keys checked by Zoiko before use (DEV-131, T-43), webhooks, a developer console (DEV-161) and a synthetic-patient sandbox (DEV-329), but a key could only SEND signed events: a partner's system could not read anything. Per DEV-211, the port goes onto this branch's modules: maruthi's separate `developer` module and its key table are not brought over.
+- **What was done:**
+  - **Scopes and environment on each key** (`PartnerClient.scopes`, `.environment`, migration `integration/0008`). Scopes: `events:send` (what every key did) and `catalog:read`. Environment: `live` or `sandbox`. A key made before this, with no scopes recorded, keeps exactly what it did (`events:send`). A key without `events:send` can no longer send events (403). Unknown scopes or environments are refused (422). Chosen when the key is added, in the partner app's API keys page (default: sandbox, send events).
+  - **The public API** (`api/public.py`, `api/public_urls.py`, mounted at `/api/public/v1/` before the catch-all for unsupported versions):
+    - **Callers:** `Authorization: Bearer <key id>:<secret>` (`modules/integration/public_keys.py`). Only an ACTIVE key whose identity, legal and security checks Zoiko recorded and whose secret was issued. Anything else (pending, suspended, revoked, wrong secret, malformed, unknown customer) is the same 401. The key's last use is recorded.
+    - `GET ping`: the key, its customer, environment, scopes and the API version.
+    - `GET services` (scope `catalog:read`): the customer's published services (id, name, category, length, mode: no people, no references to anyone). A **sandbox key** gets only synthetic services ("sandbox-…"). A live key needs the customer's country pack to switch the provider directory on (DEV-383; refused with `JURISDICTION_INACTIVE` when enforced). Every read is audited in the customer's chain, with the key as actor.
+    - `GET openapi.json`: the published contract, including the rate-limit rules and where events are sent.
+    - Only GET (405 otherwise); answers are `no-store`.
+  - **Each key's own limit:** its `rate_per_minute` (60 by default), counted per clock minute in the shared counter table (`foundation.ratelimit.count_against`, DEV-387's modes). `X-RateLimit-Limit`, `-Remaining` and `-Reset` on every answer. Over the limit: 429 with Retry-After, nothing done. Another key is unaffected.
+  - **Partner app:** the key form has "What the key may do" and "Environment"; each key shows them. The API documents page explains the public API and links its contract.
+- **Not ported or not done:**
+  - maruthi's webhook management through the public API (webhooks stay in the partner app and staff console, behind people's sign-in and DEV-384's address approval).
+  - Idempotency keys on public writes (there are no public writes yet).
+  - Separate sandbox and live keys per partner organisation are by choice, not enforced.
+- **Proposals, not decided:** the two scopes, the sandbox data, and that `catalog:read` exposes only published services.
+- **Checked:**
+  - New `tests/test_public_api.py`, 21 cases:
+    - an active key says who it is; no key or malformed keys are refused alike (5 cases); a wrong secret and a key not yet checked are refused; a suspended key stops at once;
+    - the catalogue needs its scope; a live key sees published services only and no people; a sandbox key only synthetic ones; reads are audited; the directory must be switched on for the country;
+    - each key has its own limit with headers, and another key is unaffected; report mode allows and logs only the kind;
+    - a read-only key cannot send events; unknown scopes and environments are refused (3 cases); older keys keep sending events; the contract is published and only GET is allowed.
+  - The partner-events, partner-portal, FHIR API, identifier, OpenAPI (snapshot refreshed), rate-limit and API-version suites: 146 passed (older keys still send events as before).
+  - Ruff, mypy (the whole backend, 676 files), import contracts and migrations clean; the partner app type-checks.
+
+### DEV-394: the referral and waiting-list journeys on the workflow engine, with deadlines from each clinic's own settings (the last part ported from the maruthi branch)
+
+- **Why:** the maruthi branch ran referrals and the waiting list as journeys on its own engine, with deadlines written into the code (1,440 minutes to acknowledge a referral, 4,320 to decide, 14 days of waiting, 3 days for an offer). DEV-211 retired that engine and said the journeys should come over as `orchestration` definitions whose deadlines come from each clinic's own settings. This is that last item.
+- **What was done:**
+  - **Timers can follow a clinic setting** (`modules/orchestration/definitions.py`, `engine.py`). A timer policy is either `{state, kind, after_minutes}` as before, or `{state, kind, after_setting, times}`:
+    - `response_target`: the clinic's response target, counted in its opening hours when it has set them (`catalog.response_due`, DEV-367). `times` (1 to 10) adds it that many times over.
+    - `offer_window`: the time the clinic gives a person to use an offered waiting-list time (`waitlist.offer_hours_for`, DEV-366), times `times`.
+    - The deadline is worked out when the timer starts and copied onto it, so changing a setting later never moves a deadline already set (new steps use the new setting). There is still no default: an unknown setting, a multiple outside 1 to 10, or both minutes and a setting are refused (422). Older definitions keep their fingerprint.
+    - Two new timer kinds: `clinic_response_overdue` and `offer_overdue`.
+  - **Two standard journeys** (`TEMPLATES`): `referral-journey` (seen within the response target, decided within three times it: maruthi's ratio) and `waitlist-journey` (checked within the response target; an offered time used within the offer window). Both use the engine's universal path. `GET staff/workflows/definitions` lists them; `POST` with `{template}` adds one as a draft (clinic administrator only; once each). Publishing is the usual separate step.
+  - **Operations app, Workflow engine page:** a "Standard journeys" card describes each journey's deadlines in words. An administrator can "Add and publish" each one (two audited steps); it shows "In use" after that.
+- **Not ported or not done:**
+  - **Journeys do not start by themselves** from referral or waiting-list events, as they did on maruthi. This engine requires a staff member, a named accountable person and request-origin evidence to start (GHE-12 acceptance tests, DEV-135); starting by "system" would break that. Staff start one on purpose, with the referral or entry reference. *(Decided on 27 November: they now start automatically, see DEV-395.)*
+  - maruthi's "needs more information" state and 7-day deadline: the universal path has no such state. A "blocked" step with a named owner covers it.
+  - The 14-day waiting deadline: no clinic setting exists for it, so it was not invented.
+- **Proposals, not decided:** the two journeys' steps and timers, and "three times the response target" to decide a referral.
+- **Checked:**
+  - New `tests/test_standard_journeys.py`, 15 cases:
+    - both journeys are offered, with deadlines from settings, not minutes; only an administrator adds one, once, and only a known one; nothing starts by itself;
+    - a referral must be seen within the clinic's target (4 hours) and decided within three times it (12 hours); a changed setting does not move a deadline already set; the deadline counts only opening hours; an offered waiting-list time must be used within the clinic's window (6 hours); a missed deadline opens an escalation as usual;
+    - setting-based timers must name a real setting and a sane multiple (7 cases).
+  - With the workflow engine's own suite: 137 passed. OpenAPI snapshot refreshed (one summary line).
+  - Ruff, mypy, import contracts clean (orchestration now reads `catalog` and `waitlist` through their public api only); the operations app type-checks.
+
+### DEV-395: referrals and waiting-list entries start their journey by themselves (decided 27 November 2026)
+
+- **Why:** DEV-394's open question. Venkatesh confirmed the suggestion on 27 November 2026: start automatically. A referral's journey belongs to the doctor the clinic named to answer referrals. A waiting-list journey belongs to the front desk; the clinic has no named desk person, so it goes to the administrator who published that journey, who can hand it on.
+- **What was done:**
+  - **A new event, `waitlist.joined.v1`** (references only: the entry and its state), published when a person joins. Added to the event catalogue; AsyncAPI snapshot refreshed.
+  - **`orchestration.start_automatically`:** the engine starts a journey for the system, but only where the clinic **published** that journey. Everything else the engine insists on still holds. The referral or entry reference is the request-origin evidence. There must be a named accountable person; if there is none, nothing starts and none is invented. The clinical switch and the country pack still apply. The first step is recorded as "system" in the chain and the audit log (`orchestration.requested_automatically`). The same referral or entry never gets a second journey (start key `auto.<reference>`, plus the one-live-journey-per-subject rule).
+  - **Subscribers** (`modules/orchestration/subscribers.py`): `referral.issued.v1` starts the referral journey if the referral is still unanswered. `waitlist.joined.v1` starts the waiting-list journey if the person is still waiting. They run in the event's tenant and read everything else from the source.
+  - **Operations app:** the Standard journeys card says each new referral or entry starts one by itself.
+- **Not done:** later steps do not move by themselves. A referral being acknowledged or decided, or an entry being offered or booked, is still entered on the journey by its accountable person with evidence: the engine never takes an event as proof. If deadlines are missed because of this, the escalation says so.
+- **Proposal, not decided:** the administrator who published the journey is accountable for waiting-list journeys until a named front-desk role exists.
+- **Checked:**
+  - New `tests/test_journey_auto_start.py`, 6 cases: nothing starts where the clinic has not published the journey (referrals and waiting list); a referral starts its journey for the referral answerer, as "system", with the referral as evidence; without a named answerer, the administrator is accountable; the same referral never gets a second journey; joining the waiting list starts one for the administrator.
+  - With the event catalogue, standard journeys, waiting-list, waiting-list rules and referral suites: 80 passed. Dispatch, outbox and partner booking: 55 passed.
+  - Ruff, mypy and import contracts clean.
+
+### DEV-396: the master key in AWS KMS, with two named holders of a sealed recovery copy (decided 27 November 2026)
+
+- **Why:** decision 4 of the lead note. Venkatesh chose a managed cloud key service (AWS KMS) in the first market's region, with **two** named people each holding a sealed recovery copy. Losing the key without one makes every encrypted detail unreadable for ever.
+- **What was done:**
+  - **Key source** (`foundation/crypto.py`, `ZOIKO_KEY_SOURCE`): `env` (development, as before) or `aws_kms`.
+    - With `aws_kms`, each `ZOIKO_FIELD_KEYS` entry is the key **encrypted by KMS** (`id:base64(CiphertextBlob)`), unwrapped by KMS when first needed and kept only in the process's memory.
+    - A failure gives `CryptoError` with no detail, so nothing is readable and nothing leaks.
+    - **The release check refuses any other source in production.**
+  - **AWS without an SDK** (`foundation/aws.py`): Signature Version 4 over HTTPS, standard library only, https only. Credentials and region come only from the server's environment and are never logged. Checked against AWS's published example. SES and SNS use the same signer (DEV-400).
+  - **Named people** (`modules/readiness/appointments.py`, model `NamedRole`, migration `readiness/0002`, row-level security):
+    - A support officer names someone, never themselves; only that person confirms ("I hold the sealed copy"). Either the person or a support officer can withdraw it.
+    - A key holder records the key id it holds and a short code for **where it is sealed**, never any key material.
+    - Every step is audited.
+  - **A new go-live hold, `key_recovery` (G3, checked by the system):** at least two different confirmed holders of the **current** key, still Zoiko staff. After a key change, the old holders stop counting.
+  - **Platform app, Go-live readiness page:** a "Named people" card to name, confirm and withdraw.
+- **Still needed from the named owners:** who the two holders are, the KMS key and region, and the sealed locations.
+- **Checked:**
+  - New `tests/test_named_roles.py`, 18 tests:
+    - naming and confirming: only the person named confirms; only a support officer names, never themselves, and only staff of the right kind; one CTO and one lead at a time;
+    - key holders: a holder states where the copy is sealed, for which key; a person can step down; going live needs two different confirmed holders of the current key; holders of an older key stop counting; no key material is ever listed;
+    - the AWS signature matches AWS's published example; with KMS the keys are unwrapped once and kept in memory; when KMS fails, nothing is readable and nothing leaks.
+  - The release check has a new test: the key service is required in production.
+
+### DEV-397: production releases signed by the CTO and the Clinical safety lead; the deploy step refuses anything else (decided 27 November 2026)
+
+- **Why:** the lead note's open point "who signs production releases". Venkatesh chose the CTO and the Clinical safety lead: two different people, never the author of the change, either able to veto. The deploy step must refuse a release that is not signed.
+- **What was done:**
+  - **Two new production requirements (G3):**
+    - `cto_signoff`, signable only by the confirmed CTO (a support officer, R11);
+    - `clinical_lead_signoff`, signable only by the confirmed Clinical safety lead (a safety officer, R12).
+    
+    Both are named and confirmed through DEV-396's register, one of each at a time. The existing rules still hold: one person signs one requirement, never on their own release, and any officer can veto. An unconfirmed or withdrawn signer cannot sign.
+  - **The deploy gate, `python manage.py release_gate --release <name> --build <build> [--country XX]`:**
+    - It passes only when the readiness register approves **this exact release and build** now. That is G3, or G4 when a country is given.
+    - Otherwise it exits non-zero, naming what blocks it, and never who signed.
+    - `docs/DEPLOYMENT.md` now runs it before `migrate`.
+  - The platform app shows the new requirements in words.
+- **Changed:** a release now needs eight production signatures, not six. The readiness tests name the signers and key holders in their set-up.
+- **Checked:**
+  - In `tests/test_named_roles.py`:
+    - only the confirmed CTO and lead sign their requirements; an unconfirmed or withdrawn signer cannot; the CTO cannot sign a release they made; without both signatures a release is not ready; either signer can veto;
+    - the deploy gate passes only an approved release for its own build, and refuses an unknown release, another build, an unsigned country or a veto.
+  - `tests/test_readiness.py` was updated to eight G3 signatures and seven system checks.
+  - Readiness and named roles: 80 passed. Readiness, error budget, decisions, database rights, OpenAPI and releases: passed after updating the counts.
+
+### DEV-398: retention as a setting per customer, with suggested periods; records past a period anonymised only in batches two administrators approve (decided 27 November 2026)
+
+- **Why:** decision 5. Venkatesh chose a per-customer setting starting from proposed periods for Legal to confirm: bookings and messages 8 years, the audit log 10 years, unused accounts 2 years after the last sign-in. Nothing is removed until a person approves each batch. Per-customer rules with two-administrator approval already existed (DEV-213); nothing was ever removed.
+- **What was done:**
+  - **Suggested periods** on each kind of data. They are shown as a suggestion with a "Use the suggestion" button, **never in force by themselves**. Two new kinds, counted only:
+    - the audit log, a tamper-evident chain: removing old entries safely needs a sealed checkpoint first, which is not built;
+    - unused accounts: closing an account is a person's decision with its own steps.
+  - **Anonymised, never deleted** (`foundation.retention`: an optional eraser per kind, and the `ERASED` marker):
+    - **Bookings** are detached from the patient and from who booked them. Times, statuses and their append-only step history stay whole.
+    - **Closed conversations:** the subject and every message are replaced with an encrypted "Removed after the retention period." note, and the thread is detached from the patient. Open conversations are never touched.
+    - Anonymised records are no longer counted as past their period.
+  - **Batches** (`ErasureBatch`, migration `retention/0002`, row-level security):
+    - One administrator prepares a batch. It needs a period in force and something due, and it fixes the cut-off and the count.
+    - A **different** administrator approves it, and it runs at once.
+    - One waiting batch per kind; a withdrawn batch never runs. A person placed under a lawful hold after preparation is still left out.
+    - Every step is audited.
+  - **Operations app, Keeping records page:** the suggestion, the batch, and approve or withdraw.
+- **Still needed:** Legal's real periods.
+- **Checked:**
+  - New `tests/test_retention_batches.py`, 9 tests:
+    - suggested periods shown and none in force; a batch needs a period in force and something due;
+    - preparing changes nothing, and only a different administrator approves;
+    - anonymised bookings keep their history and lose the patient; a lawful hold placed after preparation is respected;
+    - closed conversations lose their text and open ones are untouched; one waiting batch per kind, and a withdrawn one never runs; counted-only kinds cannot be batched; only administrators, and every step audited.
+  - With the existing retention, messaging and identifier suites: 83 passed.
+
+### DEV-399: Claude drafts staff replies, with personal details removed, under a permit signed by a clinic administrator and a Zoiko officer; no clinical content (decided 27 November 2026)
+
+- **Why:** the AI questions of the lead note. Venkatesh decided:
+  - an outside model (Claude, from Anthropic) may be used **only to draft replies for staff**, with personal details removed first;
+  - no clinical content;
+  - a permit needs a clinic administrator **and** a Zoiko platform officer.
+- **What was done:**
+  - **Permit rules** (`modules/ai/permits.py`, field `zoiko_signer_ref`, migration `ai/0004`):
+    - Authorizing needs at least one clinic signer and a Zoiko officer's signature: two different people, never the creator.
+    - A change review clears both signatures.
+    - Lane B (clinical content) is now refused like C and D, even with a named clinical owner.
+    - A Zoiko officer signs from the platform app's new **AI permits** page (`platform/ai-permits`), which works inside that customer's records and is audited there.
+  - **Claude** (`modules/ai/claude.py`):
+    - Switched on with `AI_PROVIDER=anthropic`, using the official `anthropic` SDK. The key comes only from the server's environment.
+    - Model `claude-opus-5-5` (`AI_MODEL`), with a fixed prompt: practical replies only, no medical advice, urgent messages pointed to the clinic or emergency services, placeholders kept.
+    - Server-side fallback on a safety decline.
+    - A failure or refusal gives an empty draft, never error text.
+    - The permit pins this model and prompt by fingerprint, so changing either needs a new permit. Off, the fixed template answers as before.
+  - **Removing personal details** (`modules/ai/redact.py`): the patient's and staff's names, email addresses, phone numbers, dates, long numbers, UK postcodes and links are replaced by placeholders before any text leaves. This is a safety net, not a guarantee, which is why only staff see and send.
+  - **"Suggest a draft"** (`POST messages/threads/<id>/draft-reply`, staff only):
+    - It drafts an answer to the patient's last message.
+    - It sends nothing and stores no text, only fingerprints.
+    - It is refused (403) without an authorized permit.
+    - The operations app fills the reply box with the draft and says to read and change it before sending.
+- **Still needed:** the Anthropic contract and region, and a privacy review of sending redacted text. The Docker image needs rebuilding to include the new `anthropic` requirement.
+- **Checked:**
+  - New `tests/test_ai_claude.py`, 10 tests:
+    - personal details are replaced; Claude receives only the redacted text and the fixed prompt; a refusal or failure gives an empty draft;
+    - switched on, the permit pins exactly this model and prompt;
+    - no permit means no draft; with a permit staff get a draft and nothing is sent or stored; patients cannot ask; the provider sees only redacted text;
+    - a Zoiko officer signs from the platform; a clinic login cannot.
+  - `tests/test_ai.py` and `tests/test_ai_staff.py` were updated to the new signing rule. They also show that clinical content is now refused even with a clinical owner.
+  - AI suites, identifiers and OpenAPI: 104 passed (one test's expected label fixed). AI, journeys and named roles: 74 passed.
+
+### DEV-400: AWS SES for email, AWS SNS for texts, Stripe for payments and PagerDuty for alerts (decided 27 November 2026)
+
+- **Why:** the providers question of the lead note. Venkatesh chose AWS SES, AWS SNS, Stripe and PagerDuty. Keys come only from the server's environment, and the development stand-ins stay the default.
+- **What was done:**
+  - **Email, SES** (`foundation/ses_backend.py`, `MAIL_PROVIDER=ses`): a Django email backend over the SES v2 API, signed with DEV-396's signer.
+    - Plain text only, no tracking, and only our reference as a tag.
+    - A failure raises, so the queue tries again.
+    - SendGrid (DEV-350) stays available.
+  - **Texts, SNS** (`foundation/texts.py`, `TEXT_PROVIDER=sns`): one transactional SMS per message, keeping SNS's message id. SNS is a real provider, so DEV-228's rule applies: texts go only where the customer's country pack switches messaging on.
+  - **Payments, Stripe** (`modules/billing/stripe_provider.py`, `BILLING_PAYMENT_PROVIDER=stripe`, `STRIPE_SECRET_KEY`):
+    - One Stripe Checkout session per payment. The patient pays on Stripe's own page, which the patient app opens, so card details never touch this product.
+    - Stripe is told our invoice reference and the amount only, never a name.
+    - Stripe's idempotency key means there is never a second charge.
+    - Paid means succeeded, expired means failed, anything else is pending or unknown.
+    - **Fixed on the way:** Stripe's session ids are about 66 characters, longer than the 64 the payment and invoice reference fields held. Both are now 128 (migration `billing/0003`), and `test_billing` was updated to the new limit.
+  - **Alerts, PagerDuty** (`foundation/paging.py`, `PAGER_PROVIDER=pagerduty`, `PAGERDUTY_ROUTING_KEY`):
+    - Every minute, the worker pages each error-budget alert with its runbook, using one dedup key per alert per day, and resolves it when it clears.
+    - A serious incident nobody acknowledged in time pages too (DEV-202).
+    - A page carries fixed wording and references only. In development nothing is sent.
+  - **Release check:** production must page someone; texts must not go to the development console; Stripe needs its key.
+  - The allowed provider hosts now include Stripe, PagerDuty and Anthropic. `.env.example` lists the new settings.
+- **Still needed:** the AWS, Stripe and PagerDuty accounts and contracts. SES sending identity and SNS sender registration per country.
+- **Checked:**
+  - New `tests/test_providers.py`, 11 tests:
+    - SES sends plain text with only a reference tag, and a failure raises;
+    - SNS sends a transactional text and keeps its id, and the market rule applies to it;
+    - Stripe is told references and an amount only and sends the patient to Stripe's page; a paid session marks the invoice paid; statuses are read carefully; there is no call without a key;
+    - an error-budget alert pages once and resolves when it clears; nothing is paged in development; production must page someone.
+  - With payments, texts, text markets, the release check, incident on-call and SendGrid: 145 passed after the reference fields were widened. `test_billing`: passed.
+
+### DEV-401: the first partners are one laboratory and one pharmacy, live only after four recorded checks (decided 27 November 2026)
+
+- **Why:** the partners question. Venkatesh chose one laboratory and one pharmacy first. Before going live, a Zoiko officer records identity, a signed contract, the security questionnaire and a passed sandbox test run. Three checks already existed (T-43: identity, legal, security).
+- **What was done:**
+  - **A fourth check, `sandbox_test`** ("Passed sandbox test run"), recorded by a Zoiko officer with a note. A partner's secret, and so going live, needs all four. "Legal" is now shown as **Signed contract** and "security" as **Security questionnaire**.
+  - **Only some kinds go live** (`PARTNER_LIVE_KINDS`, a setting): laboratory (`partner.lab.`) and pharmacy (`partner.pharmacy.`), plus `partner.booking.`, which is a clinic's own booking-system connection rather than a care partner. Any other kind waits even with every check (403, field `partner_kind`).
+  - The platform's Partner checks page shows the four checks with what to look at. The operations and partner apps wait for all four before offering the secret.
+- **Checked:** new `tests/test_partner_checklist.py`, 4 tests (5 cases): three checks are not enough; a laboratory or a pharmacy can go live; other kinds wait; the list is a setting. With the partner events, partner portal and public API suites: 104 passed, after two tests were updated from three checks to four.
+
+### DEV-402: the translation framework, English only for now (decided 27 November 2026)
+
+- **Why:** the languages question. Venkatesh chose English only for now, with the framework built so languages can be added.
+- **What was done:**
+  - **`frontend/shared/src/i18n.ts`:**
+    - `t(key, values)` with `{name}` placeholders; `formatDate` and `formatNumber` in the chosen language's style.
+    - `pickLanguage` (browser languages, so "en-GB" matches "en") and `startLanguage`, which every app calls as it starts and which sets `<html lang>`.
+    - The choice is remembered in the browser only.
+    - Any missing translation falls back to English, never to a blank.
+  - **`frontend/shared/src/locales/en.ts`:** the English source catalogue, typed. A key that does not exist is a type error, so nothing can go missing silently.
+  - **First screens converted:** the patient sign-in, registration, two-step and password-reset screens, and the shared sign-in frame. The wording is unchanged.
+  - **Adding a language:** write `locales/<code>.ts` and list it in `AVAILABLE`. Health wording needs an approved translator, and messages need template approval (DEV-386) in that language. Machine translation is not allowed for clinical text.
+- **Not done:** the rest of the screens still hold their English text inline. They move into the catalogue as each screen is next touched. The backend's emails remain English (`LANGUAGE_CODE = "en"`).
+- **Checked:** all five apps type-check.
+
+### DEV-403: Stripe and SES tell us what happened (webhooks); the UK and AWS London first (decided 27 November 2026)
+
+- **Why:** Venkatesh chose:
+  - the **UK first**, so AWS **eu-west-2 (London)** for the master key, email and texts;
+  - the suggested retention periods **stay suggestions** (no change: DEV-398 already works that way);
+  - webhooks for **Stripe payments** and **SES email delivery**, so the system knows for certain what happened instead of only asking again.
+- **What was done:**
+  - **Region:** `AWS_REGION` defaults to `eu-west-2`. The server's environment can still say otherwise.
+  - **Stripe** (`POST /api/v1/webhooks/stripe/events`, `STRIPE_WEBHOOK_SECRET`):
+    - The `Stripe-Signature` header (HMAC-SHA256 over time and body) is checked first. Anything older than 5 minutes, unsigned or changed is refused (401).
+    - Only checkout-session events are used, and from them **only the session id**. The outcome is then asked of Stripe again (`billing.refresh_by_provider_ref`, recorded as "system"), so a forged or replayed claim can never mark an invoice paid.
+    - A session that is not ours is ignored.
+  - **SES through SNS** (`POST /api/v1/webhooks/ses/events`, `SES_EVENTS_TOPIC_ARN`, `foundation/sns_events.py`):
+    - Each message's signature is checked against AWS's certificate, fetched only from `https://sns.<region>.amazonaws.com/…pem`. Both signature versions are handled, and only our one topic is accepted.
+    - The topic's subscription request is confirmed, with the same host rule.
+    - Outcomes: delivered; a permanent bounce is bounced; a temporary bounce or a delay is deferred; a rejected email is dropped. Complaints and the rest are not used.
+    - Only our email id (the `zoiko_ref` tag) and the outcome are kept, through the same `record_delivery` as SendGrid's receipts. A final outcome is never undone.
+- **Checked:** new `tests/test_provider_webhooks.py`, 10 tests:
+  - a signed Stripe event makes us ask Stripe and the invoice is paid; what the event claims is never taken as the outcome; unsigned, stale or changed events are refused; other events and other providers' payments are ignored;
+  - a signed SES delivery is recorded from our topic only; a permanent bounce is a bounce and a temporary one a delay; another topic, a strange certificate host or a changed message is refused; the subscription is confirmed.
+  
+  All 10 passed. The OpenAPI snapshot was refreshed, and ruff and mypy (701 files) are clean.
 
 ### Note: the whole backend suite, run once on 23 November
 

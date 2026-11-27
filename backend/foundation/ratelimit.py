@@ -27,6 +27,7 @@ import hashlib
 import hmac
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 from django.conf import settings
 from django.db import connection
@@ -121,9 +122,57 @@ def check(kinds: list[tuple[str, str]], clock: Clock | None = None) -> Verdict:
     return Verdict(False, min(left, WINDOW_SECONDS), over)
 
 
+@dataclass(frozen=True)
+class Quota:
+    """One caller's own limit and where it stands this minute (the public API's headers)."""
+    allowed: bool
+    limit: int
+    remaining: int
+    reset_seconds: int
+
+
+def count_against(kind: str, ident: str, limit: int, clock: Clock | None = None) -> Quota:
+    """Count one request against a caller's OWN per-minute limit (an API key's, DEV-393), in the
+    same table and modes as `check`. Off counts nothing; report allows and logs the kind only."""
+    now = utc_now(clock)
+    reset = max(1, WINDOW_SECONDS - now.second)
+    if mode() == OFF:
+        return Quota(True, limit, limit, reset)
+    used = _count(_fingerprint(kind, ident), now.replace(second=0, microsecond=0))
+    if used <= limit:
+        return Quota(True, limit, limit - used, reset)
+    if mode() == REPORT:
+        log.warning("rate_limit would_refuse kind=%s", kind)
+        return Quota(True, limit, 0, reset)
+    return Quota(False, limit, 0, reset)
+
+
 def forget_old(clock: Clock | None = None) -> int:
     """For the worker: delete windows that ended long ago."""
     from .models import RateWindow
 
     deleted, _ = RateWindow.objects.filter(window_start__lt=utc_now(clock) - KEEP_FOR).delete()
     return int(deleted)
+
+
+def throttled_summary(clock: Clock | None = None) -> dict[str, Any]:
+    """Counts of recently throttled rate windows per kind (last 10 minutes, DEV-387).
+    Aggregate counts only: never any address, login or tenant fingerprint."""
+    from .models import RateWindow
+
+    since = utc_now(clock) - KEEP_FOR
+    limits = {k: limit_for(k) for k in DEFAULT_LIMITS}
+    by_kind = dict.fromkeys(DEFAULT_LIMITS, 0)
+    for key, count in RateWindow.objects.filter(window_start__gte=since).values_list(
+        "key", "count"
+    ):
+        kind = key.split(":", 1)[0]
+        if kind in limits and count > limits[kind]:
+            by_kind[kind] += 1
+    return {
+        "mode": mode(),
+        "window_minutes": int(KEEP_FOR.total_seconds() // 60),
+        "limits": limits,
+        "throttled_by_kind": by_kind,
+        "active_throttles": sum(by_kind.values()),
+    }

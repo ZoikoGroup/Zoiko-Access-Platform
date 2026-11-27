@@ -16,3 +16,8 @@ class OrchestrationConfig(AppConfig):
         from .engine import fire_all_tenants
 
         periodic.register("orchestration.timers", 30.0, fire_all_tenants)
+
+        # Referrals arriving and people joining a waiting list start the clinic's journey (DEV-395).
+        from .subscribers import register_subscribers
+
+        register_subscribers()

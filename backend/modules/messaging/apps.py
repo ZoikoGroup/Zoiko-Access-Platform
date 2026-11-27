@@ -17,10 +17,11 @@ class MessagingConfig(AppConfig):
 
         from foundation import retention
 
-        from .retention import count_older
+        from .retention import count_older, erase_older
 
         retention.register("message_threads", "Closed message conversations",
-                           "the last message", count_older)
+                           "the last message", count_older, erase=erase_older,
+                           suggested_days=8 * retention.YEAR)
 
         # A patient-record merge (DEV-365): these rows move to the surviving record.
         from foundation import person_refs

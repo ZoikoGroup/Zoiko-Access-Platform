@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
-from foundation import error_budget
+from foundation import error_budget, ratelimit
 from foundation.cell_context import tenant_transaction
 from modules.readiness import api as readiness
 from modules.trust import api as trust
@@ -22,8 +22,11 @@ from .views import _authorize, _platform_only, _release_json
 def platform_error_budget(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     org = _platform_only(auth)
     _authorize(auth, "read:platform", organization_public_id=org)
-    return JsonResponse({**error_budget.summary(), "runbooks": sorted(set(
-        error_budget.RUNBOOKS.values()) | set(OTHER_RUNBOOKS))})
+    return JsonResponse({
+        **error_budget.summary(),
+        "rate_limits": ratelimit.throttled_summary(),
+        "runbooks": sorted(set(error_budget.RUNBOOKS.values()) | set(OTHER_RUNBOOKS)),
+    })
 
 
 # Runbooks for alerts shown elsewhere in the console (texts, mail, deliveries, rate limits).

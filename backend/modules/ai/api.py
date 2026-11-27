@@ -12,9 +12,11 @@ from .permits import (
     list_permits,
     permit_dict,
     sign_off,
+    zoiko_sign,
 )
 from .providers import REPLY_DRAFT, register_builtin
-from .runs import decide, digest, register_provider, run
+from .redact import redact
+from .runs import decide, digest, feature_digests, register_provider, run
 
 __all__ = [
     "FORBIDDEN_TOOLS",
@@ -24,10 +26,13 @@ __all__ = [
     "create_permit",
     "decide",
     "digest",
+    "feature_digests",
     "list_permits",
     "permit_dict",
+    "redact",
     "register_builtin",
     "register_provider",
     "run",
     "sign_off",
+    "zoiko_sign",
 ]

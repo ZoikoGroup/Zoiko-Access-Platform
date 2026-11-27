@@ -45,7 +45,7 @@ MAX_FEE_MINOR = 100_000_000                       # a million units of currency,
 CREDIT_REASONS = ("error", "service_not_given", "goodwill", "other")
 VOID_REASONS = ("error", "service_not_given", "duplicate", "other")
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
-_PAYMENT_REF = re.compile(r"^[A-Za-z0-9._:-]{4,64}$")
+_PAYMENT_REF = re.compile(r"^[A-Za-z0-9._:-]{4,128}$")    # a Stripe session id is ~66 long
 
 
 def _scope() -> dict[str, Any]:
@@ -514,8 +514,16 @@ def start_payment(
                object_ref=attempt.public_id, outcome=AuditOutcome.ALLOWED,
                reason_code=provider.key)
     ref, status = _ask_start(provider, inv.public_id, balance, inv.currency, idempotency_key)
-    return {**_apply_answer(attempt.public_id, ref, status, actor_public_id, now),
+    done = {**_apply_answer(attempt.public_id, ref, status, actor_public_id, now),
             "replayed": False}
+    # DEV-400: a provider with its own payment page (Stripe) says where the patient pays.
+    page = getattr(provider, "payment_page", None)
+    if page is not None and ref and status == PaymentStatus.PENDING:
+        try:
+            done["pay_url"] = page(ref)
+        except Exception:                                # the page can be asked for again
+            done["pay_url"] = None
+    return done
 
 
 def refresh_payment(
@@ -542,6 +550,23 @@ def refresh_payment(
         ref, status = _ask_start(provider, inv.public_id, a.amount_minor, a.currency,
                                  a.idempotency_key)
     return _apply_answer(a.public_id, ref, status, actor_public_id, now)
+
+
+def refresh_by_provider_ref(provider_ref: str, clock: Clock | None = None) -> bool:
+    """A provider said something changed about one of ITS payments (DEV-403, Stripe's webhook):
+    if that payment is ours, in the bound customer, and still open, ask the provider and record
+    the answer as "system". Returns False when it is not ours. Runs its own transactions."""
+    with tenant_transaction():
+        a = PaymentAttempt.objects.filter(provider_ref=provider_ref, **_scope()).first()
+        if a is None:
+            return False
+        if a.status not in _OPEN:
+            return True
+    provider = payments.active()
+    if provider is None or provider.key != a.provider:
+        return True
+    _apply_answer(a.public_id, "", _ask_status(provider, provider_ref), "system", utc_now(clock))
+    return True
 
 
 def payer_payments(invoice_ref: str, person_ref: str) -> list[dict[str, Any]]:

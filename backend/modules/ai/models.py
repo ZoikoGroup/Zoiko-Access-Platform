@@ -73,6 +73,9 @@ class AiUsePermit(CellScopedModel):
     clinical_owner_ref = models.CharField(max_length=22, blank=True, default="")
     created_by_ref = models.CharField(max_length=22)
     approver_refs = models.JSONField(default=list)  # distinct people who signed the release
+    # The Zoiko platform officer who also signed (decided 27 Nov 2026, DEV-399): a permit needs a
+    # clinic administrator AND a Zoiko officer. A login of Zoiko's own platform, not this customer.
+    zoiko_signer_ref = models.CharField(max_length=22, blank=True, default="")
     expiry = models.DateTimeField(null=True, blank=True)
     # The tools this feature may use (whitelist only). Write tools need a named human approver.
     allowed_tools = models.JSONField(default=list)

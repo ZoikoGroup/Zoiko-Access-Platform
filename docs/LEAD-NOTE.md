@@ -134,6 +134,23 @@ Sixteen proposals the developer had built were confirmed. Change any of them and
 
 Still needing you and the named owners: AI, retention periods, the key recovery holder, provider and partner contracts, who signs production releases, translations, and the clinical-safety review that switches clinical notes on.
 
+## Decisions given on 27 November 2026 (by Venkatesh, for you to see)
+
+The open points above were answered. The developer builds them in this order; each gets its own register entry.
+
+- **Journeys start by themselves:** a referral arriving or a person joining the waiting list starts the clinic's published journey. The referral answerer is accountable for referrals; the administrator who published the journey is accountable for the waiting list (DEV-395).
+- **Master key:** kept in a managed cloud key service (AWS KMS) in the first market's region. **Two** named people each hold a sealed recovery copy; going live needs both recorded.
+- **Production releases** are signed by the **CTO and the Clinical safety lead**: two different people, never the author of the change. Either can veto. The deploy step refuses a release that is not signed.
+- **Retention:** a setting per customer, starting from proposed periods for Legal to confirm: bookings and messages 8 years, the audit log 10 years, unused accounts 2 years after the last sign-in. Nothing is deleted until a person approves each batch.
+- **AI:** an outside model (Claude, from Anthropic) may be used **only to draft replies for staff**, with personal details removed first. No clinical content. A permit needs a clinic administrator **and** a Zoiko platform officer.
+- **Languages:** English only for now, with the translation framework built so more can be added.
+- **Providers:** AWS SES (email) and SNS (text messages), Stripe (payments), PagerDuty (alerts). Keys come only from the server's environment. The development stand-ins stay the default on developers' computers.
+- **Partners:** start with one laboratory and one pharmacy. Before going live, a Zoiko officer records four checks: identity, signed contract, security questionnaire and a passed sandbox test run.
+
+Answered later the same day: **the UK is the first market** (AWS London, eu-west-2); the suggested retention periods stay suggestions until Legal confirms them; Stripe payments and SES email deliveries now report back by signed webhooks (DEV-403).
+
+Still needing the named owners: the exact retention periods (Legal), the names of the two key holders and the two release signers, the provider and partner contracts, and the clinical-safety review that switches clinical notes on.
+
 ## What happens next
 
 The decisions above are answered. The developer builds the newly unblocked items in the order the lead gives; the remaining open items are in `docs/decisions/REGISTER.md` section B. Nothing is blocked: everything built works and is tested; it is simply not yet confirmed by a clinical-safety owner.

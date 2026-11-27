@@ -118,6 +118,7 @@ urlpatterns = [
     path("messages/threads", views.message_threads),
     path("messages/threads/<str:thread_id>", views.message_thread),
     path("messages/threads/<str:thread_id>/reply", views.message_reply),
+    path("messages/threads/<str:thread_id>/draft-reply", views.message_draft_reply),
     path("messages/threads/<str:thread_id>/close", views.message_close),
     path("family", views.family_members),
     path("family/<str:grant_id>/withdraw", views.family_withdraw),
@@ -189,6 +190,8 @@ urlpatterns = [
     path("staff/fhir/quarantine/<str:quarantine_id>/<str:step>", views.staff_fhir_quarantine_step),
     path("webhooks/twilio/status", views.twilio_status),
     path("webhooks/sendgrid/events", views.sendgrid_events),
+    path("webhooks/ses/events", views.ses_events),                    # DEV-403
+    path("webhooks/stripe/events", views.stripe_events),              # DEV-403
     path("staff/integrations/deliveries/<str:delivery_id>/redrive", views.staff_webhook_redrive),
     path("staff/rights/<str:case_id>/<str:step>", views.staff_rights_step),
     path("platform/overview", views.platform_overview),
@@ -211,6 +214,11 @@ urlpatterns = [
     path("platform/traceability", views.platform_traceability),
     path("platform/traceability/import", views.platform_traceability_import),
     path("platform/traceability/<str:requirement_id>/update", views.platform_traceability_update),
+    path("platform/named-roles", views.platform_named_roles),
+    path("platform/ai-permits", views.platform_ai_permits),
+    path("platform/ai-permits/<str:customer_id>/<str:permit_id>/sign",
+         views.platform_ai_permit_sign),
+    path("platform/named-roles/<str:named_id>/<str:step>", views.platform_named_role_step),
     path("platform/readiness", views.platform_readiness),
     path("platform/readiness/<str:release_id>", views.platform_readiness_one),
     # Before the generic "<step>" route below, which would otherwise catch it (DEV-388).
@@ -306,6 +314,8 @@ urlpatterns = [
     path("staff/connector/<str:operation_id>/redrive", views.staff_connector_redrive),
     path("staff/connector/<str:operation_id>/resolve", views.staff_connector_resolve),
     path("staff/retention", views.staff_retention),
+    path("staff/retention-batches", views.staff_retention_batches),
+    path("staff/retention-batches/<str:batch_id>/<str:step>", views.staff_retention_batch_step),
     path("staff/retention/<str:rule_id>/<str:step>", views.staff_retention_step),
     path("clinician/patients/<str:person_id>/references", views.clinician_patient_references),
     path("clinician/references/<str:reference_id>/withdraw", views.clinician_reference_withdraw),

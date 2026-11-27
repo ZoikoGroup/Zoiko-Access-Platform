@@ -1,11 +1,21 @@
-import datetime as dt
+"""Decided 27 November 2026 (DEV-400): AWS SES for email, AWS SNS for text messages, Stripe for
+payments, PagerDuty for alerts. Keys only from the environment; the development stand-ins stay the
+default; nothing personal goes to a provider that does not need it."""
 import json
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from django.core.mail import EmailMessage
 
-from foundation.timeutil import utc_now
-from tests.test_api import book
-from tests.test_clinician import Practice
+from foundation import aws, paging, ses_backend, texts
+from foundation.release_check import release_problems
+from modules.billing import payments, stripe_provider
+from modules.billing.payments import PaymentStatus
+from tests.test_payments import bill_of, open_bill, pay_online
+from tests.test_payments import p as p  # noqa: F401  (the fixture)
+from tests.test_payments import registry as registry  # noqa: F401  (the fixture)
+from tests.test_release_check import good
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
 
@@ -17,75 +27,160 @@ def dev_login(settings):
 
 
 @pytest.fixture
-def p():
-    return Practice()
+def aws_calls(monkeypatch):
+    calls: list[dict[str, Any]] = []
+
+    def fake(**kwargs):
+        calls.append(kwargs)
+        return b"<PublishResponse><PublishResult><MessageId>abc-123</MessageId></PublishResult>"
+
+    monkeypatch.setattr(aws, "call", fake)
+    monkeypatch.setattr(aws, "region", lambda: "eu-west-2")
+    return calls
 
 
-def booked(p, confirm):
-    """Three times for "doc" two days from now (inside the 14-day window); book the first."""
-    soon = (utc_now() + dt.timedelta(days=2)).strftime("%Y-%m-%dT09:00:00")
-    p.add_times(p.doc, first=soon, count=3)
-    slot = p.slot_of("doc")
-    booking = json.loads(book(p, slot, subject="pat").content)["booking"]["id"]
-    if confirm:
-        p.post(f"bookings/{booking}/confirm", subject="ops")
-    return booking
+# ------------------------------------------------------------------ email: AWS SES
+def test_ses_sends_plain_text_with_only_a_reference_tag(aws_calls):
+    message = EmailMessage("Your appointment", "See you on Monday.", "clinic@zoiko.example",
+                           ["pat@example.org"], headers={"X-Zoiko-Ref": "mail-0001"})
+    assert ses_backend.SesBackend().send_messages([message]) == 1
+    [call] = aws_calls
+    assert call["service"] == "ses"
+    assert call["url"] == "https://email.eu-west-2.amazonaws.com/v2/email/outbound-emails"
+    body = json.loads(call["body"])
+    assert body["Destination"]["ToAddresses"] == ["pat@example.org"]
+    assert body["Content"]["Simple"]["Body"]["Text"]["Data"] == "See you on Monday."
+    assert "Html" not in body["Content"]["Simple"]["Body"]           # no tracking links
+    assert body["EmailTags"] == [{"Name": "zoiko_ref", "Value": "mail-0001"}]
 
 
-def providers(p, subject="ops"):
-    r = p.get("staff/providers", subject=subject)
-    assert r.status_code == 200, r.content
-    return {x["name"]: x for x in json.loads(r.content)["providers"]}
+def test_a_failed_send_raises_so_the_queue_tries_again(monkeypatch):
+    def broken(**kwargs):
+        raise aws.AwsError("ses answered 500")
+
+    monkeypatch.setattr(aws, "call", broken)
+    monkeypatch.setattr(aws, "region", lambda: "eu-west-2")
+    with pytest.raises(ses_backend.SesError):
+        ses_backend.SesBackend().send_messages([EmailMessage("s", "b", "a@x.org", ["b@x.org"])])
 
 
-def test_every_doctor_of_the_clinic_is_listed_even_with_no_work(p):
-    rows = providers(p)
-    assert set(rows) == {"doc", "doc2"}
-    assert rows["doc"] == {"id": p.doc, "name": "doc", "name_check": {"state": "none"},
-                           "upcoming": 0, "open_times": 0, "next_local": None, "next_zone": None}
+# ------------------------------------------------------------------ texts: AWS SNS
+def test_sns_sends_one_transactional_text_and_keeps_its_id(settings, aws_calls):
+    settings.TEXT_PROVIDER = "sns"
+    send = texts.provider()
+    assert send is not None
+    assert send("+447700900123", "Your code is 123456") == "abc-123"
+    [call] = aws_calls
+    assert call["service"] == "sns" and call["url"] == "https://sns.eu-west-2.amazonaws.com/"
+    assert b"Action=Publish" in call["body"] and b"Transactional" in call["body"]
 
 
-def test_free_times_and_confirmed_appointments_are_counted_per_doctor(p):
-    booked(p, confirm=True)                                    # adds 3 times for "doc", books one
-    rows = providers(p)
-    assert rows["doc"]["upcoming"] == 1
-    assert rows["doc"]["open_times"] == 2                      # 3 added, 1 taken
-    assert rows["doc"]["next_local"] and rows["doc"]["next_zone"]
-    assert rows["doc2"]["upcoming"] == 0 and rows["doc2"]["open_times"] == 0
+def test_sns_is_a_real_provider_so_the_market_is_checked(settings, monkeypatch):
+    """A real provider sends only where the customer's country pack switches messaging on."""
+    from modules.comms import market
+    from modules.jurisdiction import api as jurisdiction
+    settings.TEXT_PROVIDER = "sns"
+    monkeypatch.setattr(market, "require_context", lambda: SimpleNamespace(tenant_id="t"))
+    monkeypatch.setattr(jurisdiction, "customer_capabilities", lambda tenant: frozenset())
+    assert market.texts_allowed() is False
+    settings.TEXT_PROVIDER = "console"
+    assert market.texts_allowed() is True
 
 
-def test_a_waiting_booking_is_not_counted_as_an_appointment_but_takes_the_time(p):
-    booked(p, confirm=False)
-    row = providers(p)["doc"]
-    assert row["upcoming"] == 0 and row["open_times"] == 2
+# ------------------------------------------------------------------ payments: Stripe
+@pytest.fixture
+def stripe(settings, monkeypatch):
+    settings.BILLING_PAYMENT_PROVIDER = "stripe"
+    settings.STRIPE_SECRET_KEY = "sk_test_notreal"
+    payments.register(stripe_provider.stripe_provider)
+    calls: list[tuple[str, str, dict[str, str] | None, str]] = []
+    state = {"payment_status": "unpaid", "status": "open"}
+
+    def fake(method, path, fields=None, idempotency_key=""):
+        calls.append((method, path, fields, idempotency_key))
+        return {"id": "cs_test_" + "a" * 58, "url": "https://checkout.stripe.com/c/pay/cs_x",
+                **state}
+
+    monkeypatch.setattr(stripe_provider, "_call", fake)
+    return SimpleNamespace(calls=calls, state=state)
 
 
-def test_a_cancelled_booking_gives_the_time_back(p):
-    booking = booked(p, confirm=True)
-    p.post(f"bookings/{booking}/cancel", subject="pat")
-    p.post(f"bookings/{booking}/cancel", subject="ops")          # the clinic answers
-    row = providers(p)["doc"]
-    assert row["upcoming"] == 0 and row["open_times"] == 3
+def test_stripe_is_told_references_and_an_amount_never_a_name(p, stripe):
+    inv = open_bill(p, 5000)
+    r = pay_online(p, inv)
+    assert r.status_code == 201, r.content
+    made = json.loads(r.content)["payment"]
+    assert made["status"] == "pending" and made["provider"] == "stripe"
+    assert made["pay_url"].startswith("https://checkout.stripe.com/")
+    assert len(made["provider_ref"]) == 66                             # a long session id fits
+    method, path, fields, key = stripe.calls[0]
+    assert (method, path) == ("POST", "/checkout/sessions") and key.startswith("zoiko-")
+    assert fields is not None and fields["line_items[0][price_data][unit_amount]"] == "5000"
+    assert p.person not in json.dumps(fields)
 
 
-def test_the_list_holds_no_patient_data(p):
-    booked(p, confirm=True)
-    body = p.get("staff/providers", subject="ops").content.decode()
-    assert p.person not in body and p.patient_actor not in body
+def test_a_paid_session_marks_the_invoice_paid_and_an_expired_one_does_not(p, stripe):
+    inv = open_bill(p, 5000)
+    made = json.loads(pay_online(p, inv).content)["payment"]
+    stripe.state.update(payment_status="paid", status="complete")
+    r = p.post(f"billing/payments/{made['public_id']}/refresh", {}, subject="pat")
+    assert json.loads(r.content)["payment"]["status"] == "succeeded"
+    assert bill_of(p, inv)["status"] == "paid"
 
 
-def test_times_beyond_the_window_are_not_counted(p):
-    p.add_times(p.doc, first="2027-09-01T09:00:00", count=3)      # far in the future
-    assert providers(p)["doc"]["open_times"] == 0
+def test_stripe_status_is_read_carefully():
+    status = stripe_provider.StripeProvider._status
+    assert status({"payment_status": "paid", "status": "complete"}) == PaymentStatus.SUCCEEDED
+    assert status({"payment_status": "unpaid", "status": "expired"}) == PaymentStatus.FAILED
+    assert status({"payment_status": "unpaid", "status": "open"}) == PaymentStatus.PENDING
+    assert status({}) == PaymentStatus.UNKNOWN
 
 
-def test_another_customers_doctors_are_not_listed(p):
-    other = Practice()
-    booked(other, confirm=True)
-    assert providers(p)["doc"]["upcoming"] == 0                  # not the other clinic's booking
-    assert providers(other)["doc"]["upcoming"] == 1 and other.doc != p.doc
+def test_without_a_key_nothing_is_sent_to_stripe(settings):
+    settings.STRIPE_SECRET_KEY = ""
+    with pytest.raises(stripe_provider.StripeError):
+        stripe_provider._call("GET", "/checkout/sessions/x")
 
 
-def test_only_staff_may_see_it(p):
-    for who in ("pat", "doc"):
-        assert p.get("staff/providers", subject=who).status_code == 403
+# ------------------------------------------------------------------ alerts: PagerDuty
+@pytest.fixture
+def pages(settings, monkeypatch):
+    settings.PAGER_PROVIDER = "pagerduty"
+    settings.PAGERDUTY_ROUTING_KEY = "routing-key-test"
+    sent: list[dict[str, Any]] = []
+
+    def send(body: dict[str, Any]) -> bool:
+        sent.append(body)
+        return True
+
+    monkeypatch.setattr(paging, "_send", send)
+    paging._open.clear()
+    return sent
+
+
+def test_an_error_budget_alert_pages_once_a_day_and_resolves_when_it_clears(pages, monkeypatch):
+    from foundation import error_budget
+    alerts = [{"alert": "availability_fast_burn", "runbook": "docs/runbooks/02.md"}]
+    monkeypatch.setattr(error_budget, "summary", lambda clock=None: {"alerts": alerts})
+    assert paging.page_budget_alerts() == 1
+    paging.page_budget_alerts()
+    keys = {b["dedup_key"] for b in pages if b["event_action"] == "trigger"}
+    assert len(keys) == 1                                              # the same page, repeated
+    trig = pages[0]
+    assert trig["payload"]["severity"] == "critical"
+    assert trig["payload"]["custom_details"] == {"runbook": "docs/runbooks/02.md"}
+    alerts.clear()
+    paging.page_budget_alerts()
+    assert pages[-1]["event_action"] == "resolve"
+
+
+def test_in_development_nothing_is_paged(settings):
+    settings.PAGER_PROVIDER = ""
+    assert paging.trigger("zoiko-x-test", "Something") is False
+
+
+def test_production_must_page_someone():
+    assert any("PAGER_PROVIDER" in p for p in release_problems(good(PAGER_PROVIDER="")))
+    assert any("TEXT_PROVIDER" in p for p in release_problems(good(TEXT_PROVIDER="console")))
+    assert any("STRIPE_SECRET_KEY" in p for p in release_problems(
+        good(BILLING_PAYMENT_PROVIDER="stripe", STRIPE_SECRET_KEY="")))

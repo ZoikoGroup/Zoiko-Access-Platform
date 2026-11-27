@@ -34,9 +34,11 @@ from foundation.chain import GENESIS, chain_digest, verify_chain
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.outbox import emit
 from foundation.timeutil import UTC, Clock, utc_now
+from modules.catalog import api as catalog
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
+from modules.waitlist import api as waitlist
 
 from .definitions import CLINICAL
 from .models import (
@@ -304,12 +306,26 @@ def _stale_timers(inst: WorkflowInstance, only_state: str | None = None) -> None
     pending.update(status=TimerStatus.STALE)
 
 
+def _due(item: dict[str, Any], organization_ref: str, now: dt.datetime) -> dt.datetime:
+    """When a timer runs out: fixed minutes, or the clinic's own setting as it is NOW (DEV-394).
+    The answer is copied onto the timer, so a later change of setting never moves it."""
+    if "after_minutes" in item:
+        return now + dt.timedelta(minutes=item["after_minutes"])
+    times = int(item.get("times", 1))
+    if item["after_setting"] == "offer_window":
+        return now + dt.timedelta(hours=waitlist.offer_hours_for(organization_ref) * times)
+    due = now
+    for _ in range(times):        # the response target, counted in the clinic's opening hours
+        due = catalog.response_due(organization_ref, due)
+    return due
+
+
 def _start_timers(inst: WorkflowInstance, now: dt.datetime) -> None:
     for item in inst.definition.timer_policies:
         if item["state"] == inst.state:
             WorkflowTimer.objects.create(
                 instance=inst, kind=item["kind"], watches_state=inst.state,
-                due_at=now + dt.timedelta(minutes=item["after_minutes"]),
+                due_at=_due(item, inst.organization_ref, now),
                 owner_ref=inst.owner_ref, **_scope())
 
 
@@ -371,6 +387,65 @@ def start(
                object_type="workflow_instance", object_ref=inst.public_id,
                outcome=AuditOutcome.ALLOWED)
         return {**instance_dict(inst), "replayed": False}
+
+
+def start_automatically(
+    *, definition_key: str, subject_ref: str, organization_ref: str, owner_ref: str,
+    clock: Clock | None = None,
+) -> dict[str, Any] | None:
+    """Start a standard journey because something happened (a referral arrived, a person joined
+    the waiting list), not because a person asked (DEV-395, decided 27 Nov 2026).
+
+    Only where the clinic itself published that journey: no published definition, nothing starts.
+    Everything else the engine insists on still holds: a named accountable person (or the
+    administrator who published the journey when there is none), the event's reference as the
+    request origin, the clinical switch and the country pack. The step is recorded as "system".
+    Starting twice for the same thing gives the first journey; it never makes a second."""
+    if not _SUBJECT.match(subject_ref or ""):
+        return None
+    now = utc_now(clock)
+    with transaction.atomic():
+        definition = (WorkflowDefinition.objects.filter(
+            key=definition_key, status=DefinitionStatus.PUBLISHED, **_scope())
+            .order_by("-version").first())
+        if definition is None:
+            return None                                   # the clinic has not chosen this journey
+        if set(definition.path) & CLINICAL and not getattr(
+                settings, "WORKFLOW_CLINICAL_ENABLED", False):
+            return None
+        if definition.required_capabilities:
+            from modules.jurisdiction import api as jurisdiction
+
+            enabled = jurisdiction.customer_capabilities(require_context().tenant_id)
+            if set(definition.required_capabilities) - set(enabled):
+                return None
+        start_key = f"auto.{subject_ref}"
+        earlier = WorkflowInstance.objects.select_related("definition").filter(
+            start_key=start_key, **_scope()).first()
+        if earlier is not None:
+            return instance_dict(earlier)
+        labels = trust.actor_labels()
+        owner = owner_ref if owner_ref in labels else definition.published_by_ref
+        if owner not in labels:
+            return None                                   # nobody to be accountable: do not invent
+        inst = WorkflowInstance(
+            definition=definition, definition_key=definition.key,
+            definition_version=definition.version, journey=definition.journey,
+            organization_ref=organization_ref, subject_ref=subject_ref, owner_ref=owner,
+            state=State.REQUESTED, overlay=Overlay.CLEAR, start_key=start_key,
+            start_digest="", **_scope())
+        try:
+            with transaction.atomic():
+                inst.save()
+        except IntegrityError:
+            return None                                   # one is already running for it
+        _append(inst, "transition", "", actor="system", purpose="OPERATIONS",
+                evidence=[{"kind": "request_origin", "ref": subject_ref}], now=now)
+        _start_timers(inst, now)
+        record(actor_ref="system", action="orchestration.requested_automatically",
+               object_type="workflow_instance", object_ref=inst.public_id,
+               outcome=AuditOutcome.ALLOWED)
+        return instance_dict(inst)
 
 
 # ------------------------------------------------------------------ moving

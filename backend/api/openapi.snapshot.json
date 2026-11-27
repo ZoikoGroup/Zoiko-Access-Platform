@@ -5187,6 +5187,70 @@
     "summary": "message close"
    }
   },
+  "/messages/threads/{thread_id}/draft-reply": {
+   "post": {
+    "operationId": "post_message_draft_reply",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "thread_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A draft reply to the patient's last message, for staff to read, change and send themselves     (DEV-399). Personal details are removed before any text leaves; nothing is sent or stored."
+   }
+  },
   "/messages/threads/{thread_id}/reply": {
    "post": {
     "operationId": "post_message_reply",
@@ -6347,6 +6411,112 @@
      }
     ],
     "summary": "GET: one patient's details, if this login may read that patient. POST: save them (the     patient themselves, or clinic staff for their patient)."
+   }
+  },
+  "/platform/ai-permits": {
+   "get": {
+    "operationId": "get_platform_ai_permits",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET ?customer=<id>: that customer's AI permits, for a Zoiko officer to sign (DEV-399)."
+   }
+  },
+  "/platform/ai-permits/{customer_id}/{permit_id}/sign": {
+   "post": {
+    "operationId": "post_platform_ai_permit_sign",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "customer_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "permit_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A Zoiko officer signs a customer's AI permit: one of the two signatures (DEV-399)."
    }
   },
   "/platform/codemaps": {
@@ -8064,6 +8234,166 @@
      }
     ],
     "summary": "The unchangeable timeline of one incident (DEV-202)."
+   }
+  },
+  "/platform/named-roles": {
+   "get": {
+    "operationId": "get_platform_named_roles",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: who holds the master key's recovery copies and who signs releases. POST {title,     holder, envelope_code}: name someone (support officer, never yourself)."
+   },
+   "post": {
+    "operationId": "post_platform_named_roles",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "GET: who holds the master key's recovery copies and who signs releases. POST {title,     holder, envelope_code}: name someone (support officer, never yourself)."
+   }
+  },
+  "/platform/named-roles/{named_id}/{step}": {
+   "post": {
+    "operationId": "post_platform_named_role_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "named_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "confirm (only the person named) | withdraw (a support officer, or the person)."
    }
   },
   "/platform/overview": {
@@ -14926,6 +15256,134 @@
     "summary": "How long this clinic keeps each kind of data, and how many records are past it. Counts only:     the product deletes nothing. POST proposes a rule (period_days null means no limit)."
    }
   },
+  "/staff/retention-batches": {
+   "post": {
+    "operationId": "post_staff_retention_batches",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "POST {data_class}: prepare a batch anonymising what is past the period in force (DEV-398).     Nothing changes until a different administrator approves it."
+   }
+  },
+  "/staff/retention-batches/{batch_id}/{step}": {
+   "post": {
+    "operationId": "post_staff_retention_batch_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "batch_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "approve (a different administrator; it runs at once) | withdraw."
+   }
+  },
   "/staff/retention/{rule_id}/{step}": {
    "post": {
     "operationId": "post_staff_retention_step",
@@ -15808,7 +16266,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "GET: the workflow definitions. POST {key, journey, path, timer_policies}: a draft (admin)."
+    "summary": "GET: definitions and standard journeys. POST: a draft (admin), own or {template}."
    },
    "post": {
     "operationId": "post_staff_workflow_definitions",
@@ -15862,7 +16320,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "GET: the workflow definitions. POST {key, journey, path, timer_policies}: a draft (admin)."
+    "summary": "GET: definitions and standard journeys. POST: a draft (admin), own or {template}."
    }
   },
   "/staff/workflows/definitions/{definition_id}/{step}": {
@@ -16432,6 +16890,110 @@
     },
     "security": [],
     "summary": "SendGrid's delivery receipts (DEV-354). No sign-in: SendGrid's ECDSA signature IS the     credential and is checked before the body is read. Only our own email id and the outcome     are used; address"
+   }
+  },
+  "/webhooks/ses/events": {
+   "post": {
+    "operationId": "post_ses_events",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "AWS SES delivery events through SNS (DEV-403). No sign-in: SNS's signature over the message,     from our one topic, IS the credential, checked before anything is used. Only our email id and     the o"
+   }
+  },
+  "/webhooks/stripe/events": {
+   "post": {
+    "operationId": "post_stripe_events",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "Stripe's payment events (DEV-403). No sign-in: Stripe's signature is the credential, checked     first. The event only says WHICH payment changed; its outcome is asked of Stripe again."
    }
   },
   "/webhooks/twilio/status": {

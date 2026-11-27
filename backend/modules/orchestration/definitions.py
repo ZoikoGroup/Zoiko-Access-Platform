@@ -30,7 +30,14 @@ ORDER = ("requested", "validated", "accepted", "in_progress", "output_available"
          "clinical_reviewed", "handoff_acknowledged", "closed")
 OMISSIBLE = frozenset({"clinical_reviewed", "handoff_acknowledged"})   # each with its own evidence
 CLINICAL = OMISSIBLE
-TIMER_KINDS = ("partner_response_overdue", "clinical_review_overdue", "handoff_overdue")
+TIMER_KINDS = ("partner_response_overdue", "clinical_review_overdue", "handoff_overdue",
+               "clinic_response_overdue", "offer_overdue")
+# A deadline can follow one of the clinic's own settings instead of a fixed number of minutes
+# (DEV-394): its response target (counted in its opening hours when it has set them, DEV-367) or
+# the time it gives a person to use an offered waiting-list time (DEV-366). Worked out when the
+# timer starts and copied onto it, so changing the setting later never moves a deadline already set.
+SETTINGS = ("response_target", "offer_window")
+MAX_TIMES = 10
 MAX_TIMERS = 6
 _KEY = re.compile(r"^[a-z][a-z0-9-]{2,62}$")
 _JOURNEY = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
@@ -61,21 +68,34 @@ def check_path(path: Any) -> list[str]:
 
 
 def check_timers(policies: Any, path: list[str]) -> list[dict[str, Any]]:
-    """No universal deadline exists (GHE-12 section 06): each timer states its own minutes."""
+    """No universal deadline exists (GHE-12 section 06): each timer states its own minutes, or
+    names the clinic setting it follows (DEV-394). There is never a default."""
     if policies in (None, []):
         return []
     if not isinstance(policies, list) or len(policies) > MAX_TIMERS:
         raise _bad("timer_policies")
     clean = []
     for item in policies:
-        if not isinstance(item, dict) or set(item) != {"state", "kind", "after_minutes"}:
+        if (not isinstance(item, dict) or item.get("state") not in path
+                or item["state"] == "closed" or item.get("kind") not in TIMER_KINDS):
             raise _bad("timer_policies")
-        minutes = item["after_minutes"]
-        if (item["state"] not in path or item["state"] == "closed"
-                or item["kind"] not in TIMER_KINDS or isinstance(minutes, bool)
-                or not isinstance(minutes, int) or not 1 <= minutes <= 525_600):
+        if set(item) == {"state", "kind", "after_minutes"}:
+            minutes = item["after_minutes"]
+            if (isinstance(minutes, bool) or not isinstance(minutes, int)
+                    or not 1 <= minutes <= 525_600):
+                raise _bad("timer_policies")
+            clean.append({"state": item["state"], "kind": item["kind"], "after_minutes": minutes})
+            continue
+        # Or one of the clinic's own settings, optionally a whole number of times over.
+        if not ({"state", "kind", "after_setting"} <= set(item)
+                <= {"state", "kind", "after_setting", "times"}):
             raise _bad("timer_policies")
-        clean.append({"state": item["state"], "kind": item["kind"], "after_minutes": minutes})
+        times = item.get("times", 1)
+        if (item["after_setting"] not in SETTINGS or isinstance(times, bool)
+                or not isinstance(times, int) or not 1 <= times <= MAX_TIMES):
+            raise _bad("timer_policies")
+        clean.append({"state": item["state"], "kind": item["kind"],
+                      "after_setting": item["after_setting"], "times": times})
     return sorted(clean, key=lambda t: (ORDER.index(t["state"]), t["kind"]))
 
 
@@ -250,3 +270,57 @@ def retire_definition(
 def list_definitions() -> list[dict[str, Any]]:
     rows = WorkflowDefinition.objects.filter(**_scope()).order_by("key", "-version")
     return [definition_dict(r) for r in rows]
+
+
+# ------------------------------------------------------------------ standard journeys (DEV-394)
+_PATH = ["requested", "validated", "accepted", "in_progress", "output_available", "closed"]
+# The referral and waiting-list journeys from the maruthi branch, on this engine. Their deadlines
+# follow each clinic's own settings; none is written into the code. An administrator adds one as a
+# draft and publishes it like any other definition. Once published, a referral arriving or a
+# person joining the list starts one (DEV-395, `subscribers.py`).
+TEMPLATES: dict[str, dict[str, Any]] = {
+    "referral": {
+        "key": "referral-journey", "journey": "referral", "path": _PATH,
+        "label": "Referral: received, seen, accepted, booked, seen by the clinic, closed",
+        "timer_policies": [
+            # Seen within the clinic's response target...
+            {"state": "requested", "kind": "clinic_response_overdue",
+             "after_setting": "response_target", "times": 1},
+            # ...and decided within three times that (maruthi's rule, now in the clinic's hours).
+            {"state": "validated", "kind": "clinic_response_overdue",
+             "after_setting": "response_target", "times": 3},
+        ],
+    },
+    "waitlist": {
+        "key": "waitlist-journey", "journey": "waitlist", "path": _PATH,
+        "label": "Waiting list: joined, checked, offered, booked, attended, closed",
+        "timer_policies": [
+            {"state": "requested", "kind": "clinic_response_overdue",
+             "after_setting": "response_target", "times": 1},
+            # An offered time must be used within the clinic's own offer window.
+            {"state": "accepted", "kind": "offer_overdue",
+             "after_setting": "offer_window", "times": 1},
+        ],
+    },
+}
+
+
+def templates() -> list[dict[str, Any]]:
+    return [{"template": name, "key": t["key"], "journey": t["journey"], "label": t["label"],
+             "path": list(t["path"]), "timer_policies": [dict(p) for p in t["timer_policies"]]}
+            for name, t in TEMPLATES.items()]
+
+
+def create_from_template(
+    *, template: Any, actor_public_id: str, decision: policy.Decision,
+    organization_ref: str | None,
+) -> dict[str, Any]:
+    """A draft of one standard journey. Adding it twice is a conflict, like any key."""
+    _managed(decision, actor_public_id, organization_ref)
+    if not isinstance(template, str) or template not in TEMPLATES:
+        raise _bad("template")
+    t = TEMPLATES[template]
+    return create_definition(
+        key=t["key"], journey=t["journey"], path=list(t["path"]),
+        timer_policies=[dict(p) for p in t["timer_policies"]], actor_public_id=actor_public_id,
+        decision=decision, organization_ref=organization_ref)

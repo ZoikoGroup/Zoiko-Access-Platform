@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { readDevLogin } from "@shared/devLogin";
+import { t } from "@shared/i18n";
 import { SecondStepForm } from "@shared/TwoStep";
 import { AuthShell, PasswordField, RememberRow, SsoButtons } from "../AuthShell";
 import { finishSecondStep, forgotPassword, registerAccount, setSession, signIn, type LoginReply, type Session } from "../api";
@@ -48,6 +49,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
   const [elsewhere, setElsewhere] = useState<string | null>(null);
   const [remember, setRemember] = useState(false);
   const [ticket, setTicket] = useState("");
+  const [assist, setAssist] = useState(false);
 
   const registering = mode === "register";
 
@@ -125,8 +127,8 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
       <AuthShell {...BRAND}
         tabs={TABS} tab={mode} onTab={(id) => { setTicket(""); switchTo(id as "signin" | "register" | "forgot"); }}>
         <div className="auth-card">
-          <h2>Two-step sign-in</h2>
-          <p className="lead">Your password was right. Now type the 6-digit code your authenticator app shows.</p>
+          <h2>{t("auth.twoStepTitle")}</h2>
+          <p className="lead">{t("auth.twoStepLead")}</p>
           <SecondStepForm busy={busy} error={error} onCode={(c: string) => void enterCode(c)}
             onBack={() => { setTicket(""); setError(""); }} />
         </div>
@@ -146,25 +148,25 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         <div className="divider">or use your email</div>
 
         <form onSubmit={(e) => void submit(e)}>
-          <label htmlFor="org">Organization</label>
+          <label htmlFor="org">{t("common.organization")}</label>
           <input id="org" className="field" value={organization} onChange={(e) => setOrganization(e.target.value)}
-            autoComplete="organization" placeholder="The clinic group you are registered with" required />
-          <label htmlFor="login">Email</label>
+            autoComplete="organization" placeholder={t("auth.organizationHint")} required />
+          <label htmlFor="login">{t("common.email")}</label>
           <input id="login" className="field" type={registering ? "email" : "text"} value={login}
             onChange={(e) => setLogin(e.target.value)} autoComplete={registering ? "email" : "username"} required />
-          <PasswordField id="password" label="Password" value={password} onChange={setPassword}
+          <PasswordField id="password" label={t("common.password")} value={password} onChange={setPassword}
             autoComplete={registering ? "new-password" : "current-password"} />
           {!registering && <RememberRow onForgot={() => switchTo("forgot")} checked={remember} onChange={setRemember} />}
-          {!registering && remember && <p className="fine-print">Only on your own device. Signing out signs you out of every device.</p>}
+          {!registering && remember && <p className="fine-print">{t("auth.rememberNote")}</p>}
           {registering && (
-            <PasswordField id="confirm" label="Confirm password" value={confirm} onChange={setConfirm}
+            <PasswordField id="confirm" label={t("common.confirmPassword")} value={confirm} onChange={setConfirm}
               autoComplete="new-password" />
           )}
-          {registering && <p className="fine-print">Use a long password that is not your email. Your email is not verified yet.</p>}
+          {registering && <p className="fine-print">{t("auth.passwordNote")}</p>}
           {error && <div className="error" role="alert">{error}</div>}
           {elsewhere && (
             <div className="notice" role="alert">
-              {other ? <>This account belongs in {other.name}. <a href={other.url}>Open it</a>.</>
+              {other ? <>{t("auth.otherAccount", { name: other.name })} <a href={other.url}>{t("auth.openIt")}</a>.</>
                 : <>This account does not have an app yet (role area: {elsewhere}).</>}
             </div>
           )}
@@ -175,9 +177,27 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         </form>
 
         <p className="switch">
-          {registering ? <>Already have an account? <button onClick={() => switchTo("signin")}>Sign in</button></>
-            : <>New to Zoiko Access? <button onClick={() => switchTo("register")}>Register</button></>}
+          {registering ? <>{t("auth.haveAccount")} <button onClick={() => switchTo("signin")}>{t("common.signIn")}</button></>
+            : <>{t("auth.newHere")} <button onClick={() => switchTo("register")}>{t("common.register")}</button></>}
+          {" · "}
+          <button type="button" onClick={() => setAssist((v) => !v)}>
+            {assist ? "Hide help" : "Get assistance"}
+          </button>
         </p>
+        {assist && (
+          <div className="notice" role="region" aria-label="Sign-in assistance">
+            <b>{t("auth.needHelp")}</b>
+            <p style={{ margin: "6px 0" }}>
+              Use the exact clinic group name on your invitation or appointment email. If you forgot your
+              password, <button type="button" className="link" onClick={() => switchTo("forgot")}>reset it here</button>.
+              If your clinic gave you an invitation link, open that link to set your first password.
+            </p>
+            <small>
+              Zoiko Access is not an emergency service. If you need urgent medical help, contact your local
+              emergency number straight away.
+            </small>
+          </div>
+        )}
       </div>
     </AuthShell>
   );
@@ -208,25 +228,25 @@ function Forgot({ organization, login, onBack, onTab }: {
     <AuthShell {...BRAND}
       tabs={TABS} tab="forgot" onTab={(id) => { if (id !== "forgot") onTab(id as "signin" | "register"); }}>
       <div className="auth-card">
-        <h2>Reset your password</h2>
+        <h2>{t("auth.resetTitle")}</h2>
         {sent ? (
           <>
             <p className="lead">
               If that account exists and its email address has been verified, we have sent a link to reset
               the password. It works once and expires in an hour.
             </p>
-            <button className="btn wide" onClick={onBack}>Back to sign in</button>
+            <button className="btn wide" onClick={onBack}>{t("common.backToSignIn")}</button>
           </>
         ) : (
           <form onSubmit={(e) => void submit(e)}>
-            <p className="lead">Enter your organization and email. If the account has a verified email address, we will email you a link.</p>
-            <label htmlFor="f-org">Organization</label>
+            <p className="lead">{t("auth.resetLead")}</p>
+            <label htmlFor="f-org">{t("common.organization")}</label>
             <input id="f-org" className="field" value={org} onChange={(e) => setOrg(e.target.value)} required />
-            <label htmlFor="f-email">Email</label>
+            <label htmlFor="f-email">{t("common.email")}</label>
             <input id="f-email" className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
             {error && <div className="error" role="alert">{error}</div>}
             <button className="btn wide" type="submit" disabled={busy || !org || !email}>{busy ? "Please wait…" : "Send reset link"}</button>
-            <p className="switch"><button type="button" onClick={onBack}>Back to sign in</button></p>
+            <p className="switch"><button type="button" onClick={onBack}>{t("common.backToSignIn")}</button></p>
           </form>
         )}
       </div>

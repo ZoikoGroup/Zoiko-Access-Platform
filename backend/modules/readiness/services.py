@@ -39,12 +39,18 @@ from modules.safety import api as safety
 from modules.traceability import api as traceability
 from modules.trust import api as trust
 
+from . import appointments
 from .models import Decision, Evidence, GateDecision, Release
 
 WRITE = "write:platform"
 ATTEST = "attest:platform"
 G3 = ("signed_build", "security_signoff", "privacy_signoff", "requirements_coverage",
-      "recovery_exercised", "operations_staffed")
+      "recovery_exercised", "operations_staffed",
+      # The two people who sign every production release (decided 27 Nov 2026, DEV-397): only
+      # the confirmed CTO and the confirmed Clinical safety lead can sign these.
+      "cto_signoff", "clinical_lead_signoff")
+NAMED_SIGNERS = {"cto_signoff": ("cto", "R11"),
+                 "clinical_lead_signoff": ("clinical_safety_lead", "R12")}
 G4 = ("legal_authority", "clinical_partner", "clinical_safety_signoff", "operating_entity")
 COUNTRY_PACK = "country_pack"            # checked by the system, signed by nobody
 HAZARD_REGISTER = "hazard_register"      # likewise: every hazard accepted or retired (GHE-08 AT42)
@@ -54,6 +60,7 @@ OPEN_INCIDENTS = "open_incidents"        # likewise: no open SEV-0, SEV-1 or una
 ERROR_BUDGET = "error_budget"            # likewise: the 30-day error budget is left (DEV-388)
 BUDGET_OVERRIDE = "budget_override"      # a safety officer's time-limited override of that hold
 ZOIKO_TWO_STEP = "zoiko_two_step"        # Zoiko's own staff must use two-step (DEV-390)
+KEY_RECOVERY = "key_recovery"            # two people hold a sealed copy of the key (DEV-396)
 OVERRIDE_MAX_DAYS = 7
 CLINICAL = frozenset({"clinical_partner", "clinical_safety_signoff"})
 ALL_REQUIREMENTS = (*G3, *G4)
@@ -216,6 +223,19 @@ def _zoiko_two_step_state() -> dict[str, Any]:
             "expires_on": None, "note": ""}
 
 
+def _key_recovery_state() -> dict[str, Any]:
+    """At least two different confirmed people each hold a sealed recovery copy of the CURRENT
+    master key (decided 27 Nov 2026, DEV-396). Losing the key without one makes every encrypted
+    detail unreadable for ever."""
+    holders = appointments.key_holders()
+    ok = len(holders) >= appointments.MIN_KEY_HOLDERS
+    return {"gate": "G3", "requirement": KEY_RECOVERY, "status": "signed" if ok else "missing",
+            "signer": "", "role": "",
+            "reference": f"{len(holders)} confirmed holder(s) of the current key"
+            + ("" if ok else f", {appointments.MIN_KEY_HOLDERS} needed"),
+            "expires_on": None, "note": ""}
+
+
 def override_budget(
     *, release_ref: str, reason: str, days: Any, actor_public_id: str,
     decision: policy.Decision, organization_ref: str | None, clock: Clock | None = None,
@@ -256,6 +276,7 @@ def evaluate_now(rel: Release, clock: Clock | None = None) -> dict[str, Any]:
     states.append(_incident_state())
     states.append(_budget_state(rel, clock))
     states.append(_zoiko_two_step_state())
+    states.append(_key_recovery_state())
     states.append(_purpose_state(rel))
     states.append(_matrix_state())
     states.append(_pack_state(rel, clock))
@@ -347,9 +368,14 @@ def sign(
     if requirement not in ALL_REQUIREMENTS:
         raise _bad("requirement")
     needed = "R12" if requirement in CLINICAL else "R11"
+    if requirement in NAMED_SIGNERS:
+        needed = NAMED_SIGNERS[requirement][1]
     _check(decision, actor_public_id, ATTEST, organization_ref)
     if decision.role_code != needed:
         raise ZoikoError(ErrorCode.POLICY_DENIED)
+    if requirement in NAMED_SIGNERS and not appointments.is_named(
+            NAMED_SIGNERS[requirement][0], actor_public_id):
+        raise ZoikoError(ErrorCode.POLICY_DENIED)             # only the confirmed named person
     if not _ARTEFACT.match(reference or ""):
         raise _bad("reference")
     today = utc_now(clock).date()

@@ -12,6 +12,10 @@ export function Documents() {
           <p style={{ margin: "0 0 8px" }}>Every route, method, login requirement and the standard error shape.</p>
           <a className="btn" href="/api/v1/openapi.json" target="_blank" rel="noopener">Open openapi.json</a>
         </Card>
+        <Card title="The public API for your own system (DEV-393)">
+          <p style={{ margin: "0 0 8px" }}>Your system calls <code>/api/public/v1/</code> with an active key: <code>Authorization: Bearer &lt;key id&gt;:&lt;secret&gt;</code>. <code>ping</code> says who you are; <code>services</code> lists the published services (a key with "read services"). A sandbox key only ever sees made-up data. Each key has its own per-minute limit, shown in the X-RateLimit headers.</p>
+          <a className="btn" href="/api/public/v1/openapi.json" target="_blank" rel="noopener">Open the public openapi.json</a>
+        </Card>
         <Card title="The events (AsyncAPI 3.0)">
           <p style={{ margin: "0 0 8px" }}>Every event Zoiko Access publishes, which thing it is about and its reference fields, with a schema hash that changes when the event changes.</p>
           <a className="btn" href="/api/v1/asyncapi.json" target="_blank" rel="noopener">Open asyncapi.json</a>

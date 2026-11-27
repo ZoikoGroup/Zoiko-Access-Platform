@@ -38,6 +38,26 @@ function BudgetCard() {
         <div key={a.alert} className="error" role="alert"><b>{a.alert}</b>: follow <code>{a.runbook}</code></div>
       ))}
       {!b.recording && <div className="notice">Request counting is off on this server: there is no budget.</div>}
+      {b.rate_limits && (
+        <div className="appt" style={{ marginTop: 8 }}>
+          <div className="info">
+            <b>
+              Rate limits (last {b.rate_limits.window_minutes} minutes){" "}
+              <Pill kind={b.rate_limits.active_throttles > 0 ? "warn" : "ok"}>
+                {b.rate_limits.active_throttles > 0
+                  ? `${b.rate_limits.active_throttles} throttled`
+                  : "None throttled"}
+              </Pill>
+            </b>
+            <small>
+              Mode: {b.rate_limits.mode}.{" "}
+              {Object.entries(b.rate_limits.limits)
+                .map(([k, lim]) => `${k} ${b.rate_limits?.throttled_by_kind[k] ?? 0} over ${lim}/m`)
+                .join(" · ")}
+            </small>
+          </div>
+        </div>
+      )}
       <p><small>Runbooks: {b.runbooks.map((r) => <code key={r} style={{ marginRight: 8 }}>{r.replace("docs/runbooks/", "")}</code>)}</small></p>
     </Card>
   );

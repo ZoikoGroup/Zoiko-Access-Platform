@@ -54,6 +54,12 @@ def register_provider(
     _PROVIDERS[feature_id] = (provider, model_digest, prompt_digest, tool_digest)
 
 
+def feature_digests(feature_id: str) -> tuple[str | None, str | None]:
+    """The model and prompt fingerprints the registered provider of a feature runs, if any."""
+    found = _PROVIDERS.get(feature_id)
+    return (found[1], found[2]) if found else (None, None)
+
+
 def digest(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 

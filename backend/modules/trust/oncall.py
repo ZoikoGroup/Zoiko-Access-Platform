@@ -137,6 +137,12 @@ def escalate_due(clock: Clock | None = None) -> int:
             if address:
                 queue_email(kind="incident_escalation", to_address=address, values={
                     "app_url": str(getattr(settings, "PLATFORM_APP_URL", ""))})
+            # DEV-400: and page the on-call person (PagerDuty). A reference only, never a title.
+            from foundation import paging
+
+            paging.trigger(f"zoiko-{settings.ZOIKO_CELL_ID}-incident-{row.public_id}",
+                           "A serious incident was not acknowledged in time",
+                           severity="critical", runbook="docs/runbooks/README.md")
             done += 1
     return done
 

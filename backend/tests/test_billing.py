@@ -206,7 +206,7 @@ def test_an_invoice_cannot_be_paid_before_it_is_issued_or_without_a_reference(p)
     inv = invoice(p)
     assert act(p, inv, "pay", {"payment_ref": "receipt-0001"}).status_code == 409
     issue(p, inv)
-    for bad in ("", "x", "has space in it", "y" * 70):
+    for bad in ("", "x", "has space in it", "y" * 130):     # up to 128 (DEV-400, Stripe ids)
         assert act(p, inv, "pay", {"payment_ref": bad}).status_code == 422
     assert detail(p, inv)["status"] == "issued"
 

@@ -56,6 +56,11 @@ export function Bills() {
       // Deterministic 8-64 char idempotency key matching _IDEMPOTENCY_KEY
       const idemp = `pay-${inv.public_id}-${Date.now().toString(36)}`;
       const payment = await payInvoice(inv.public_id, idemp);
+      if (payment.pay_url && payment.pay_url.startsWith("https://checkout.stripe.com/")) {
+        // DEV-400: card details are entered on Stripe's own page, never in this app.
+        window.location.assign(payment.pay_url);
+        return;
+      }
       if (payment.status === "succeeded") {
         setPayNotice(`Payment of ${money(payment.amount_minor, payment.currency)} succeeded! Reference: ${payment.provider_ref || payment.public_id}`);
         loadInvoices();

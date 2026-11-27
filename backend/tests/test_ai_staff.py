@@ -99,6 +99,12 @@ def test_authorizing_needs_two_other_signers_and_a_valid_length(web):
     assert sign("boss2").status_code == 403  # once each
     assert step(web, made, "AUTHORIZED", subject="boss3", days=30).status_code == 403  # one signer
     assert sign("boss3").status_code == 200
+    # DEV-399: two clinic administrators are not enough; a Zoiko officer must sign as well.
+    assert step(web, made, "AUTHORIZED", days=30).status_code == 403
+    from foundation.cell_context import tenant_transaction
+    from modules.ai import api as ai_api
+    with tenant_transaction(web.clinic.ctx):
+        ai_api.zoiko_sign(made, officer_ref="zoiko-officer")
     for days in (0, 366, "x", None):
         assert step(web, made, "AUTHORIZED", days=days).status_code == 422, days
     r = step(web, made, "AUTHORIZED", days=30)

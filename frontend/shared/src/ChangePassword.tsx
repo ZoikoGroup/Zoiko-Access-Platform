@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "./i18n";
 import { Card } from "./ui";
 
 /** The plain-words error for a failed change-password call, whichever app's ApiError it is (the
@@ -6,10 +7,10 @@ import { Card } from "./ui";
 export function friendlyPasswordError(e: unknown): Error {
   const code = (e as { code?: string } | null)?.code;
   if (code === "VALIDATION_FAILED") {
-    return new Error("That did not work. Check your current password, and use a new password that is long enough and different from the old one.");
+    return new Error(t("password.invalid"));
   }
-  if (code === "RATE_LIMITED") return new Error("Too many tries. Wait a little and try again.");
-  return e instanceof Error ? e : new Error("Could not change the password");
+  if (code === "RATE_LIMITED") return new Error(t("common.tooManyTries"));
+  return e instanceof Error ? e : new Error(t("password.couldNotChange"));
 }
 
 /** "Change my password", shared by the apps. The app supplies `onChange`, which calls its own API,
@@ -27,33 +28,33 @@ export function ChangePassword({ onChange }: { onChange: (current: string, next:
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setDone(false);
-    if (!current || !next) { setError("Fill in your current and your new password."); return; }
-    if (next !== again) { setError("The two new passwords are not the same."); return; }
-    if (next === current) { setError("Choose a password different from the current one."); return; }
+    if (!current || !next) { setError(t("password.fillBoth")); return; }
+    if (next !== again) { setError(t("password.notSame")); return; }
+    if (next === current) { setError(t("password.notDifferent")); return; }
     setBusy(true); setError("");
     try {
       await onChange(current, next);
       setCurrent(""); setNext(""); setAgain(""); setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not change the password");
+      setError(err instanceof Error ? err.message : t("password.couldNotChange"));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Card title="Change my password"
-      sub="Every other device is signed out when you change it. Use a long password you do not use anywhere else.">
+    <Card title={t("password.title")}
+      sub={t("password.sub")}>
       <form onSubmit={(e) => void submit(e)} style={{ display: "grid", gap: 8, maxWidth: 360 }}>
-        <input type="password" autoComplete="current-password" aria-label="Current password" placeholder="Current password"
+        <input type="password" autoComplete="current-password" aria-label={t("password.current")} placeholder={t("password.current")}
           value={current} onChange={(e) => setCurrent(e.target.value)} />
-        <input type="password" autoComplete="new-password" aria-label="New password" placeholder="New password"
+        <input type="password" autoComplete="new-password" aria-label={t("password.new")} placeholder={t("password.new")}
           value={next} onChange={(e) => setNext(e.target.value)} />
-        <input type="password" autoComplete="new-password" aria-label="Repeat the new password" placeholder="Repeat the new password"
+        <input type="password" autoComplete="new-password" aria-label={t("password.repeat")} placeholder={t("password.repeat")}
           value={again} onChange={(e) => setAgain(e.target.value)} />
         {error && <div className="error" role="alert">{error}</div>}
-        {done && <div className="notice" role="status" style={{ background: "var(--ok-bg)", color: "var(--ok)" }}>Password changed. Other devices were signed out.</div>}
-        <div><button className="btn" type="submit" disabled={busy}>{busy ? "Changing…" : "Change password"}</button></div>
+        {done && <div className="notice" role="status" style={{ background: "var(--ok-bg)", color: "var(--ok)" }}>{t("password.done")}</div>}
+        <div><button className="btn" type="submit" disabled={busy}>{busy ? t("password.changing") : t("password.change")}</button></div>
       </form>
     </Card>
   );

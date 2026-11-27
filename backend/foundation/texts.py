@@ -124,9 +124,29 @@ def _twilio(number: str, body: str) -> str | None:
         return str(sid)[:64] if sid else None
 
 
+def _sns(number: str, body: str) -> str | None:
+    """AWS SNS (DEV-400): one transactional SMS, signed with SigV4 (foundation/aws.py)."""
+    from . import aws
+
+    fields = {
+        "Action": "Publish", "Version": "2010-03-31", "PhoneNumber": number, "Message": body,
+        "MessageAttributes.entry.1.Name": "AWS.SNS.SMS.SMSType",
+        "MessageAttributes.entry.1.Value.DataType": "String",
+        "MessageAttributes.entry.1.Value.StringValue": "Transactional",
+    }
+    try:
+        raw = aws.call(service="sns", url=f"https://sns.{aws.region()}.amazonaws.com/",
+                       body=urllib.parse.urlencode(fields).encode(),
+                       headers={"Content-Type": "application/x-www-form-urlencoded"})
+    except aws.AwsError as exc:
+        raise TextError(str(exc)) from None
+    found = re.search(rb"<MessageId>([A-Za-z0-9-]{1,64})</MessageId>", raw)
+    return found.group(1).decode() if found else None
+
+
 def provider() -> Provider | None:
     name = getattr(settings, "TEXT_PROVIDER", "")
-    return {"twilio": _twilio, "console": _console}.get(name)
+    return {"sns": _sns, "twilio": _twilio, "console": _console}.get(name)
 
 
 # ------------------------------------------------------------------ the circuit breaker (DEV-200)

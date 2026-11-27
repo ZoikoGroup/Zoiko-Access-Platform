@@ -18,6 +18,7 @@ import { CodeMaps } from "./pages/CodeMaps";
 import { DeliveryAttempts } from "./pages/DeliveryAttempts";
 import { SupportAccess } from "./pages/SupportAccess";
 import { Egress } from "./pages/Egress";
+import { AiPermits } from "./pages/AiPermits";
 import { Templates } from "./pages/Templates";
 import { Connectors } from "./pages/Connectors";
 import { Packs } from "./pages/Packs";
@@ -99,6 +100,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "attempts") body = <DeliveryAttempts />;
   else if (page === "support") body = <SupportAccess />;
   else if (page === "egress") body = <Egress />;
+  else if (page === "aipermits") body = <AiPermits />;
   else if (page === "templates") body = <Templates />;
   else if (page === "packs") body = <Packs canWrite={session.roles.some((r) => r.role === "R11")} canAttest={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "releases") body = <Releases canAdd={session.roles.some((r) => r.role === "R11")} />;

@@ -57,8 +57,10 @@ export interface Dashboard {
 export interface PartnerKey {
   public_id: string; label: string; key_id: string; allowed_types: string[];
   state: "pending" | "active" | "suspended" | "revoked"; rate_per_minute: number; created_at: string;
-  checks: { identity: boolean; legal: boolean; security: boolean };
+  checks: { identity: boolean; legal: boolean; security: boolean; sandbox_test?: boolean };
   last_used_at: string | null; secret?: string;
+  /** DEV-393: what the key may do on the public API, and whether it only sees synthetic data. */
+  scopes?: string[]; environment?: "live" | "sandbox";
 }
 export interface Hook {
   public_id: string; label: string; url: string; topics: string[]; key_id: string;

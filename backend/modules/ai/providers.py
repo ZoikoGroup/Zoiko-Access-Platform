@@ -20,4 +20,15 @@ def reply_draft(_input_text: str) -> str:
 
 
 def register_builtin() -> None:
+    """The reply draft's provider: Claude when AI_PROVIDER is "anthropic" (DEV-399, pinned by the
+    fingerprints of its model and prompt), otherwise the fixed template."""
+    from django.conf import settings
+
+    if getattr(settings, "AI_PROVIDER", "") == "anthropic":
+        from . import claude
+        from .runs import digest
+
+        register_provider(REPLY_DRAFT, claude.draft_reply, model_digest=digest(claude.model()),
+                          prompt_digest=digest(claude.SYSTEM_PROMPT))
+        return
     register_provider(REPLY_DRAFT, reply_draft)

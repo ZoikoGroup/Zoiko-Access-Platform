@@ -214,6 +214,29 @@ export const resolveIncident = (id: string, resolution: string, restoration_noti
   v1<{ incident: IncidentRow }>(`platform/incidents/${encodeURIComponent(id)}/resolve`, {
     method: "POST", body: JSON.stringify({ resolution, restoration_notice }),
   });
+/** People Zoiko named: key recovery holders, the CTO and the Clinical safety lead (DEV-396/397). */
+export interface NamedPerson {
+  public_id: string; title: "key_recovery" | "cto" | "clinical_safety_lead"; holder: string; holder_name: string;
+  key_id: string; envelope_code: string; appointed_by_name: string;
+  status: "waiting_for_the_person" | "confirmed" | "withdrawn"; created_at: string;
+}
+export interface NamedPeople {
+  named: NamedPerson[]; key_holders_confirmed: number; key_holders_needed: number; can_name: boolean; me: string;
+}
+export const getNamedPeople = () => v1<NamedPeople>("platform/named-roles");
+export const namePerson = (title: string, holder: string, envelope_code = "") =>
+  v1<{ named: NamedPerson }>("platform/named-roles", { method: "POST", body: JSON.stringify({ title, holder, envelope_code }) });
+export const namedStep = (id: string, step: "confirm" | "withdraw") =>
+  v1<{ named: NamedPerson }>(`platform/named-roles/${encodeURIComponent(id)}/${step}`, { method: "POST", body: "{}" });
+/** A customer's AI permit, as a Zoiko officer sees it (DEV-399). */
+export interface CustomerAiPermit {
+  id: string; feature_id: string; purpose: string; lane: string; level: string; state: string;
+  approvers: number; zoiko_signed: boolean; expiry: string | null;
+}
+export const getCustomerAiPermits = async (customer: string) =>
+  (await v1<{ permits: CustomerAiPermit[] }>(`platform/ai-permits?customer=${encodeURIComponent(customer)}`)).permits;
+export const signCustomerAiPermit = (customer: string, permit: string) =>
+  v1<{ permit: CustomerAiPermit }>(`platform/ai-permits/${encodeURIComponent(customer)}/${encodeURIComponent(permit)}/sign`, { method: "POST", body: "{}" });
 export interface OnCallPerson { id: string; name: string }
 export const getOnCallStaff = async () =>
   (await v1<{ staff: OnCallPerson[] }>("platform/incidents/on-call-staff")).staff;
@@ -421,7 +444,7 @@ export const acceptHazard = (id: string, note: string) => hazardPost(id, "accept
 export const retireHazard = (id: string, reason: string) => hazardPost(id, "retire", { reason });
 
 /** A customer's partner waits for three checks by Zoiko support before it can have a secret. */
-export type PartnerCheckName = "identity" | "legal" | "security";
+export type PartnerCheckName = "identity" | "legal" | "security" | "sandbox_test";   // DEV-401
 export interface PartnerCheckRow {
   public_id: string; customer_ref: string; customer_name: string; label: string; key_id: string;
   allowed_types: string[]; checks: Record<PartnerCheckName, boolean>; created_at: string;
@@ -585,10 +608,15 @@ export interface Budget {
   target: number; requests: number; failures: number; allowed_failures: number; used: number;
   remaining: number; state: "healthy" | "warning" | "exhausted" | "not_enough_traffic";
 }
+export interface RateLimitSummary {
+  mode: string; window_minutes: number; limits: Record<string, number>;
+  throttled_by_kind: Record<string, number>; active_throttles: number;
+}
 export interface ErrorBudget {
   window_days: number; budgets: { availability: Budget; latency: Budget };
   burn: { last_hour: { availability: number; latency: number; requests: number }; last_6_hours: { availability: number; latency: number; requests: number } };
   alerts: { alert: string; runbook: string }[]; exhausted: boolean; recording: boolean; runbooks: string[];
+  rate_limits?: RateLimitSummary;
 }
 export const getErrorBudget = () => v1<ErrorBudget>("platform/error-budget");
 /** A safety officer lets one release go on while the budget is used up (at most 7 days). */
