@@ -3,6 +3,10 @@
 This is the ONLY module other domain modules may import from `modules.safety`.
 """
 
+from .controls import controls_of, test_status, trace
+from .controls import propose as propose_control
+from .controls import verify as verify_control
+from .controls import withdraw as withdraw_control
 from .purposes import (
     approve as approve_purpose,
 )
@@ -27,6 +31,7 @@ from .services import (
 )
 
 __all__ = [
+    "controls_of", "propose_control", "test_status", "trace", "verify_control", "withdraw_control",
     "approve_purpose",
     "list_purposes",
     "missing_for",

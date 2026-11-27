@@ -89,7 +89,8 @@ ROLE_PURPOSES: dict[str, frozenset[str]] = {
 }
 
 # Never allowed, whatever else is true. Checked first. Needs a different mechanism to ever open
-# (for example R11 needs a just-in-time privileged grant, which is not built).
+# (R11 sees inside a customer only through a short grant the customer approves: DEV-381,
+# api/support_access.py, and even then only setup and status views, never these classes).
 HARD_PROHIBITIONS: dict[str, frozenset[str]] = {
     "R08": frozenset(
         {

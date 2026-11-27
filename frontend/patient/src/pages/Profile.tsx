@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { changePassword, getEmailStatus, resendVerification, saveProfile, setEmail, type ProfileRow } from "../api";
+import { TwoStepCard } from "@shared/TwoStep";
+import { changePassword, getEmailStatus, resendVerification, saveProfile, setEmail, twoStepApi, type ProfileRow } from "../api";
 import { ChangePassword } from "../ChangePassword";
 import { EmailCard } from "../EmailCard";
 import { Card } from "../ui";
@@ -84,6 +85,7 @@ export function Profile({ profiles, onSaved }: { profiles: ProfileRow[]; onSaved
         ))}
         <EmailCard load={getEmailStatus} onSave={setEmail} onResend={resendVerification} />
         <ChangePassword onChange={changePassword} />
+        <TwoStepCard api={twoStepApi} />
       </div>
     </>
   );

@@ -554,7 +554,10 @@ def test_retention_erases_notes_8_years_after_death(clinic):
 
     clinic.person = pat
     old = draft(clinic, day="2010-01-05")
-    png_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+    png_bytes = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+        b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+    )
     r_att = clinic.client.post(
         f"/api/v1/clinician/notes/{old}/attachments?filename=scan.png",
         png_bytes,
@@ -571,14 +574,19 @@ def test_retention_erases_notes_8_years_after_death(clinic):
 
     # Clinic administrator records death on 2014-06-01 (over 8 years ago)
     clinic.login("boss_ret", FAC, "R13")
-    r = clinic.post(f"people/{pat}/death", {"died_on": "2014-06-01", "source": "death_certificate"}, subject="boss_ret")
+    r = clinic.post(
+        f"people/{pat}/death",
+        {"died_on": "2014-06-01", "source": "death_certificate"},
+        subject="boss_ret",
+    )
     assert r.status_code == 201
 
-    # 8 years after death has elapsed -> erase_expired_all_tenants erases body, medications, attachments
+    # 8 years after death has elapsed -> erase_expired_all_tenants erases body/meds/attachments
     assert erase_expired_all_tenants() == 1
     with tenant_transaction(clinic.clinic.ctx):
         row = ClinicalNote.objects.get(public_id=old)
-        assert row.body_enc == "" and row.medications_enc == "" and row.diagnoses_enc == "" and row.erased_at is not None
+        assert row.body_enc == "" and row.medications_enc == ""
+        assert row.diagnoses_enc == "" and row.erased_at is not None
         assert NoteAddendum.objects.get(note=row).body_enc == ""
         assert NoteAttachment.objects.get(public_id=att["id"]).content_enc == ""
         assert AuditEvent.objects.filter(action="clinicalnote.erased_retention").count() >= 1
@@ -607,7 +615,11 @@ def test_recent_death_keeps_notes_until_8_years_elapse(clinic):
 
     # Patient died 2 years ago -> 8 years has not yet elapsed
     clinic.login("boss_rec", FAC, "R13")
-    clinic.post(f"people/{pat}/death", {"died_on": "2024-06-01", "source": "hospital_notice"}, subject="boss_rec")
+    clinic.post(
+        f"people/{pat}/death",
+        {"died_on": "2024-06-01", "source": "hospital_notice"},
+        subject="boss_rec",
+    )
 
     assert erase_expired_all_tenants() == 0
 
@@ -627,7 +639,11 @@ def test_guardian_access_terminates_on_patient_death_and_restores_on_withdrawal(
     # Clinic administrator records child's death
     clinic.login("boss_d1", FAC, "R13")
     clinic.login("boss_d2", FAC, "R13")
-    r = clinic.post(f"people/{child}/death", {"died_on": "2026-11-20", "source": "hospital_notice"}, subject="boss_d1")
+    r = clinic.post(
+        f"people/{child}/death",
+        {"died_on": "2026-11-20", "source": "hospital_notice"},
+        subject="boss_d1",
+    )
     assert r.status_code == 201
 
     # AHRA 1990: Guardian proxy access terminates upon death
@@ -639,7 +655,9 @@ def test_guardian_access_terminates_on_patient_death_and_restores_on_withdrawal(
     assert doc_read.status_code == 200
 
     # Second administrator withdraws death recorded in error
-    w = clinic.post(f"people/{child}/death/withdraw", {"reason": "recorded_in_error"}, subject="boss_d2")
+    w = clinic.post(
+        f"people/{child}/death/withdraw", {"reason": "recorded_in_error"}, subject="boss_d2"
+    )
     assert w.status_code == 200
 
     # Proxy access is restored
@@ -707,7 +725,9 @@ MEDS = [
 ]
 
 
-def test_a_draft_carries_structured_medications_signed_with_the_note_and_shown_to_the_patient(clinic):
+def test_a_draft_carries_structured_medications_signed_with_the_note_and_shown_to_the_patient(
+    clinic,
+):
     r = clinic.post("clinician/notes", {"patient": clinic.person, "note_date": "2026-11-16",
                                         "body": TEXT, "medications": MEDS}, subject="doc")
     assert r.status_code == 201, r.content
@@ -718,11 +738,13 @@ def test_a_draft_carries_structured_medications_signed_with_the_note_and_shown_t
     step(clinic, note, "edit", body=TEXT2)  # no medications given: they stay
     assert body(clinic.get(f"clinician/notes/{note}", subject="doc"))["note"]["medications"] == MEDS
     step(clinic, note, "edit", body=TEXT2, medications=[MEDS[0]])
-    assert body(clinic.get(f"clinician/notes/{note}", subject="doc"))["note"]["medications"] == [MEDS[0]]
+    got_meds = body(clinic.get(f"clinician/notes/{note}", subject="doc"))["note"]["medications"]
+    assert got_meds == [MEDS[0]]
     step(clinic, note, "sign")
     assert step(clinic, note, "edit", body=TEXT, medications=[]).status_code == 409  # signed
     new = body(step(clinic, note, "amend", reason="clarification"))["note"]["id"]
-    assert body(clinic.get(f"clinician/notes/{new}", subject="doc"))["note"]["medications"] == [MEDS[0]]
+    new_meds = body(clinic.get(f"clinician/notes/{new}", subject="doc"))["note"]["medications"]
+    assert new_meds == [MEDS[0]]
     # embargo: patient cannot read before 24h
     assert clinic.get(f"my/notes/{note}", subject="pat").status_code == 404
     backdate(clinic, note, 25)
@@ -750,20 +772,33 @@ def test_medications_are_stored_encrypted_and_bad_ones_refused(clinic):
     with connection.cursor() as cur:
         cur.execute("select medications_enc from clinicalnote_clinicalnote")
         stored = " ".join(row[0] for row in cur.fetchall())
-    assert stored and "Amoxicillin" not in stored and "38341003" not in stored and "500mg TDS" not in stored
-
+    assert (
+        stored
+        and "Amoxicillin" not in stored
+        and "38341003" not in stored
+        and "500mg TDS" not in stored
+    )
 
 
 # ------------------------------------------------ attachments (DEV-376)
 def _pdf(extra=b""):
-    return b"%PDF-1.4\n1 0 obj<< /Type /Catalog /Font /AAAAAB+Arial >>endobj\n" + extra + b"\ntrailer<<>>\n%%EOF\n"
+    return (
+        b"%PDF-1.4\n1 0 obj<< /Type /Catalog /Font /AAAAAB+Arial >>endobj\n"
+        + extra
+        + b"\ntrailer<<>>\n%%EOF\n"
+    )
 
 
-_PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+    b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+)
 _JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb"
 
 
-def upload_att(clinic, note_id, data, name="letter.pdf", content_type="application/pdf", subject="doc"):
+def upload_att(
+    clinic, note_id, data, name="letter.pdf", content_type="application/pdf", subject="doc"
+):
     return clinic.client.post(
         f"/api/v1/clinician/notes/{note_id}/attachments?filename={name}",
         data,
@@ -855,7 +890,8 @@ def test_attachment_validation_virus_scan_and_retention(clinic, settings):
     # Refuse PDF with active JS
     assert upload_att(clinic, note, _pdf(b"/JavaScript (malicious())"), "x.pdf").status_code == 422
     # Refuse > 10MB
-    assert upload_att(clinic, note, b"%PDF-" + b"0" * (10 * 1024 * 1024 + 1) + b"%%EOF", "huge.pdf").status_code == 422
+    huge_pdf = b"%PDF-" + b"0" * (10 * 1024 * 1024 + 1) + b"%%EOF"
+    assert upload_att(clinic, note, huge_pdf, "huge.pdf").status_code == 422
     # Virus check: EICAR standard test file is detected as infected
     infected_res = upload_att(clinic, note, _pdf(EICAR), "eicar.pdf")
     assert infected_res.status_code == 201
@@ -864,7 +900,10 @@ def test_attachment_validation_virus_scan_and_retention(clinic, settings):
     # Cannot open infected attachment
     assert get_att(clinic, note, infected_id).status_code == 409
     with connection.cursor() as cur:
-        cur.execute("select content_enc from clinicalnote_noteattachment where public_id = %s", [infected_id])
+        cur.execute(
+            "select content_enc from clinicalnote_noteattachment where public_id = %s",
+            [infected_id],
+        )
         assert cur.fetchone()[0] == ""  # wiped on infection
     # Pending scan worker test
     settings.ATTACHMENT_SCANNER = ""  # no scanner available: stays pending
@@ -877,7 +916,10 @@ def test_attachment_validation_virus_scan_and_retention(clinic, settings):
     assert get_att(clinic, note, pending_id).status_code == 200  # now clean and openable
     # Encryption at rest: ciphertext in DB
     with connection.cursor() as cur:
-        cur.execute("select content_enc from clinicalnote_noteattachment where public_id = %s", [pending_id])
+        cur.execute(
+            "select content_enc from clinicalnote_noteattachment where public_id = %s",
+            [pending_id],
+        )
         stored = cur.fetchone()[0]
     assert stored and "Type /Catalog" not in stored and "AAAAAB+Arial" not in stored
     # Max attachments: 5 per note
@@ -898,7 +940,11 @@ def test_attachment_validation_virus_scan_and_retention(clinic, settings):
             by="system",
         )
     _born(clinic, old_person, "1960-01-01", "Pat Old")
-    old_res = clinic.post("clinician/notes", {"patient": old_person, "note_date": "2010-01-05", "body": TEXT}, subject="doc")
+    old_res = clinic.post(
+        "clinician/notes",
+        {"patient": old_person, "note_date": "2010-01-05", "body": TEXT},
+        subject="doc",
+    )
     old_note = body(old_res)["note"]["id"]
     att = body(upload_att(clinic, old_note, _pdf(), "old.pdf"))["attachment"]
     step(clinic, old_note, "sign")

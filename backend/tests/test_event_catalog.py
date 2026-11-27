@@ -5,7 +5,13 @@ import os
 import re
 from pathlib import Path
 
+import django
 import pytest
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.test")
+if not django.apps.apps.ready:
+    django.setup()
+
 from django.test import Client
 
 from foundation import event_catalog

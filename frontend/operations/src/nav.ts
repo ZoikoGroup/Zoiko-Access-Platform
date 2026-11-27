@@ -3,7 +3,7 @@
 export type PageId =
   | "dashboard" | "patients" | "providers" | "organizations" | "team" | "services" | "appointments"
   | "waitlist" | "family" | "referrals" | "workflows" | "messages" | "billing" | "compliance" | "reports"
-  | "integrations" | "ai" | "settings" | "rights" | "engine" | "exchange" | "matches" | "retention" | "partner-systems" | "claims";
+  | "integrations" | "ai" | "settings" | "rights" | "engine" | "exchange" | "matches" | "retention" | "partner-systems" | "claims" | "insurance";
 
 export interface NavItem {
   id: PageId;
@@ -11,24 +11,27 @@ export interface NavItem {
   icon: string;
   live: boolean;
   waitsFor?: string;
+  /** The country-pack capability this screen needs (DEV-383); hidden when the market has it off. */
+  capability?: string;
 }
 
 export const NAV: NavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", live: true },
   { id: "patients", label: "Patients", icon: "patients", live: true },
   { id: "matches", label: "Duplicates", icon: "shield", live: true },
-  { id: "providers", label: "Providers", icon: "providers", live: true },
+  { id: "providers", label: "Providers", icon: "providers", live: true, capability: "provider_directory" },
   { id: "organizations", label: "Organizations", icon: "organizations", live: true },
   { id: "team", label: "Team", icon: "providers", live: true },
-  { id: "services", label: "Services", icon: "services", live: true },
-  { id: "appointments", label: "Appointments", icon: "appointments", live: true },
-  { id: "waitlist", label: "Waiting list", icon: "appointments", live: true },
+  { id: "services", label: "Services", icon: "services", live: true, capability: "provider_directory" },
+  { id: "appointments", label: "Appointments", icon: "appointments", live: true, capability: "booking" },
+  { id: "waitlist", label: "Waiting list", icon: "appointments", live: true, capability: "waiting_list" },
   { id: "family", label: "Family requests", icon: "patients", live: true },
-  { id: "referrals", label: "Referrals", icon: "referrals", live: true },
+  { id: "referrals", label: "Referrals", icon: "referrals", live: true, capability: "referrals" },
   { id: "exchange", label: "Partner requests", icon: "referrals", live: true },
   { id: "claims", label: "Claims", icon: "billing", live: true },
+  { id: "insurance", label: "Insurance status", icon: "shield", live: true },
   { id: "workflows", label: "Work queue", icon: "workflows", live: true },
-  { id: "messages", label: "Messages", icon: "messages", live: true },
+  { id: "messages", label: "Messages", icon: "messages", live: true, capability: "messaging" },
   { id: "billing", label: "Billing", icon: "billing", live: true },
   { id: "compliance", label: "Compliance", icon: "compliance", live: true },
   { id: "rights", label: "Data requests", icon: "compliance", live: true },

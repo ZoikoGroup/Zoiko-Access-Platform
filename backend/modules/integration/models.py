@@ -176,3 +176,40 @@ class FhirQuarantine(CellScopedModel):
             models.Index(fields=["state", "created_at"], name="fhir_quar_state_idx"),
         ]
 
+
+
+class EgressPurpose(models.TextChoices):
+    WEBHOOK = "webhook", "A customer's own webhook receiver"
+    CONNECTOR = "connector", "A partner system a connector calls"
+
+
+class EgressState(models.TextChoices):
+    PROPOSED = "proposed", "Waiting for Zoiko's approval"
+    APPROVED = "approved", "Approved"
+    REFUSED = "refused", "Refused"
+    REVOKED = "revoked", "Revoked"
+
+
+class EgressPermit(CellScopedModel):
+    """One outgoing address one customer may send to (DEV-384, GHE-09 SEC-07, GHE-13 webhook
+    endpoint allowlist, GHE-22 AT-024). Kept in ZOIKO's platform tenant, like country packs: the
+    customer asks (registering a webhook address does it), Zoiko's staff approve. Exact host names
+    only, never wildcards. Nothing personal: a host, a customer id and who decided."""
+
+    customer_ref = models.CharField(max_length=22)        # the customer's tenant public id
+    host = models.CharField(max_length=253)                # lower case, exact
+    purpose = models.CharField(max_length=10, choices=EgressPurpose.choices)
+    state = models.CharField(max_length=10, choices=EgressState.choices,
+                             default=EgressState.PROPOSED)
+    proposed_by_ref = models.CharField(max_length=22)      # a platform login, or "customer"
+    requested_by_label = models.CharField(max_length=128, blank=True, default="")
+    decided_by_ref = models.CharField(max_length=22, blank=True, default="")
+    decided_at = models.DateTimeField(null=True, blank=True)
+    reason = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "customer_ref", "host", "purpose"],
+                                    name="egress_permit_uq"),
+        ]
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="egress_scope_idx")]

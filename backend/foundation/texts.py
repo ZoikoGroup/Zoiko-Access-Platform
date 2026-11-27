@@ -43,6 +43,9 @@ TEMPLATES: dict[str, tuple[str, dict[str, re.Pattern[str]]]] = {
     "urgent_staff": ("Something at your clinic needs a decision on Zoiko Access. Please sign in.",
                      {}),
 }
+# What kind of message each text is (DEV-386, the approval screen): see message_templates.py.
+TEXT_CLASSES = {"update": "service", "code": "security", "urgent": "clinical_alert",
+                "urgent_staff": "admin"}
 _NUMBER = re.compile(r"^\+[1-9][0-9]{7,14}$")          # international (E.164) only
 MAX_ATTEMPTS = 5
 BREAK_AFTER = 5                                        # failures in a row (DEV-200)
@@ -81,8 +84,14 @@ def queue_text(*, kind: str, to_number: str, template: str,
     if not _NUMBER.match(number):
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["to_number"])
     body = wording.format(**given)
+    from .message_templates import version_of
+    from .template_policy import HOLD, decide
+
+    version = version_of("text", wording, allowed)
+    held = decide("text", template, version) == HOLD     # DEV-386: approved wording only
     return QueuedText.objects.create(
         kind=kind[:32], to_number=number, template=template, body=body,
+        template_version=version, state=MailState.HELD if held else MailState.QUEUED,
         content_digest=hashlib.sha256(f"{template}\n{body}".encode()).hexdigest())
 
 

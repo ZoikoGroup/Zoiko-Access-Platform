@@ -91,8 +91,8 @@ def _queued(ref_kind="verify_email"):
 
     p = Practice()
     with tenant_transaction(p.clinic.ctx):
-        return queue_email(kind=ref_kind, to_address="asha@example.org", subject="Hi",
-                           body="Hello").public_id
+        return queue_email(kind=ref_kind, to_address="asha@example.org",
+                           values={"link": "https://app.test/?token=x"}).public_id
 
 
 def post_events(events, sign=None, ts=None, tamper=False):

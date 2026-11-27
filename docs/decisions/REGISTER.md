@@ -2668,6 +2668,63 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
   - Ruff and mypy clean on the changed files; the staff console type-checks.
 - **Seen in the other session's work, not changed here:** new claim-attachment routes and lines in `api/urls.py` and `api/views.py` are over the line length, and their routes are not yet in the feature-pack table (`api/capability_gate.py`), so `test_capability_gate` failed; the three routes were added to the table as billing and claims (never switched off by a market), and it passes.
 
+### DEV-390: sixteen open decisions answered on 26 November 2026 (given by Venkatesh; for the lead to see)
+
+Given in this session by Venkatesh, answering for the project. **Recorded so the lead and the named owners (clinical safety, privacy, security) can see them and change any.** Each was already built on a proposal; all sixteen confirm the proposal, and two needed a small addition (below).
+
+| # | Decision | Answer | Was |
+|---|---|---|---|
+| 1 | DEV-370: preliminary lab results | Read and alerted, never marked reviewed; the patient waits for the final result | TEMPORARY, now confirmed |
+| 2 | DEV-365: clinical notes on a record merge | Never moved by a merge | TEMPORARY, now confirmed |
+| 3 | DEV-385: review during a duplicate check or a dispute | Blocked (not only warned) | TEMPORARY, now confirmed |
+| 4 | DEV-382: controls needed to accept a hazard | At least one verified control, none waiting | proposal, now confirmed |
+| 5 | DEV-380: re-check before risky actions | 15 minutes | proposal, now confirmed |
+| 6 | DEV-380: Zoiko's own staff | **Must use two-step sign-in before go-live** | open: built now (below) |
+| 7 | DEV-381: support access lengths | 10, 20 or 30 minutes | proposal, now confirmed |
+| 8 | DEV-129: remember me | Patients may choose 30 days; staff always 8 hours | TEMPORARY, now confirmed |
+| 9 | DEV-389: small numbers on reports | Hidden under 5 | proposal, now confirmed |
+| 10 | DEV-384: webhook addresses | Zoiko approves each | TEMPORARY, now confirmed |
+| 11 | DEV-386: unapproved security emails | Held like all others; every template approved before go-live | TEMPORARY, now confirmed |
+| 12 | DEV-387: rate limits | ip 600, sign-in 20, login 300 reads / 60 changes, clinic 3000 per minute | proposal, now confirmed |
+| 13 | DEV-106: doctor's care link after a visit | 30 days; ends at once if the doctor leaves the clinic | TEMPORARY, now confirmed |
+| 14 | DEV-108: moving or cancelling a confirmed appointment | The original stays until the clinic answers; **the patient may take the request back** | open in part: built now (below) |
+| 15 | DEV-109: unanswered referral | Flagged and sent to the fallback doctor after 24 hours (opening hours when set) | TEMPORARY, now confirmed |
+| 16 | DEV-014: incident severity scale | SEV-0 to SEV-3; SEV-0 and SEV-1 hold every release | TEMPORARY, now confirmed |
+
+- **Built for answer 6:** a new system-checked G3 requirement in the go-live readiness register, `zoiko_two_step`. A release is held until Zoiko's platform tenant requires two-step sign-in for every staff login (`Tenant.staff_two_step_required`, set by its administrator on the staff two-step rule, DEV-380). The readiness page lists it with the other system checks.
+- **Built for answer 14:** `POST bookings/<id>/keep`. The patient (or guardian) takes back a request to cancel a confirmed appointment while it is still waiting. The appointment stays, the history shows "Change not made: this appointment stays" (`change_withdrawn`), and it is audited (`booking.cancel_request_withdrawn`). The clinic cannot do it for them (403); nothing waiting, or already cancelled, is refused (409). Taking back a request to MOVE already existed: cancelling the new requested time restores the original. Patient app: "Keep this appointment" on a pending cancel request. In the feature-pack table as booking.
+- **Still open, not asked here** (they need the named owners, not a developer default): AI permits and any outside model; retention periods per country; the master key's recovery holder in practice; real partner, payer and email/text provider contracts; who signs releases in production with what credentials; translations; the clinical-safety review that switches clinical notes on.
+- **Checked:**
+  - New `tests/test_lead_decisions_2611.py`, 5 tests:
+    - the patient takes back a cancel request and the appointment stays, with history;
+    - nothing to take back, the clinic taking it back, and taking back after the clinic cancelled are all refused;
+    - a release waits until Zoiko staff must use two-step.
+  - `test_readiness.py`'s settled platform now requires Zoiko staff two-step, and its row count is six system checks. OpenAPI snapshot refreshed. The readiness, error-budget, capability-gate, booking-history, OpenAPI, two-step and cross-state suites: 261 passed, 1 skipped; two failures were old tests meeting the new rules and are fixed: `test_cross_state.py`'s booking table now lists the `keep` step (allowed in none of its states, so every pair answers 409, which needed `keep` to check "nothing waiting" before "not the patient"), and a readiness test on a bare platform now requires Zoiko staff two-step. Rerun: cross-state, these 5 and that readiness test, 124 passed.
+  - The patient app type-checks.
+
+### DEV-391: wind-up of leftover items from DEV-375..385 (27 November 2026)
+
+- **Lint clean-up:** wrapped 41 long lines across `api/urls.py`, `api/views.py`, `modules/claim/`, `modules/clinicalnote/`, `tests/test_claims.py`, and `tests/test_clinical_notes.py` so `ruff check .` passes cleanly across the entire backend.
+- **Consultation notes and attachments held during duplicate-record checks (DEV-385):**
+  - `GET my/notes` marks notes with `"held": "identity_check"` when the patient has an open duplicate-record case; `GET my/notes/<id>` and `GET my/notes/<id>/attachments/<att_id>` return `404` until the case is decided.
+  - `GET clinician/notes` and `GET clinician/notes/<id>` include `"identity_check_open"`, and `POST clinician/notes/<id>/sign` refuses (`409 CONFLICT_VERSION`, field `identity_check_open`) while a duplicate-record check is open.
+  - Patient app (`MyNotes.tsx`) displays the plain-words hold notice and hides the Read button when held; Doctor app (`Notes.tsx`) displays the hold notice.
+  - `POST exchange/requests/<id>/dispute` with `outcome="not_theirs"` now automatically opens an unassessed safety incident (`unknown` severity, `safety_impact=True`) in the platform tenant (`trust.record_system_incident`) with no patient details.
+  - Added tests in `tests/test_result_holds.py` (`test_during_a_duplicate_check_consultation_notes_and_attachments_are_held`, `test_during_a_duplicate_check_a_doctor_cannot_sign_a_consultation_note`, and incident check in `test_not_theirs_withholds_it_for_good`).
+- **Country-pack menu hiding and platform view (DEV-383):**
+  - Patient app (`frontend/patient`) and Doctor app (`frontend/clinician`) now read `switched_off` from `GET /api/v1/me`, hide switched-off items in their navigation and quick search, and show a plain notice if opened directly.
+  - `GET /api/v1/platform/overview` now includes `pack_gating` and per-customer `capabilities` (`on`, `off`), shown on the Platform console's Settings page under Country.
+- **Partner portal, patient app, and admin reset for two-step sign-in (DEV-380):**
+  - `frontend/partners` (`api.ts`, `SignIn.tsx`, `App.tsx`) now supports the second-step authenticator code, required set-up after sign-in, `recheckIfAsked`, and the "Two-step sign-in" card on My account.
+  - `frontend/patient` (`api.ts`, `SignIn.tsx`, `Profile.tsx`) now supports optional two-step sign-in during login and the "Two-step sign-in" card on My Profile.
+  - Added `POST staff/members/<member_id>/reset-two-step` (`trust.admin_reset_two_step`, `two_step.staff_member_reset_two_step`) so a clinic administrator (R13, with recent second-step recheck) can reset a staff member's lost two-step sign-in, revoking all sessions and emailing a notice; wired into `frontend/operations/src/pages/Team.tsx` and tested in `tests/test_two_step.py`.
+- **FHIR quarantine on duplicate-check arrival (DEV-385):**
+  - `exchange.delivery_lookup` now returns `person_ref`, and `modules/integration/fhir.py` (`_handle_diagnostic_report`) quarantines arriving DiagnosticReport/Bundle messages with `error="identity_check_open"` when the patient is in an open duplicate-record check (`trust.open_case_people`), verified in `tests/test_fhir_intake.py`.
+- **Platform overview alarm for missing/unverified hazard controls (DEV-382):**
+  - `GET /api/v1/platform/overview` includes `missing_control_tests` and `unverified_controls` in `work`; `frontend/platform/src/pages/Overview.tsx` surfaces them under "Needs attention" with links to Hazards.
+- **Cursor pagination on messaging and waiting list endpoints (T-07):**
+  - `GET messages/threads`, `GET clinician/messages`, and `GET waitlist` now accept optional `?limit=` and `?cursor=` via `foundation.pagination` (`next_cursor` returned when paged, existing shape preserved when omitted).
+
 ### Note: the whole backend suite, run once on 23 November
 
 3,097 passed, 2 skipped, 4 failed (3 hours). The 4 failures were the API and event snapshot checks, because code was changed while the run was going (the merge events of DEV-365 and the endpoints of DEV-366 to DEV-368 were added after it started). Run again on the final code, the event catalogue and OpenAPI tests pass (31 passed, then the snapshot refreshed for the last new endpoint: 7 passed).

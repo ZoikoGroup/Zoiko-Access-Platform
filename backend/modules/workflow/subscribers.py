@@ -12,12 +12,12 @@ from foundation.dispatch import subscribe, subscriptions
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.outbox import PublishedEvent
 from foundation.timeutil import utc_now
+from modules.catalog import api as catalog
 from modules.connector import api as connector
 from modules.messaging import api as messaging
 from modules.referral import api as referral
 from modules.rights import api as rights
 from modules.scheduling import api as scheduling
-from modules.trust import api as trust
 
 from .models import Kind, Status
 from .services import close_item, open_item
@@ -30,8 +30,9 @@ PARTNER_CONSUMER = "workflow.partner_queue"
 
 
 def _due(organization_ref: str) -> dt.datetime:
-    """When work for this clinic is due: its own response target from now."""
-    return utc_now() + dt.timedelta(hours=trust.response_target_hours(organization_ref))
+    """When work for this clinic is due: its own response target from now, counting only its opening
+    hours when it has set them (DEV-367)."""
+    return catalog.response_due(organization_ref, utc_now())
 
 
 def _gone(exc: ZoikoError) -> None:

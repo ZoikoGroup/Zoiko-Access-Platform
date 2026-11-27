@@ -34,12 +34,14 @@ export function Topbar({ displayName = "", tenantName, login, roles, onSignOut, 
 
 const HEALTH_TEXT: Record<Health, string> = { ok: "Operational", down: "Unreachable", checking: "Checking" };
 
-export function Sidebar({ page, onPage, cell, api, database }: {
+export function Sidebar({ page, onPage, cell, api, database, off = [] }: {
   page: PageId; onPage: (id: PageId) => void; cell: string; api: Health; database: Health;
+  /** Capabilities the organization's country pack has not switched on: their screens are hidden. */
+  off?: string[];
 }) {
   return (
     <nav className="sidebar" aria-label="Main">
-      {NAV.map((item) => (
+      {NAV.filter((item) => !item.capability || !off.includes(item.capability)).map((item) => (
         <button key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`}
           onClick={() => onPage(item.id)} aria-current={page === item.id ? "page" : undefined}>
           <Icon name={item.icon} />

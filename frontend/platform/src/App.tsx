@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { dropDevLogin } from "@shared/devLogin";
-import { ApiError, changePassword, clearDisplayName, getDisplayName, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getOverview, loadSession, setSession, signOutEverywhere, type Session } from "./api";
+import { ApiError, changePassword, clearDisplayName, getDisplayName, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getOverview, loadSession, setSession, signOutEverywhere, twoStepApi, type Session } from "./api";
 import { Account } from "./Account";
 import { NAV, type PageId } from "./nav";
 import { Sidebar, Topbar } from "./Shell";
@@ -16,6 +16,9 @@ import { Incidents } from "./pages/Incidents";
 import { Matrix } from "./pages/Matrix";
 import { CodeMaps } from "./pages/CodeMaps";
 import { DeliveryAttempts } from "./pages/DeliveryAttempts";
+import { SupportAccess } from "./pages/SupportAccess";
+import { Egress } from "./pages/Egress";
+import { Templates } from "./pages/Templates";
 import { Connectors } from "./pages/Connectors";
 import { Packs } from "./pages/Packs";
 import { Readiness } from "./pages/Readiness";
@@ -83,7 +86,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   if (!item.live) body = <Planned item={item} />;
   else if (page === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} onChangePassword={changePassword}
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
-    email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
+    email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} twoStep={twoStepApi} />;
   else if (page === "hazards") body = <Hazards />;
   else if (page === "purposes") body = <Purposes canPropose canDecide={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "partnerchecks") body = <PartnerChecks canWrite={session.roles.some((r) => r.role === "R11")} />;
@@ -94,6 +97,9 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "connectors") body = <Connectors />;
   else if (page === "codemaps") body = <CodeMaps />;
   else if (page === "attempts") body = <DeliveryAttempts />;
+  else if (page === "support") body = <SupportAccess />;
+  else if (page === "egress") body = <Egress />;
+  else if (page === "templates") body = <Templates />;
   else if (page === "packs") body = <Packs canWrite={session.roles.some((r) => r.role === "R11")} canAttest={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "releases") body = <Releases canAdd={session.roles.some((r) => r.role === "R11")} />;
   else if (denied) body = <div className="notice">Your account is not allowed to use the platform console.</div>;

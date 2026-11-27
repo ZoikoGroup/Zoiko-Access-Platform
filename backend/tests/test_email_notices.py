@@ -277,9 +277,11 @@ def test_cancelling_leaves_other_mail_and_other_people_alone(p):
     switch(p, True)
     confirmed_booking(p)
     with tenant_transaction(p.clinic.ctx):
-        queue_email(kind="verify_email", to_address=ADDRESS, subject="Confirm", body="a link")
+        queue_email(kind="verify_email", to_address=ADDRESS,
+                    values={"link": "https://app.test/?token=a"})
         queue_email(kind="patient_update", to_address="someone.else@example.org",
-                    subject="An update on Zoiko Access", body="other person")
+                    values={"headline": "An appointment was moved.",
+                            "app_url": "http://patient.test"})
     switch(p, False)
     states = {(m.kind, m.state) for m in QueuedEmail.objects.all()}
     assert ("verify_email", "queued") in states                      # a different kind: kept

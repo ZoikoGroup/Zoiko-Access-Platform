@@ -119,3 +119,49 @@ class IntendedPurpose(CellScopedModel):
                                     name="purpose_one_approved"),
         ]
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="purpose_scope_idx")]
+
+
+class ControlKind(models.TextChoices):
+    """What a control does (GHE-08 section 05: "an engineering preventive control, a detected
+    failure, a mandatory fallback ... a monitoring signal")."""
+    PREVENTIVE = "preventive", "Stops the harm happening"
+    DETECTION = "detection", "Detects the failure when it happens"
+    FALLBACK = "fallback", "A safe fallback when it does"
+    MONITORING = "monitoring", "A signal someone watches"
+
+
+class ControlState(models.TextChoices):
+    PROPOSED = "proposed", "Proposed, waiting for an independent check"
+    VERIFIED = "verified", "Verified by a second safety officer"
+    WITHDRAWN = "withdrawn", "Withdrawn"
+
+
+class HazardControl(CellScopedModel):
+    """One risk control of one hazard, and the automated test that proves it (DEV-382, GHE-08
+    SAF-12 and W05, GHE-19 `risk_control`): hazard -> control -> code -> test -> pass evidence.
+    A second safety officer verifies it against the named build; a hazard's remaining risk can be
+    accepted only with at least one verified control and none still waiting."""
+
+    hazard_ref = models.CharField(max_length=22)
+    control_no = models.CharField(max_length=8)                  # C-001, C-002 ... per customer
+    kind = models.CharField(max_length=12, choices=ControlKind.choices)
+    description = models.CharField(max_length=500)
+    implementation = models.CharField(max_length=200)            # where: code, config or procedure
+    test_ref = models.CharField(max_length=200)                  # tests/test_x.py::test_y
+    state = models.CharField(max_length=10, choices=ControlState.choices,
+                             default=ControlState.PROPOSED)
+    proposed_by_ref = models.CharField(max_length=22)
+    verified_by_ref = models.CharField(max_length=22, blank=True, default="")
+    verified_at = models.DateTimeField(null=True, blank=True)
+    verified_build = models.CharField(max_length=64, blank=True, default="")
+    evidence_note = models.CharField(max_length=300, blank=True, default="")
+    withdrawn_by_ref = models.CharField(max_length=22, blank=True, default="")
+    withdrawn_reason = models.CharField(max_length=300, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["tenant_id", "control_no"], name="hazardcontrol_no_uq"),
+        ]
+        indexes = [
+            models.Index(fields=["cell_id", "tenant_id", "hazard_ref"], name="hazardcontrol_idx"),
+        ]

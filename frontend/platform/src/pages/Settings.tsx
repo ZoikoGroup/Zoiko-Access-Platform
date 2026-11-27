@@ -85,6 +85,11 @@ export function Settings({ tenants, canWrite, onChanged }: {
             <div key={t.id} className="appt">
               <div className="info">
                 <b>{t.name} <Pill kind={t.country ? "ok" : "info"}>{t.country || "Not set"}</Pill></b>
+                {t.capabilities && (
+                  <span className="sub">
+                    On: {t.capabilities.on.length ? t.capabilities.on.join(", ") : "none"} · Off: {t.capabilities.off.length ? t.capabilities.off.join(", ") : "none"}
+                  </span>
+                )}
                 {canWrite && (
                   <span className="form-row">
                     <input aria-label={`Country code for ${t.name}`} maxLength={2} value={codes[t.id] ?? t.country ?? ""}

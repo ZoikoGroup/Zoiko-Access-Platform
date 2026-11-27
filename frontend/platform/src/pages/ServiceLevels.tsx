@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getSlo, type SloReport, type Indicator } from "../api";
+import { getErrorBudget, getSlo, type Budget, type ErrorBudget, type SloReport, type Indicator } from "../api";
 import { Card, Pill } from "../ui";
 
 function pct(v: number | null): string {
@@ -9,6 +9,38 @@ function pct(v: number | null): string {
 function Verdict({ i }: { i: Indicator }) {
   if (i.meeting === null) return <Pill kind="info">No verdict</Pill>;
   return i.meeting ? <Pill kind="ok">Meeting the target</Pill> : <Pill kind="bad">Missing the target</Pill>;
+}
+
+const BUDGET_STATE: Record<Budget["state"], { text: string; kind: "ok" | "warn" | "bad" | "info" }> = {
+  healthy: { text: "Healthy", kind: "ok" },
+  warning: { text: "Three quarters used", kind: "warn" },
+  exhausted: { text: "Used up: releases held", kind: "bad" },
+  not_enough_traffic: { text: "Not enough traffic to judge", kind: "info" },
+};
+
+/** The 30-day error budget, burn rates, and each alert with its runbook (DEV-388). */
+function BudgetCard() {
+  const [b, setB] = useState<ErrorBudget | null>(null);
+  useEffect(() => { void getErrorBudget().then(setB).catch(() => setB(null)); }, []);
+  if (!b) return null;
+  const row = (name: string, x: Budget) => (
+    <div className="appt" key={name}><div className="info">
+      <b>{name} <Pill kind={BUDGET_STATE[x.state].kind}>{BUDGET_STATE[x.state].text}</Pill></b>
+      <small>{x.failures} of {x.allowed_failures} allowed failures in {x.requests} requests ({Math.round(x.used * 100)}% used, target {(x.target * 100).toFixed(1)}%).</small>
+    </div></div>
+  );
+  return (
+    <Card title={`Error budget: last ${b.window_days} days`} sub="All web processes, kept in the database. When a budget is used up, every release waits unless a safety officer overrides it for that release.">
+      {row("Availability", b.budgets.availability)}
+      {row("Speed", b.budgets.latency)}
+      <p><small>Burn rate, last hour: {b.burn.last_hour.availability}x (errors), {b.burn.last_hour.latency}x (slow). Last 6 hours: {b.burn.last_6_hours.availability}x, {b.burn.last_6_hours.latency}x.</small></p>
+      {b.alerts.length === 0 ? <p><Pill kind="ok">No alerts</Pill></p> : b.alerts.map((a) => (
+        <div key={a.alert} className="error" role="alert"><b>{a.alert}</b>: follow <code>{a.runbook}</code></div>
+      ))}
+      {!b.recording && <div className="notice">Request counting is off on this server: there is no budget.</div>}
+      <p><small>Runbooks: {b.runbooks.map((r) => <code key={r} style={{ marginRight: 8 }}>{r.replace("docs/runbooks/", "")}</code>)}</small></p>
+    </Card>
+  );
 }
 
 /** How the service is doing against its two proposed targets, as seen by one web process. */
@@ -31,6 +63,7 @@ export function ServiceLevels() {
         <p>Two measures of whether the service is working for people: requests that did not fail with a server error, and requests answered within {data ? data.targets.latency_seconds * 1000 : 750} ms. The targets are proposals (99.9% and 95%), not commitments. A green number here does not prove a booking or handoff was correct.</p>
       </div></div>
       {error && <div className="error" role="alert">{error}</div>}
+      <BudgetCard />
       {data && (
         <div className="grid">
           {data.windows.map((w) => (

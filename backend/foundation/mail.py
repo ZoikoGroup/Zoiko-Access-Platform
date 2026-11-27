@@ -1,6 +1,6 @@
 """Reliable email: queue it in the same transaction as the change, send it from the worker.
 
-    queue_email(kind="verify_email", to_address=..., subject=..., body=...)  # inside a transaction
+    queue_email(kind="verify_email", to_address=..., values={"link": ...})  # inside a transaction
     send_due()                                                                # the worker loop
 
 Why a queue: sending mail inside a web request means a slow or broken mail server breaks
@@ -8,6 +8,10 @@ sign-up, and a rolled-back change can still have sent its email. Queued in the s
 the email exists only if the change committed; the worker sends it later and retries on failure.
 
 Safety rules
+- Only approved wording (DEV-386): `kind` names a template (foundation/message_templates.py) and
+  only its gaps are filled, each with a value of a fixed shape. A version not yet approved by a
+  safety officer and, separately, privacy is HELD (foundation/template_policy.py) and sent once
+  it is approved.
 - Header injection: addresses and subjects containing line breaks are refused.
 - The body may hold a one-time link, so it is erased the moment the mail is sent, and the address is
   replaced by a masked form ("a***@example.org").
@@ -55,20 +59,29 @@ def mask_address(address: str) -> str:
     return f"{local[:1]}***@{domain}" if domain else "***"
 
 
-def queue_email(*, kind: str, to_address: str, subject: str, body: str) -> QueuedEmail:
-    """Queue one email. Call inside the transaction that makes it necessary."""
+def queue_email(*, kind: str, to_address: str, values: dict[str, str] | None = None
+                ) -> QueuedEmail:
+    """Queue one email built from the approved template named `kind`, filling only its gaps.
+    Call inside the transaction that makes it necessary. An unapproved template version is held."""
+    from .message_templates import render_email
+    from .template_policy import HOLD, decide
+
     if not connection.in_atomic_block:
         raise MailError("queue_email() must run inside the same transaction as the change")
     address = to_address.strip().lower()
     if not _KIND.match(kind) or len(address) > 254 or not _ADDRESS.match(address):
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["email"])
+    template, subject, body = render_email(kind, values)
     if "\n" in subject or "\r" in subject or not subject.strip():
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["subject"])
     if len(subject) > 200 or len(body) > 5000:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["body"])
     cleaned = subject.strip()
+    held = decide("email", kind, template.version) == HOLD
     return QueuedEmail.objects.create(
         kind=kind, to_address=address, subject=cleaned, body=body,
+        template_key=kind, template_version=template.version,
+        state=MailState.HELD if held else MailState.QUEUED,
         content_digest=hashlib.sha256(f"{cleaned}\n{body}".encode()).hexdigest())
 
 
@@ -162,6 +175,7 @@ def mail_stats(clock: Clock | None = None) -> dict[str, int]:
     return {
         "queued": rows.filter(state__in=[MailState.QUEUED, MailState.SENDING]).count(),
         "failed": rows.filter(state=MailState.FAILED).count(),
+        "held": rows.filter(state=MailState.HELD).count(),        # template not approved yet
         "failed_attempts_24h": tries.filter(outcome="failed").count(),
         "accepted_attempts_24h": tries.filter(outcome="accepted").count(),
         **{f"receipt_{s}": rows.filter(delivery_status=s).count() for s in DELIVERY_STATES},

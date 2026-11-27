@@ -3,9 +3,10 @@ import type { Health } from "./types";
 import { QuickSearch } from "./QuickSearch";
 import { Icon, Logo } from "./ui";
 
-export function Topbar({ displayName = "", tenantName, login, roles, onSignOut, onGo }: {
+export function Topbar({ displayName = "", tenantName, login, roles, onSignOut, onGo, off = [] }: {
   displayName?: string; tenantName: string; login: string; roles: string[]; onSignOut: () => void;
   onGo: (page: PageId, patientQuery?: string) => void;
+  off?: string[];
 }) {
   return (
     <header className="topbar">
@@ -16,7 +17,7 @@ export function Topbar({ displayName = "", tenantName, login, roles, onSignOut, 
           <small>Global Healthcare Access</small>
         </div>
       </div>
-      <QuickSearch pages={NAV.filter((n) => n.live)} onPage={(id) => onGo(id as PageId)}
+      <QuickSearch pages={NAV.filter((n) => n.live && (!n.capability || !off.includes(n.capability)))} onPage={(id) => onGo(id as PageId)}
         fallback={{ icon: "patients", label: (t) => `Find my patient “${t}”`, onChoose: (t) => onGo("patients", t) }} />
       <span className="spacer" />
       <span className="chip" title="Your organization group"><Icon name="organizations" size={16} />{tenantName}</span>
@@ -34,13 +35,14 @@ export function Topbar({ displayName = "", tenantName, login, roles, onSignOut, 
 
 const HEALTH_TEXT: Record<Health, string> = { ok: "Operational", down: "Unreachable", checking: "Checking" };
 
-export function Sidebar({ page, onPage, cell, api, database, badges = {} }: {
+export function Sidebar({ page, onPage, cell, api, database, badges = {}, off = [] }: {
   page: PageId; onPage: (id: PageId) => void; cell: string; api: Health; database: Health;
   badges?: Partial<Record<PageId, number>>;     // how many things wait on a page, shown beside its name
+  off?: string[];
 }) {
   return (
     <nav className="sidebar" aria-label="Main">
-      {NAV.map((item) => (
+      {NAV.filter((item) => !item.capability || !off.includes(item.capability)).map((item) => (
         <button key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`}
           onClick={() => onPage(item.id)} aria-current={page === item.id ? "page" : undefined}>
           <Icon name={item.icon} />

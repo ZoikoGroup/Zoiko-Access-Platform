@@ -72,6 +72,7 @@ from .incidents import (
     incident_dict,
     list_incidents,
     record_handoff,
+    record_system_incident,
     resolve_incident,
     serious_incident_summary,
 )
@@ -95,6 +96,7 @@ from .people import (
     link_person_to_actor,
     link_person_to_site,
     own_person_of,
+    people_at_site,
     person_at_site,
     person_exists,
     propose_proxy_grant,
@@ -113,6 +115,7 @@ from .services import (
     actors_with_role,
     assign_role,
     booking_system_of,
+    business_hours_of,
     clinicians_at,
     context_for,
     create_organization,
@@ -128,6 +131,7 @@ from .services import (
     role_info,
     set_actor_status,
     set_booking_system,
+    set_business_hours,
     set_response_target,
     set_self_registration,
     tenant_country,
@@ -141,7 +145,27 @@ from .staff_admin import (
     resend_invitation,
     set_member_status,
 )
+from .support_access import MINUTES as SUPPORT_MINUTES
+from .support_access import SCOPES as SUPPORT_SCOPES
+from .support_access import can_decide as can_decide_support_access
+from .support_access import decide as decide_support_access
+from .support_access import end as end_support_access
+from .support_access import listing as support_access_list
+from .support_access import request as request_support_access
+from .support_access import requester_label as support_requester_label
+from .support_access import use as use_support_access
 from .suspensions import cancel_change, decide_change, list_changes, request_change
+from .two_step import RECHECK_AFTER as TWO_STEP_RECHECK_AFTER
+from .two_step import admin_reset as admin_reset_two_step
+from .two_step import finish_set_up as finish_two_step_set_up
+from .two_step import finish_sign_in as finish_two_step_sign_in
+from .two_step import needs_recheck as two_step_needs_recheck
+from .two_step import new_recovery_codes, staff_two_step_required, staff_without_two_step
+from .two_step import recheck as recheck_two_step
+from .two_step import set_staff_requirement as set_staff_two_step_requirement
+from .two_step import start_set_up as start_two_step_set_up
+from .two_step import status as two_step_status
+from .two_step import switch_off as switch_off_two_step
 
 __all__ = [
     "actors_with_role",
@@ -158,14 +182,15 @@ __all__ = [
     "is_clinician_at",
     "link_person_to_actor", "list_releases", "list_tenants", "login", "add_release",
     "add_incident", "assess_incident", "get_incident", "list_incidents", "record_handoff",
-    "resolve_incident", "serious_incident_summary",
+    "record_system_incident", "resolve_incident", "serious_incident_summary",
     "cancel_change", "decide_change", "list_changes", "request_change",
     "onboard_customer", "organization_names", "set_customer_country", "set_customer_sign_up",
     "tenant_country",
     "verified_emails_for_role", "clinicians_at",
     "overview", "own_person_of", "patient_registry", "person_exists", "profile_summary_for",
-    "link_person_to_site", "person_at_site", "end_care_links",
+    "link_person_to_site", "people_at_site", "person_at_site", "end_care_links",
     "MAX_RESPONSE_TARGET_HOURS", "response_target_hours", "set_response_target",
+    "business_hours_of", "set_business_hours",
     "booking_system_of", "set_booking_system",
     "canonical_person_ref", "merge_of", "merge_people", "unmerge_people",
     "decide_match", "identity_history", "identity_status_of", "linked_people", "list_cases",
@@ -186,6 +211,17 @@ __all__ = [
     "set_display_name", "change_password", "set_email", "reset_password",
     "revoke_proxy_grant",
     "revoke_sessions", "send_verification",
+    # Short-term support access (DEV-381)
+    "SUPPORT_MINUTES", "SUPPORT_SCOPES", "can_decide_support_access", "decide_support_access",
+    "end_support_access", "support_access_list", "request_support_access", "use_support_access",
+    "support_requester_label",
+    # Two-step sign-in (DEV-380)
+    "TWO_STEP_RECHECK_AFTER", "admin_reset_two_step", "finish_two_step_set_up",
+    "finish_two_step_sign_in",
+    "two_step_needs_recheck", "new_recovery_codes", "recheck_two_step",
+    "set_staff_two_step_requirement", "staff_without_two_step", "staff_two_step_required",
+    "start_two_step_set_up",
+    "two_step_status", "switch_off_two_step",
     "role_info", "set_actor_status", "set_care_contested", "set_member_status", "set_password",
     "set_self_registration", "staff_directory", "start_care_relationship", "verify_email",
 ]

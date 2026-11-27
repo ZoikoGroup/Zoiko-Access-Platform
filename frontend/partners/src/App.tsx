@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { dropDevLogin } from "@shared/devLogin";
-import { changePassword, clearDisplayName, getDisplayName, getNameCheck, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, loadSession, setSession, signOutEverywhere, type Session } from "./api";
+import { changePassword, clearDisplayName, getDisplayName, getNameCheck, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, loadSession, setSession, signOutEverywhere, twoStepApi, type Session } from "./api";
 import { navFor, type PageId } from "./nav";
 import { Account } from "./Account";
 import { Documents } from "./pages/Documents";
@@ -51,7 +51,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   if (item.id === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} onChangePassword={changePassword}
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
     nameCheck={getNameCheck}
-    email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
+    email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} twoStep={twoStepApi} />;
   else if (item.id === "services") body = <Services />;
   else if (item.id === "team") body = <Team />;
   else if (item.id === "requests") body = <Requests />;

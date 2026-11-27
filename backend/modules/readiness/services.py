@@ -28,6 +28,7 @@ from typing import Any
 
 from django.db import transaction
 
+from foundation import error_budget
 from foundation.cell_context import require_context
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.timeutil import Clock, utc_now
@@ -50,6 +51,10 @@ HAZARD_REGISTER = "hazard_register"      # likewise: every hazard accepted or re
 CLINICAL_MATRIX = "clinical_safety_matrix"  # likewise: no clinical-safety requirement not built
 INTENDED_PURPOSE = "intended_purpose"    # likewise: every capability has an approved purpose
 OPEN_INCIDENTS = "open_incidents"        # likewise: no open SEV-0, SEV-1 or unassessed incident
+ERROR_BUDGET = "error_budget"            # likewise: the 30-day error budget is left (DEV-388)
+BUDGET_OVERRIDE = "budget_override"      # a safety officer's time-limited override of that hold
+ZOIKO_TWO_STEP = "zoiko_two_step"        # Zoiko's own staff must use two-step (DEV-390)
+OVERRIDE_MAX_DAYS = 7
 CLINICAL = frozenset({"clinical_partner", "clinical_safety_signoff"})
 ALL_REQUIREMENTS = (*G3, *G4)
 MAX_VALID_DAYS = 366
@@ -172,11 +177,85 @@ def _incident_state() -> dict[str, Any]:
             "signer": "", "role": "", "reference": why, "expires_on": None, "note": ""}
 
 
+def _budget_state(rel: Release, clock: Clock | None) -> dict[str, Any]:
+    """A release waits while the 30-day error budget is used up (GHE-18: "Error-budget policy must
+    suspend risky releases when approved thresholds are exhausted, with a safety-critical override
+    controlled by Clinical Safety"). A safety officer's override for THIS release, unexpired, lets
+    it go on (DEV-388). Not enough traffic to judge is not exhausted."""
+    found = error_budget.summary(clock)
+    if not found["exhausted"]:
+        states = ", ".join(f"{k} {v['state']}" for k, v in found["budgets"].items())
+        return {"gate": "G3", "requirement": ERROR_BUDGET, "status": "signed", "signer": "",
+                "role": "", "reference": states, "expires_on": None, "note": ""}
+    today = utc_now(clock).date()
+    override = Evidence.objects.filter(
+        release=rel, requirement=BUDGET_OVERRIDE, outcome="signed",
+        tuple_digest=rel.tuple_digest, expires_on__gte=today, **_scope()).order_by(
+        "-created_at").first()
+    if override is not None:
+        return {"gate": "G3", "requirement": ERROR_BUDGET, "status": "signed",
+                "signer": override.signer_ref, "role": override.signer_role,
+                "reference": "overridden by clinical safety",
+                "expires_on": override.expires_on.isoformat() if override.expires_on else None,
+                "note": override.note}
+    used = [k for k, v in found["budgets"].items() if v["state"] == "exhausted"]
+    return {"gate": "G3", "requirement": ERROR_BUDGET, "status": "missing", "signer": "",
+            "role": "", "reference": "error budget used up: " + ", ".join(used),
+            "expires_on": None, "note": ""}
+
+
+def _zoiko_two_step_state() -> dict[str, Any]:
+    """Zoiko's own staff (support and safety, who reach every customer's settings) must use
+    two-step sign-in before go-live: the platform tenant must require it for all its staff
+    (decided 26 Nov 2026, DEV-390). Read in the platform tenant, where releases live."""
+    ok = trust.staff_two_step_required()
+    return {"gate": "G3", "requirement": ZOIKO_TWO_STEP, "status": "signed" if ok else "missing",
+            "signer": "", "role": "",
+            "reference": "required for every Zoiko staff login" if ok
+            else "Zoiko staff two-step sign-in is not required yet",
+            "expires_on": None, "note": ""}
+
+
+def override_budget(
+    *, release_ref: str, reason: str, days: Any, actor_public_id: str,
+    decision: policy.Decision, organization_ref: str | None, clock: Clock | None = None,
+) -> dict[str, Any]:
+    """A safety officer (R12) lets ONE release go on while the error budget is used up, for at
+    most 7 days, with a reason: for a fix the service needs, never to rush a feature. Only while
+    the budget is actually used up. Not the release's author. Audited, and shown on the release."""
+    _check(decision, actor_public_id, ATTEST, organization_ref)
+    if decision.role_code != "R12":
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    text = " ".join((reason or "").split())
+    if not 10 <= len(text) <= 300:
+        raise _bad("reason")
+    if isinstance(days, bool) or not isinstance(days, int) or not 1 <= days <= OVERRIDE_MAX_DAYS:
+        raise _bad("days")
+    if not error_budget.summary(clock)["exhausted"]:
+        raise ZoikoError(ErrorCode.CONFLICT_VERSION, fields=["budget_not_exhausted"])
+    today = utc_now(clock).date()
+    with transaction.atomic():
+        rel = _own(release_ref)
+        if actor_public_id == rel.created_by_ref:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)             # not your own release
+        Evidence.objects.create(
+            release=rel, requirement=BUDGET_OVERRIDE, outcome="signed",
+            signer_ref=actor_public_id, signer_role="R12", reference="budget-override",
+            tuple_digest=rel.tuple_digest, expires_on=today + dt.timedelta(days=days),
+            note=text, **_scope())
+        record(actor_ref=actor_public_id, action="readiness.budget_override",
+               object_type="release", object_ref=rel.public_id, outcome=AuditOutcome.ALLOWED)
+        _record_if_changed(rel, "budget_override", actor_public_id, clock)
+        return release_dict(rel, clock)
+
+
 def evaluate_now(rel: Release, clock: Clock | None = None) -> dict[str, Any]:
     """The decision and what blocks it, worked out now without recording anything."""
     states = requirement_states(rel, clock)
     states.append(_hazard_state())
     states.append(_incident_state())
+    states.append(_budget_state(rel, clock))
+    states.append(_zoiko_two_step_state())
     states.append(_purpose_state(rel))
     states.append(_matrix_state())
     states.append(_pack_state(rel, clock))
@@ -288,7 +367,7 @@ def sign(
         if actor_public_id == rel.created_by_ref:
             raise ZoikoError(ErrorCode.POLICY_DENIED)             # not your own release
         mine = Evidence.objects.filter(release=rel, signer_ref=actor_public_id, **_scope())
-        if mine.exclude(requirement=requirement).exists():
+        if mine.exclude(requirement__in=(requirement, BUDGET_OVERRIDE)).exists():
             raise ZoikoError(ErrorCode.POLICY_DENIED)             # one person, one requirement
         states = {s["requirement"]: s["status"] for s in requirement_states(rel, clock)}
         if states[requirement] == "vetoed":

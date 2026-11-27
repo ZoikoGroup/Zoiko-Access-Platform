@@ -1,15 +1,22 @@
 """Creating and reading the catalog. Every change is audited in the same transaction."""
 from __future__ import annotations
 
+import datetime as dt
 import re
 from typing import Any
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 
+from foundation.business_time import (
+    BusinessHours,
+    BusinessHoursError,
+    add_business_minutes,
+    subtract_business_minutes,
+)
 from foundation.cell_context import require_context
 from foundation.errors import ErrorCode, ZoikoError
-from foundation.timeutil import TimeError, get_zone
+from foundation.timeutil import Clock, TimeError, get_zone, utc_now
 from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
@@ -323,6 +330,53 @@ def organization_zone(organization_ref: str) -> dict[str, str]:
     if len(zones) == 1:
         return {"zone": next(iter(zones)), "source": "places"}
     return {"zone": "UTC", "source": "mixed" if zones else "none"}
+
+
+def _clinic_hours(organization_ref: str) -> tuple[BusinessHours, str] | None:
+    """The clinic's opening hours and its clock, or None when it has none set (or they cannot be
+    used): then every hour counts, as before (DEV-367)."""
+    spec = trust.business_hours_of(organization_ref)
+    if not spec:
+        return None
+    try:
+        return BusinessHours.from_spec(spec), organization_zone(organization_ref)["zone"]
+    except BusinessHoursError:
+        return None
+
+
+def response_due(organization_ref: str, since: dt.datetime) -> dt.datetime:
+    """When something this clinic must answer, waiting since `since`, becomes late: its response
+    target later, counting only the hours it is open when it has set opening hours (DEV-367). The
+    one rule every late flag, work-queue deadline and late count uses."""
+    minutes = trust.response_target_hours(organization_ref) * 60
+    found = _clinic_hours(organization_ref)
+    if found is not None:
+        hours, zone = found
+        try:
+            return add_business_minutes(since, minutes, hours, zone)
+        except BusinessHoursError:
+            pass
+    return since + dt.timedelta(minutes=minutes)
+
+
+def late_cutoff(organization_ref: str, clock: Clock | None = None) -> dt.datetime:
+    """Anything this clinic must answer that has waited since BEFORE this instant is late now: the
+    mirror of `response_due`, for counting late work in the database (DEV-367)."""
+    now = utc_now(clock)
+    minutes = trust.response_target_hours(organization_ref) * 60
+    found = _clinic_hours(organization_ref)
+    if found is not None:
+        hours, zone = found
+        try:
+            return subtract_business_minutes(now, minutes, hours, zone)
+        except BusinessHoursError:
+            pass
+    return now - dt.timedelta(minutes=minutes)
+
+
+def is_late(organization_ref: str, since: dt.datetime, clock: Clock | None = None) -> bool:
+    """Has something waiting since `since` passed this clinic's response target?"""
+    return utc_now(clock) > response_due(organization_ref, since)
 
 
 def service_counts() -> dict[str, int]:

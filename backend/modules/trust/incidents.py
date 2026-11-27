@@ -80,6 +80,36 @@ def add_incident(
     return incident_dict(row)
 
 
+def record_system_incident(
+    *,
+    title: object,
+    details: object = "",
+    safety_impact: bool = True,
+    clock: Clock | None = None,
+) -> dict[str, Any]:
+    """Open an unassessed safety incident automatically (e.g. confirmed wrong-patient result,
+    DEV-385). Needs the platform tenant bound. Stays open until a safety officer assesses it."""
+    clean_title = _clean(title, "title", 120, required=True)
+    clean_details = _clean(details, "details", 2000, required=False, multiline=True)
+    row = Incident.objects.create(
+        title=clean_title,
+        severity=IncidentSeverity.UNKNOWN,
+        happened_on=utc_now(clock).date(),
+        details=clean_details,
+        safety_impact=safety_impact,
+        recorded_by_ref="system",
+    )
+    log_event(row, "recorded", "system")
+    record(
+        actor_ref="system",
+        action="incident.record",
+        object_type="incident",
+        object_ref=row.public_id,
+        outcome=AuditOutcome.ALLOWED,
+    )
+    return incident_dict(row)
+
+
 def get_incident(incident_ref: str) -> dict[str, Any]:
     ctx = require_context()
     row = Incident.objects.filter(

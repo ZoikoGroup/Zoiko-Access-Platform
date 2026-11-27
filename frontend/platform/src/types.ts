@@ -9,6 +9,7 @@ export interface TenantRow {
   status: string;
   self_registration: boolean;
   country?: string;
+  capabilities?: { on: string[]; off: string[] };
   created_at: string;
   counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
   services: { active: number; inactive: number };
@@ -23,6 +24,7 @@ export interface TenantRow {
 export interface Overview {
   cell: string;
   generated_at: string;
+  pack_gating?: string;
   outbox: { pending: number; quarantined: number; oldest_pending_seconds: number | null };
   mail: { queued: number; failed: number; failed_attempts_24h?: number; accepted_attempts_24h?: number };
   tenants: TenantRow[];
@@ -31,6 +33,8 @@ export interface Overview {
     open_incidents: number;
     high_incidents: number;
     suspensions_waiting: number;
+    missing_control_tests?: number;
+    unverified_controls?: number;
     latest_release: { version: string; released_on: string } | null;
   };
 }

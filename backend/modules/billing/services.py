@@ -1,3 +1,4 @@
+
 """A clinic's fees, invoices and credit notes (GHE-17 WF-09, WF-10, WF-16).
 
 The rules (proposed, DEV-139):

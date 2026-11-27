@@ -15,6 +15,9 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("
 
 @pytest.fixture(autouse=True)
 def dev_login(settings):
+    # These tests check the COUNTING exactly, so nothing is hidden here; small-number
+    # suppression has its own tests (test_report_measures.py, DEV-389).
+    settings.REPORT_SMALL_CELL_K = 1
     settings.DEBUG = True
     settings.DEV_AUTH_STUB = True
 

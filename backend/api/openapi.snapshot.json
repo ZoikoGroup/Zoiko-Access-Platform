@@ -1739,6 +1739,70 @@
     "summary": "Every step of an appointment, oldest first, and whether the record still checks out.     Bookings made before the history was kept have none."
    }
   },
+  "/bookings/{booking_id}/keep": {
+   "post": {
+    "operationId": "post_booking_keep",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "booking_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The patient takes back their request to cancel, before the clinic answers (DEV-390)."
+   }
+  },
   "/bookings/{booking_id}/provider-stage": {
    "get": {
     "operationId": "get_booking_provider_stage",
@@ -2369,7 +2433,7 @@
       "bearerAuth": []
      }
     ],
-    "summary": "The clinic attaches a supporting document (PDF, PNG, JPEG, up to 10 MB) to an undecided claim."
+    "summary": "The clinic attaches a supporting document (PDF, PNG, JPEG, up to 10 MB) to an     undecided claim."
    }
   },
   "/claims/sent/{claim_id}/attachments/{attachment_id}": {
@@ -14326,6 +14390,70 @@
      }
     ],
     "summary": "staff member resend"
+   }
+  },
+  "/staff/members/{member_id}/reset-two-step": {
+   "post": {
+    "operationId": "post_staff_member_reset_two_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "member_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A clinic administrator resets a staff member's lost two-step sign-in (DEV-380)."
    }
   },
   "/staff/members/{member_id}/status": {

@@ -1,5 +1,6 @@
 // The only file that talks to the backend. Pages call these functions, never fetch().
 import { isNotSwitchedOn, NOT_SWITCHED_ON } from "@shared/packMessage";
+import { finishSignIn, makeTwoStepApi, needsSetUp, recheckIfAsked, SET_UP_FIRST } from "@shared/twoStepApi";
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
@@ -43,6 +44,9 @@ export function setSession(session: Session | null): void {
 }
 
 export interface LoginReply {
+  second_step?: boolean;          // two-step sign-in: the code is still to come (DEV-380)
+  ticket?: string;
+  must_set_up_two_step?: boolean;
   token: string;
   home: string;
   tenant: { id: string; name: string };
@@ -76,7 +80,7 @@ export async function signOutEverywhere(): Promise<void> {
   setSession(null);
 }
 
-async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function v1<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
   if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
   const res = await fetch(`/api/v1/${path}`, {
     ...init,
@@ -86,7 +90,17 @@ async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError("The server sent something that is not JSON (is the backend reachable?)");
   }
   const body = (await res.json()) as T & { title?: string; code?: string };
-  if (!res.ok) throw new ApiError(isNotSwitchedOn(body.code) ? NOT_SWITCHED_ON : body.title ?? `Request failed (${res.status})`, body.code);
+  if (!res.ok) {
+    // Two-step sign-in (DEV-380): a risky action may ask for the code again; then retry once.
+    const sent = body as { code?: string; fields?: string[] };
+    const fresh = retried || !current ? null : await recheckIfAsked(res.status, sent, current.token);
+    if (fresh && current) {
+      setSession({ ...current, token: fresh });
+      return v1<T>(path, init, true);
+    }
+    if (needsSetUp(res.status, sent)) throw new ApiError(SET_UP_FIRST, "STEP_UP_REQUIRED");
+    throw new ApiError(isNotSwitchedOn(body.code) ? NOT_SWITCHED_ON : body.title ?? `Request failed (${res.status})`, body.code);
+  }
   return body;
 }
 
@@ -292,3 +306,14 @@ export async function uploadReportPdf(requestId: string, file: File): Promise<At
 }
 export const getAttachments = async (requestId: string) =>
   (await v1<{ attachments: Attachment[] }>(`exchange/requests/${encodeURIComponent(requestId)}/attachments`)).attachments;
+
+// ------------------------------------------------------------------ two-step sign-in (DEV-380)
+/** The session as it is now (the two-step set-up swaps in a fresh token). */
+export const getSession = (): Session | null => current;
+/** The code after the password: the same reply a one-step sign-in gives. */
+export const finishSecondStep = (ticket: string, code: string) => finishSignIn<LoginReply>(ticket, code);
+export const twoStepApi = makeTwoStepApi(
+  <T,>(path: string, body?: unknown) =>
+    body === undefined ? v1<T>(path) : v1<T>(path, { method: "POST", body: JSON.stringify(body) }),
+  (token) => { if (current) setSession({ ...current, token }); },
+);

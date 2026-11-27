@@ -4,6 +4,8 @@ status only). Every function runs with the platform tenant bound.
 This is the ONLY module other domain modules may import from `modules.exchange`.
 """
 
+from .disputes import REASONS as DISPUTE_REASONS
+from .disputes import decide_dispute, raise_dispute
 from .models import KIND_ROLE, Kind
 from .services import (
     announce_consent_needed,
@@ -31,6 +33,7 @@ from .services import (
     page_sent,
     partner_counts,
     partner_step,
+    patient_value_trend,
     patient_values,
     person_of,
     read_result,
@@ -44,6 +47,7 @@ from .services import (
 )
 
 __all__ = [
+    "DISPUTE_REASONS", "decide_dispute", "raise_dispute",   # DEV-385
     "attach_pdf",
     "list_attachments",
     "open_attachment",
@@ -65,6 +69,7 @@ __all__ = [
     "hold_open_for",
     "open_count_for",
     "order_to_send",
+    "patient_value_trend",
     "patient_values",
     "value_trend",
     "kind_of",

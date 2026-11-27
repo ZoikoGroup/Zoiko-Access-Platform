@@ -9,6 +9,10 @@ Safety rules in this file
   though the request then fails.
 - Tokens are HMAC-signed, expire after 8 hours, and carry a session epoch: raising the epoch
   (sign-out, password change) kills every token already issued.
+- Two-step sign-in (DEV-380, two_step.py): when a login has an authenticator app, the right
+  password gives only a short "second step" ticket, never a session, and does NOT reset the
+  wrong-attempt counter: only the right code does, so a stolen password cannot buy endless guesses.
+  A session token records when its second step was proved ("m"), for re-checks before risky acts.
 - Tokens and passwords are never logged or stored in audit details.
 """
 from __future__ import annotations
@@ -110,11 +114,13 @@ def _sign(body: str) -> str:
 
 def issue_token(
     *, tenant_public_id: str, actor_public_id: str, epoch: int, now: dt.datetime,
-    lifetime: dt.timedelta = TOKEN_LIFETIME,
+    lifetime: dt.timedelta = TOKEN_LIFETIME, second_step_at: int = 0,
 ) -> str:
+    """`second_step_at`: when this person last proved their second step (Unix seconds), or 0."""
     payload = {
         "t": tenant_public_id, "a": actor_public_id, "e": epoch,
         "iat": int(now.timestamp()), "exp": int((now + lifetime).timestamp()),
+        "m": int(second_step_at),
     }
     body = _b64(json.dumps(payload, separators=(",", ":")).encode())
     return f"{TOKEN_PREFIX}.{body}.{_sign(body)}"
@@ -125,6 +131,7 @@ class TokenClaims:
     tenant: str
     actor: str
     epoch: int
+    second_step_at: int = 0
 
 
 def read_token(token: str, *, now: dt.datetime | None = None) -> TokenClaims:
@@ -136,7 +143,51 @@ def read_token(token: str, *, now: dt.datetime | None = None) -> TokenClaims:
         data = json.loads(_unb64(body))
         if int(data["exp"]) <= int((now or utc_now()).timestamp()):
             raise ValueError
-        return TokenClaims(str(data["t"]), str(data["a"]), int(data["e"]))
+        return TokenClaims(str(data["t"]), str(data["a"]), int(data["e"]), int(data.get("m", 0)))
+    except (ValueError, KeyError, TypeError, binascii.Error):
+        raise ZoikoError(ErrorCode.UNAUTHENTICATED) from None
+
+
+# ------------------------------------------------------------------ the second-step ticket
+SECOND_STEP_PREFIX = "zs1"
+SECOND_STEP_LIFETIME = dt.timedelta(minutes=5)
+
+
+def _ticket_sign(body: str) -> str:
+    key = hmac.new(settings.SECRET_KEY.encode(), b"zoiko-second-step-ticket-v1",
+                   hashlib.sha256).digest()          # a different key: a ticket is never a token
+    return _b64(hmac.new(key, body.encode(), hashlib.sha256).digest())
+
+
+def issue_second_step_ticket(
+    *, tenant_public_id: str, actor_public_id: str, epoch: int, remember: bool, now: dt.datetime,
+) -> str:
+    """Proof that the PASSWORD was right, good for 5 minutes and only for entering the code."""
+    payload = {"t": tenant_public_id, "a": actor_public_id, "e": epoch, "r": int(remember),
+               "exp": int((now + SECOND_STEP_LIFETIME).timestamp())}
+    body = _b64(json.dumps(payload, separators=(",", ":")).encode())
+    return f"{SECOND_STEP_PREFIX}.{body}.{_ticket_sign(body)}"
+
+
+@dataclass(frozen=True)
+class SecondStepTicket:
+    tenant: str
+    actor: str
+    epoch: int
+    remember: bool
+
+
+def read_second_step_ticket(ticket: object, *, now: dt.datetime) -> SecondStepTicket:
+    try:
+        if not isinstance(ticket, str):
+            raise ValueError
+        prefix, body, signature = ticket.split(".")
+        if prefix != SECOND_STEP_PREFIX or not hmac.compare_digest(_ticket_sign(body), signature):
+            raise ValueError
+        data = json.loads(_unb64(body))
+        if int(data["exp"]) <= int(now.timestamp()):
+            raise ValueError
+        return SecondStepTicket(str(data["t"]), str(data["a"]), int(data["e"]), bool(data["r"]))
     except (ValueError, KeyError, TypeError, binascii.Error):
         raise ZoikoError(ErrorCode.UNAUTHENTICATED) from None
 
@@ -154,6 +205,24 @@ class LoginResult:
     tenant_type: str
     roles: list[tuple[str, str, str]]   # (role code, organization id, organization name)
     remembered: bool = False            # a 30-day session, granted only to a patient who asked
+    # DEV-380. When `second_step_ticket` is set, `token` is EMPTY: the code must be entered first.
+    second_step_ticket: str = ""
+    # Signed in, but this customer requires two-step sign-in for staff and it is not set up yet:
+    # the session can only set it up (everything else answers STEP_UP_REQUIRED).
+    must_set_up_two_step: bool = False
+
+
+STAFF_ONLY_PATIENT_TYPES = (ActorType.PATIENT, ActorType.PROXY)
+
+
+def is_staff_login(actor_type: str) -> bool:
+    """Everyone except patients and the family members acting for them."""
+    return actor_type not in STAFF_ONLY_PATIENT_TYPES
+
+
+def must_set_up_two_step(tenant: Tenant, actor: Actor, cred: Credential) -> bool:
+    return (tenant.staff_two_step_required and is_staff_login(actor.actor_type)
+            and cred.totp_enabled_at is None)
 
 
 def _fail() -> ZoikoError:
@@ -198,8 +267,19 @@ def login(
             locked = cred.locked_until is not None and cred.locked_until > now
             password_ok = verify_password(cred.password_hash, password)
             actor = cred.actor
-            if (password_ok and not locked and actor.status == Status.ACTIVE
-                    and not login_of_deceased(actor)):
+            usable = (password_ok and not locked and actor.status == Status.ACTIVE
+                      and not login_of_deceased(actor))
+            if usable and cred.totp_enabled_at is not None:
+                # The password is right, but the code is still to come. The counter is NOT reset.
+                kept = remember and actor.actor_type == ActorType.PATIENT
+                ticket = issue_second_step_ticket(
+                    tenant_public_id=tenant.public_id, actor_public_id=actor.public_id,
+                    epoch=cred.session_epoch, remember=kept, now=now)
+                _audit(actor.public_id, "auth.login", AuditOutcome.ALLOWED, "second_step_due")
+                result = LoginResult(
+                    "", now + SECOND_STEP_LIFETIME, actor.public_id, actor.actor_type, login_id,
+                    tenant.public_id, tenant.name, tenant.type, [], second_step_ticket=ticket)
+            elif usable:
                 cred.failed_attempts, cred.locked_until, cred.last_login_at = 0, None, now
                 cred.save(update_fields=["failed_attempts", "locked_until", "last_login_at",
                                          "updated_at"])
@@ -214,7 +294,8 @@ def login(
                        "remembered" if kept else "")
                 result = LoginResult(
                     token, now + lifetime, actor.public_id, actor.actor_type, login_id,
-                    tenant.public_id, tenant.name, tenant.type, roles, remembered=kept)
+                    tenant.public_id, tenant.name, tenant.type, roles, remembered=kept,
+                    must_set_up_two_step=must_set_up_two_step(tenant, actor, cred))
             else:
                 reason = "locked" if locked else (
                     "inactive" if password_ok else "bad_password")
@@ -316,7 +397,9 @@ def authenticate_token(token: str, *, clock: Clock | None = None) -> Authenticat
             or deceased):
         raise _fail()
     return Authenticated(
-        ctx, cred.actor.public_id, cred.actor.actor_type, tenant.name, tenant.type, roles)
+        ctx, cred.actor.public_id, cred.actor.actor_type, tenant.name, tenant.type, roles,
+        second_step_at=claims.second_step_at, two_step_on=cred.totp_enabled_at is not None,
+        must_set_up_two_step=must_set_up_two_step(tenant, cred.actor, cred))
 
 
 def revoke_sessions(actor_public_id: str, *, by: str) -> None:
@@ -367,7 +450,7 @@ class PasswordChange:
 
 def change_password(
     actor_public_id: str, *, current_password: str, new_password: str,
-    clock: Clock | None = None,
+    clock: Clock | None = None, second_step_at: int = 0,
 ) -> PasswordChange:
     """A signed-in person changes their own password. The CURRENT password must be right (a stolen
     session alone is not enough); wrong guesses count towards the same lockout as sign-in. Success
@@ -393,16 +476,11 @@ def change_password(
         cred.save()
         _audit(actor_public_id, "auth.change_password", AuditOutcome.ALLOWED)
         if cred.email and cred.email_verified_at is not None:
-            queue_email(
-                kind="password_changed", to_address=cred.email,
-                subject="Your Zoiko Access password was changed",
-                body=("Hello,\n\nThe password of your Zoiko Access account was just changed and "
-                      "every other device was signed out.\n\nIf this was not you, reset your "
-                      "password now from the sign-in page and contact your clinic.\n\n"
-                      "Zoiko Access\n"))
-        token = issue_token(
+            queue_email(kind="password_changed", to_address=cred.email)   # approved wording
+        token = issue_token(       # this session keeps its proved second step (DEV-380)
             tenant_public_id=Tenant.objects.get(id=ctx.tenant_id).public_id,
-            actor_public_id=actor_public_id, epoch=cred.session_epoch, now=now)
+            actor_public_id=actor_public_id, epoch=cred.session_epoch, now=now,
+            second_step_at=second_step_at)
         return PasswordChange(ok=True, token=token, expires_at=now + TOKEN_LIFETIME)
 
 

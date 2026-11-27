@@ -13,6 +13,7 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("
 
 @pytest.fixture(autouse=True)
 def dev_login(settings):
+    settings.REPORT_SMALL_CELL_K = 1      # these test the counting; suppression: DEV-389
     settings.DEBUG = True
     settings.DEV_AUTH_STUB = True
     comms.register_subscribers()

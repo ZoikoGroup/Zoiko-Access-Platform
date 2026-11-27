@@ -102,12 +102,8 @@ def _email_the_patient(person_ref: str, kind: str) -> None:
     actor_ref, address = target
     if not email_notices_enabled(actor_ref):
         return
-    mail = queue_email(
-        kind="patient_update", to_address=address, subject="An update on Zoiko Access",
-        body=(f"Hello,\n\n{headline}\n\nSign in to see the details: "
-              f"{settings.PATIENT_APP_URL}/?page=notifications\n\n"
-              "You are getting this because you turned on email updates. You can turn them off "
-              "on the Notifications page.\n\nZoiko Access\n"))
+    mail = queue_email(kind="patient_update", to_address=address, values={
+        "headline": headline, "app_url": str(settings.PATIENT_APP_URL)})
     if kind in _ROUTINE:                      # TC30: a routine reminder waits out quiet hours
         mail.next_attempt_at = next_allowed_send(actor_ref, utc_now())
         mail.save(update_fields=["next_attempt_at"])

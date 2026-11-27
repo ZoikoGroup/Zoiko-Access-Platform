@@ -44,6 +44,9 @@ class Tenant(models.Model):
     self_registration = models.BooleanField(default=False)
     # ISO 3166 country the customer operates in, set by Zoiko support. Empty = not set (DEV-133).
     country = models.CharField(max_length=2, blank=True, default="")
+    # Every staff login here must use two-step sign-in (DEV-380). Off unless the customer's
+    # administrator turns it on; patients are never required to.
+    staff_two_step_required = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=utc_now, editable=False)
 
     class Meta:
@@ -62,6 +65,10 @@ class Organization(CellScopedModel):
     # means the service-wide default (RESPONSE_TARGET_HOURS). The specification says there is no
     # universal timeout: each clinic's own target is what "late" means for it.
     response_target_hours = models.PositiveSmallIntegerField(null=True, blank=True)
+    # The clinic's working days and opening times (foundation/business_time.py, DEV-367):
+    # {"days": [0..6], "opens": "09:00", "closes": "17:00", "holidays": ["2026-12-25", ...]}.
+    # Empty means every hour counts towards the response target, as before.
+    business_hours = models.JSONField(null=True, blank=True)
     # The partner connector that confirms this clinic's bookings (modules/bookingflow). Empty means
     # the clinic's own staff confirm them by hand, as before.
     booking_system = models.CharField(max_length=32, blank=True, default="")
@@ -325,6 +332,14 @@ class Credential(CellScopedModel):
     # Where mail for this person goes. Verified only after they click the link we send to it.
     email = models.CharField(max_length=254, blank=True, default="")
     email_verified_at = models.DateTimeField(null=True, blank=True)
+    # Two-step sign-in with an authenticator app (DEV-380). The shared secret is ENCRYPTED, bound
+    # to this login; `totp_pending_enc` holds a new one until its first code is entered.
+    # `totp_last_step` stops one code being used twice. Recovery codes: keyed hashes only.
+    totp_secret_enc = models.TextField(blank=True, default="")
+    totp_pending_enc = models.TextField(blank=True, default="")
+    totp_enabled_at = models.DateTimeField(null=True, blank=True)
+    totp_last_step = models.BigIntegerField(default=0)
+    recovery_code_hashes = models.JSONField(default=list, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="cred_scope_idx")]
@@ -676,3 +691,38 @@ class ProofingRecord(CellScopedModel):
             models.Index(fields=["cell_id", "tenant_id"], name="proofing_scope_idx"),
             models.Index(fields=["person", "checked_at"], name="proofing_person_idx"),
         ]
+
+
+class SupportAccessState(models.TextChoices):
+    REQUESTED = "requested", "Waiting for the customer"
+    APPROVED = "approved", "Approved (active until it ends)"
+    REFUSED = "refused", "Refused by the customer"
+    ENDED = "ended", "Ended early"
+
+
+class SupportAccess(CellScopedModel):
+    """Zoiko support asking to look inside THIS customer for a short time (DEV-381, GHE-05 W10).
+
+    Kept in the customer's own tenant, so the customer sees, approves and ends it, and every look is
+    in the customer's own audit chain. The requester lives in Zoiko's platform tenant: only their
+    public id and the login shown to the customer are kept. Never patient data: the views a grant
+    opens are setup and status only (api/support_access.py)."""
+
+    requester_ref = models.CharField(max_length=22)        # a platform-tenant actor
+    requester_label = models.CharField(max_length=128)     # their login, as the customer sees it
+    ticket_ref = models.CharField(max_length=40)
+    reason = models.CharField(max_length=300)
+    scopes = models.JSONField(default=list)
+    minutes = models.PositiveSmallIntegerField()
+    state = models.CharField(max_length=12, choices=SupportAccessState.choices,
+                             default=SupportAccessState.REQUESTED)
+    decided_by_ref = models.CharField(max_length=22, blank=True, default="")
+    decided_at = models.DateTimeField(null=True, blank=True)
+    ends_at = models.DateTimeField(null=True, blank=True)  # approval + minutes
+    ended_by_ref = models.CharField(max_length=22, blank=True, default="")
+    ended_at = models.DateTimeField(null=True, blank=True)
+    uses = models.PositiveIntegerField(default=0)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="supportaccess_scope_idx")]

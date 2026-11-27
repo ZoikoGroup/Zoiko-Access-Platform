@@ -4,7 +4,7 @@ from __future__ import annotations
 from foundation.cell_context import tenant_transaction
 from foundation.rotation import RotationResult, rotate_model
 
-from .models import ActorName, PersonProfile
+from .models import ActorName, Credential, PersonProfile
 from .services import context_for, list_tenants
 
 _PROFILE = {
@@ -13,6 +13,11 @@ _PROFILE = {
     "phone_enc": lambda r: f"person:{r.person.public_id}:phone",
 }
 _NAME = {"name_enc": lambda r: f"actor:{r.actor.public_id}:display_name"}
+# Two-step sign-in secrets (DEV-380), the same contexts as two_step.py.
+_TWO_STEP = {
+    "totp_secret_enc": lambda r: f"credential:{r.actor.public_id}:totp",
+    "totp_pending_enc": lambda r: f"credential:{r.actor.public_id}:totp_pending",
+}
 
 
 def rotate(batch: int, dry_run: bool) -> RotationResult:
@@ -26,4 +31,7 @@ def rotate(batch: int, dry_run: bool) -> RotationResult:
                                   select_related=("person",))
             total += rotate_model(ActorName, fields=_NAME, tenant_id=ctx.tenant_id, scope=scope,
                                   batch=batch, dry_run=dry_run, select_related=("actor",))
+            total += rotate_model(Credential, fields=_TWO_STEP, tenant_id=ctx.tenant_id,
+                                  scope=scope, batch=batch, dry_run=dry_run,
+                                  select_related=("actor",))
     return total

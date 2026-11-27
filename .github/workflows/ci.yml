@@ -65,6 +65,8 @@ jobs:
           cache-dependency-path: frontend/${{ matrix.app }}/package-lock.json
       - name: Install (exactly the lock file)
         run: npm ci --no-audit --no-fund
+      - name: Known vulnerabilities (fails on high or critical, DEV-371)
+        run: npm audit --audit-level=high
       - name: Type check
         run: npm run typecheck
       - name: Production build
@@ -141,3 +143,49 @@ jobs:
             frontend/e2e/test-results/
             app-logs/
           retention-days: 7
+
+  # Supply-chain checks (DEV-371): no secret in any commit, no dependency with a known high or
+  # critical flaw, and a software bill of materials (CycloneDX) kept with every run. Code scanning
+  # for Python already runs in the backend job: ruff's "S" rules are Bandit's security checks.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                    # every commit, so a secret removed later still counts
+      - name: Secret scan of the whole history (gitleaks 8.18.4)
+        run: >-
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4
+          detect --source /repo --no-banner --redact
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python dependencies with known flaws
+        working-directory: backend
+        run: |
+          pip install --quiet "pip-audit>=2.7,<3"
+          pip-audit -r requirements/base.txt -r requirements/production.txt -r requirements/dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: The browser robots' dependencies (the apps are checked in the "apps" job)
+        working-directory: frontend/e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit --audit-level=high
+      - name: Software bill of materials (CycloneDX)
+        run: |
+          mkdir -p sbom
+          pip install --quiet "cyclonedx-bom>=4,<6"
+          # exactly what a production image installs, with versions (ranges alone say too little)
+          python -m venv /tmp/prod
+          /tmp/prod/bin/pip install --quiet -r backend/requirements/base.txt -r backend/requirements/production.txt
+          cyclonedx-py environment /tmp/prod -o sbom/backend.cdx.json
+          for app in operations patient platform clinician partners; do
+            (cd "frontend/$app" && npm sbom --package-lock-only --sbom-format cyclonedx > "../../sbom/$app.cdx.json")
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
+          retention-days: 90

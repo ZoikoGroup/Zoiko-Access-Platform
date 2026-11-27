@@ -16,7 +16,7 @@ from foundation.cell_context import tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
 from modules.trust import api as trust
 
-from .support import endpoint, is_allowed, json_body, text
+from .support import endpoint, is_allowed, json_body, require_recent_second_step, text
 from .views import _authorize, _catalog_org, _is_staff, _staff_only
 
 
@@ -77,6 +77,7 @@ def staff_match_merge(
     confirming. The reviewer may name which record survives (`primary`); otherwise the older one."""
     org = _org(auth)
     _authorize(auth, "write:person", organization_public_id=org)
+    require_recent_second_step(auth)          # a risky act: the code again if stale (DEV-380)
     body = json_body(request)
     with tenant_transaction():
         done = trust.merge_people(
@@ -93,6 +94,7 @@ def staff_match_unmerge(
     """Undo a merge: what it moved goes back, and the case returns to review."""
     org = _org(auth)
     _authorize(auth, "write:person", organization_public_id=org)
+    require_recent_second_step(auth)
     with tenant_transaction():
         done = trust.unmerge_people(
             case_ref=case_id, actor_public_id=auth.actor_public_id, organization_ref=org)

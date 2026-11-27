@@ -469,11 +469,16 @@ def test_payment_advice_defaults_to_the_full_amount_today_and_bad_advice_is_refu
 
 # ------------------------------------------------ claim attachments & remittance advice (DEV-378)
 _PDF = b"%PDF-1.4\n1 0 obj<< /Type /Catalog /Font /AAAAAB+Arial >>endobj\ntrailer<<>>\n%%EOF\n"
-_PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+    b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
+)
 _JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb"
 
 
-def upload_claim_att(clinic, claim_id, data, name="bill.pdf", content_type="application/pdf", subject="ops"):
+def upload_claim_att(
+    clinic, claim_id, data, name="bill.pdf", content_type="application/pdf", subject="ops"
+):
     return clinic.client.post(
         f"/api/v1/claims/sent/{claim_id}/attachments?filename={name}",
         data,
@@ -530,7 +535,11 @@ def test_clinic_uploads_and_downloads_supporting_attachments(world, settings):
     # Sent claim lists attachments
     mine = body(clinic.get("claims/sent", subject="ops"))["claims"][0]
     assert len(mine["attachments"]) == 3
-    assert {a["filename"] for a in mine["attachments"]} == {"itemized_bill.pdf", "receipt.png", "diagnostic.jpg"}
+    assert {a["filename"] for a in mine["attachments"]} == {
+        "itemized_bill.pdf",
+        "receipt.png",
+        "diagnostic.jpg",
+    }
 
     # Download attachment
     got = get_claim_att_sent(clinic, claim_id, a1["id"])
@@ -552,7 +561,8 @@ def test_clinic_uploads_and_downloads_supporting_attachments(world, settings):
 
     # Payer approves claim -> clinic cannot add or delete attachments anymore
     step(payer, claim_id, "approve")
-    assert upload_claim_att(clinic, claim_id, _PNG, name="late.png", content_type="image/png").status_code == 409
+    late = upload_claim_att(clinic, claim_id, _PNG, name="late.png", content_type="image/png")
+    assert late.status_code == 409
     assert delete_claim_att(clinic, claim_id, a1["id"]).status_code == 409
 
 
@@ -568,7 +578,10 @@ def test_attachment_validation_and_security(world, settings):
     assert upload_claim_att(clinic, claim_id, b"plain text", name="fake.pdf").status_code == 422
 
     # Unsupported MIME type
-    assert upload_claim_att(clinic, claim_id, b"echo hello", name="script.sh", content_type="text/plain").status_code == 422
+    bad_mime = upload_claim_att(
+        clinic, claim_id, b"echo hello", name="script.sh", content_type="text/plain"
+    )
+    assert bad_mime.status_code == 422
 
     # Size limit > 10 MB
     large_pdf = _PDF + b"0" * (10 * 1024 * 1024 + 1)
@@ -577,7 +590,9 @@ def test_attachment_validation_and_security(world, settings):
     assert body(r_big)["code"] == "VALIDATION_FAILED"
 
     # Active PDF exploit strings rejected
-    for exploit in (b"/JavaScript", b"/Launch", b"/EmbeddedFile", b"/OpenAction", b"/AA", b"/RichMedia", b"/XFA"):
+    for exploit in (
+        b"/JavaScript", b"/Launch", b"/EmbeddedFile", b"/OpenAction", b"/AA", b"/RichMedia", b"/XFA"
+    ):
         evil_pdf = b"%PDF-1.4\n1 0 obj<< " + exploit + b" (alert(1)) >>endobj\ntrailer<<>>\n%%EOF\n"
         r_exploit = upload_claim_att(clinic, claim_id, evil_pdf, name="malicious.pdf")
         assert r_exploit.status_code == 422, exploit
@@ -602,7 +617,8 @@ def test_payer_can_only_download_attachments_after_patient_consent(world, settin
     assert r.status_code == 201
     att_id = body(r)["attachment"]["id"]
 
-    # Payer tries to download attachment before consent is granted -> 404 (claim inaccessible to payer)
+    # Payer tries to download attachment before consent is granted
+    # -> 404 (claim inaccessible to payer)
     p_get = get_claim_att_incoming(payer, claim_id, att_id)
     assert p_get.status_code == 404
 
@@ -635,11 +651,18 @@ def test_payer_remittance_advice_and_clinic_visibility(world):
     step(payer, claim_id, "approve")
 
     # Invalid remittance advice (> 500 chars or invalid type)
-    assert step(payer, claim_id, "pay", payment_ref="PAY-0005", remittance_advice="x" * 501).status_code == 422
-    assert step(payer, claim_id, "pay", payment_ref="PAY-0005", remittance_advice=123).status_code == 422
+    assert step(
+        payer, claim_id, "pay", payment_ref="PAY-0005", remittance_advice="x" * 501
+    ).status_code == 422
+    assert step(
+        payer, claim_id, "pay", payment_ref="PAY-0005", remittance_advice=123
+    ).status_code == 422
 
     # Payer submits payment with remittance advice
-    advice_text = "Deductible applied: GBP 10.00. Copay 10% deducted: GBP 4.50. Net payment: GBP 30.50."
+    advice_text = (
+        "Deductible applied: GBP 10.00. Copay 10% deducted: GBP 4.50. "
+        "Net payment: GBP 30.50."
+    )
     paid = step(payer, claim_id, "pay", payment_ref="PAY-0005", amount_paid_minor=3050,
                 remittance_advice=advice_text)
     assert paid.status_code == 200, paid.content

@@ -118,6 +118,25 @@ class ExchangeRequest(CellScopedModel):
     # range and flag, as JSON, ENCRYPTED; only the ordering clinic's treating doctors open them.
     result_values_enc = models.TextField(blank=True, default="")
     result_correction = models.CharField(max_length=10, blank=True, default="")
+    # The lab says this version is not final yet (FHIR preliminary/registered/partial, HL7 P/R/I;
+    # DEV-370). It is shown, labelled, and its critical alert still goes out, but it can never be
+    # marked reviewed, so it never reaches the patient as a finished result (GHE-08 AT14, H03).
+    result_preliminary = models.BooleanField(default=False)
+    # The version of the result the doctor said they reviewed (DEV-373). A review must name the
+    # version the doctor read, and is refused if a newer one arrived in the meantime (GHE-08 AT27).
+    reviewed_version = models.PositiveSmallIntegerField(null=True, blank=True)
+    # The patient says this result is not theirs, or its values look wrong (DEV-385, GHE-06 I-05,
+    # W04 "ability to dispute"). A reason CODE only (no free text: nothing clinical is typed in).
+    # While open, the result is held from the patient and cannot be marked reviewed; the ordering
+    # clinic's doctor decides: confirmed (it is theirs, released again) or not_theirs (withheld for
+    # good: a wrong-patient result the clinic must report and have corrected).
+    dispute_state = models.CharField(max_length=10, blank=True, default="")
+    dispute_reason = models.CharField(max_length=16, blank=True, default="")
+    disputed_at = models.DateTimeField(null=True, blank=True)
+    dispute_by_ref = models.CharField(max_length=22, blank=True, default="")
+    dispute_decided_by_ref = models.CharField(max_length=22, blank=True, default="")
+    dispute_decided_at = models.DateTimeField(null=True, blank=True)
+    dispute_decision_note = models.CharField(max_length=300, blank=True, default="")
 
     class Meta(CellScopedModel.Meta):
         indexes = [
@@ -133,6 +152,7 @@ class Correction(models.TextChoices):
     AMENDED = "amended", "Amended"
     CORRECTED = "corrected", "Corrected"
     APPENDED = "appended", "Added to"
+    FINAL = "final", "Final report, replacing a preliminary one"  # DEV-370
 
 
 class ExchangeResultVersion(CellScopedModel):
@@ -149,6 +169,7 @@ class ExchangeResultVersion(CellScopedModel):
     delivered_at = models.DateTimeField(null=True, blank=True)
     delivered_by_ref = models.CharField(max_length=22, blank=True, default="")
     correction = models.CharField(max_length=10, blank=True, default="")  # how THIS one came
+    preliminary = models.BooleanField(default=False)    # this version was not final (DEV-370)
     reviewed_by_ref = models.CharField(max_length=22, blank=True, default="")
     reviewed_at = models.DateTimeField(null=True, blank=True)
     replaced_by_ref = models.CharField(max_length=22)  # who sent the correction

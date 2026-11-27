@@ -112,9 +112,9 @@ class ClaimScanState(models.TextChoices):
 
 
 class ClaimAttachment(CellScopedModel):
-    """Supporting documentation or remittance advice attached to a claim (DEV-378). Stored ENCRYPTED;
-    only the clinic that sent the claim or the adjudicating payer (once patient consent is granted)
-    may open it, and only once a virus scan found it clean."""
+    """Supporting documentation or remittance advice attached to a claim (DEV-378). Stored
+    ENCRYPTED; only the clinic that sent the claim or the adjudicating payer (once patient consent
+    is granted) may open it, and only once a virus scan found it clean."""
 
     claim = models.ForeignKey(Claim, on_delete=models.CASCADE, related_name="+")
     filename = models.CharField(max_length=120)

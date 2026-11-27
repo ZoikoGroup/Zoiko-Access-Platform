@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, createRelease, getReleasesReadiness, releaseStep, type ReleaseReadiness } from "../api";
+import { ApiError, createRelease, getReleasesReadiness, overrideBudget, releaseStep, type ReleaseReadiness } from "../api";
 import { Card, Pill } from "../ui";
 
 type PillKind = "ok" | "warn" | "bad" | "info";
@@ -22,6 +22,7 @@ const WORDS: Record<string, string> = {
   open_incidents: "No serious or unassessed incident open (checked by the system)",
   intended_purpose: "Every capability has an approved intended purpose (checked by the system)",
   clinical_safety_matrix: "No clinical-safety requirement is marked not built (checked by the system)",
+  error_budget: "The 30-day error budget is not used up (checked by the system)",
 };
 const CAPABILITIES = ["provider_directory", "booking", "messaging", "referrals", "waiting_list"];
 
@@ -41,7 +42,7 @@ function Requirement({ rel, q, canSign, canVeto, onDone }: {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const system = q.requirement === "country_pack" || q.requirement === "hazard_register" || q.requirement === "open_incidents" || q.requirement === "intended_purpose" || q.requirement === "clinical_safety_matrix";
+  const system = q.requirement === "country_pack" || q.requirement === "hazard_register" || q.requirement === "open_incidents" || q.requirement === "intended_purpose" || q.requirement === "clinical_safety_matrix" || q.requirement === "error_budget";
   async function run(step: "sign" | "veto") {
     setBusy(true); setError("");
     try {
@@ -58,8 +59,11 @@ function Requirement({ rel, q, canSign, canVeto, onDone }: {
         {q.status === "signed" && <small>{system ? `Covered by ${q.reference}.` : `Signed by ${q.signer} (${q.role}), artefact ${q.reference}, valid to ${q.expires_on}.`}</small>}
         {q.status === "expired" && <small>Expired {q.expires_on}: it no longer counts.</small>}
         {q.status === "vetoed" && <small>Vetoed. {q.note}</small>}
+        {q.requirement === "error_budget" && q.status === "signed" && q.signer && <small>Overridden by clinical safety until {q.expires_on}: {q.note}</small>}
+        {q.requirement === "error_budget" && q.status === "missing" && <small>{q.reference}. Releases wait (runbook 08).</small>}
         {error && <small role="alert" style={{ color: "var(--bad)" }}>{error}</small>}
       </div>
+      {q.requirement === "error_budget" && q.status === "missing" && canSign && <BudgetOverride rel={rel} onDone={onDone} />}
       {!system && q.status !== "vetoed" && (canSign || canVeto) && (
         <div className="form-row">
           {canSign && q.status !== "signed" && (
@@ -77,6 +81,30 @@ function Requirement({ rel, q, canSign, canVeto, onDone }: {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A safety officer lets ONE release go on while the error budget is used up: a fix for the cause,
+ *  with a reason, for at most 7 days (DEV-388, GHE-18). */
+function BudgetOverride({ rel, onDone }: { rel: ReleaseReadiness; onDone: () => Promise<void> }) {
+  const [reason, setReason] = useState("");
+  const [days, setDays] = useState(3);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function go() {
+    setBusy(true); setError("");
+    try { await overrideBudget(rel.public_id, reason.trim(), days); setReason(""); await onDone(); }
+    catch (e) { setError(friendly(e)); } finally { setBusy(false); }
+  }
+  return (
+    <div className="form-row">
+      <input aria-label="Why this release must go ahead" placeholder="Why (a fix for the cause, never a feature)" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />
+      <select aria-label="For how many days" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+        {[1, 2, 3, 4, 5, 6, 7].map((d) => <option key={d} value={d}>{d} day{d === 1 ? "" : "s"}</option>)}
+      </select>
+      <button className="btn" disabled={busy || reason.trim().length < 10} onClick={() => void go()}>Override the error-budget hold</button>
+      {error && <small role="alert" style={{ color: "var(--bad)" }}>{error}</small>}
     </div>
   );
 }

@@ -346,6 +346,8 @@ export const inviteStaff = (email: string, role: string) => post("staff/members"
 export const setMemberStatus = (id: string, status: "active" | "suspended") =>
   post(`staff/members/${encodeURIComponent(id)}/status`, { status });
 export const resendInvite = (id: string) => post(`staff/members/${encodeURIComponent(id)}/resend-invite`);
+export const resetMemberTwoStep = (id: string) =>
+  post(`staff/members/${encodeURIComponent(id)}/reset-two-step`);
 
 // ---- links in emails (no sign-in needed): choosing a password from an invitation ----
 export async function verifyEmail(token: string): Promise<boolean> {

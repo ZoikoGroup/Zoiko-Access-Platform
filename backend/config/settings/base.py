@@ -40,6 +40,28 @@ ZOIKO_CELL_ID = env("ZOIKO_CELL_ID", required=True)
 # Which program wrote an audit row, and which build it was (a release id or commit; "dev" locally).
 ZOIKO_SERVICE_NAME = env("ZOIKO_SERVICE_NAME", "backend")
 ZOIKO_BUILD = env("ZOIKO_BUILD", "dev")
+# What happens when a customer's country pack has not switched a feature on (DEV-383, GHE-08
+# SAF-10 "fail closed"): enforce (refuse), report (allow and log) or off. Production must enforce;
+# development and test settings report, because demo customers have no signed pack.
+ZOIKO_PACK_GATING = env("ZOIKO_PACK_GATING", "enforce")
+# Outgoing addresses (DEV-384, GHE-09 SEC-07): only hosts Zoiko approved for the customer receive
+# its webhooks. enforce (do not send), report (send and log) or off. Production must enforce.
+ZOIKO_EGRESS = env("ZOIKO_EGRESS", "enforce")
+# Message wording (DEV-386, GHE-16): an email or text whose template version is not approved by a
+# safety officer and, separately, privacy is HELD (enforce), sent and logged (report) or not
+# checked (off). Production must enforce.
+ZOIKO_TEMPLATE_GATING = env("ZOIKO_TEMPLATE_GATING", "enforce")
+# How often one caller may call the API (DEV-387): enforce (429 with Retry-After), report (allow,
+# and log) or off. Production must enforce. Per minute; see foundation/ratelimit.py.
+ZOIKO_RATE_LIMITING = env("ZOIKO_RATE_LIMITING", "enforce")
+RATE_LIMITS = {"ip": 600, "ip_auth": 20, "actor_read": 300, "actor_write": 60, "tenant": 3000}
+# Count every request per minute for the 30-day error budget (DEV-388). Never off in production.
+ZOIKO_SLO_RECORDING = True
+# Report numbers (DEV-389, GHE-10): a part whose measure version is not approved is withheld
+# (enforce), shown and logged (report) or not checked (off). Production must enforce.
+ZOIKO_MEASURE_GATING = env("ZOIKO_MEASURE_GATING", "enforce")
+# The email provider's API may only be one of these hosts (a mistyped setting sends nothing).
+EGRESS_PROVIDER_HOSTS = ("api.sendgrid.com", "api.eu.sendgrid.com")
 # Lets a monitoring system read /metrics (request numbers by route). Empty = the endpoint is off.
 METRICS_TOKEN = env("ZOIKO_METRICS_TOKEN", "")
 # Clinical workflow paths (review, handoff) stay unpublishable until this is "true" (DEV-132).
@@ -94,6 +116,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "foundation.middleware.RequestIdMiddleware",        # first: every request gets an id
     "foundation.middleware.MetricsMiddleware",          # second: times everything after it
+    "foundation.middleware.RateLimitMiddleware",        # per network address (DEV-387)
     "django.middleware.security.SecurityMiddleware",
     "django.middleware.common.CommonMiddleware",
     "foundation.middleware.ErrorHandlingMiddleware",    # last: sees view exceptions first

@@ -583,7 +583,8 @@ def edit_draft(
     diagnoses: Any = None,
     medications: Any = None,
 ) -> dict[str, Any]:
-    """Change a draft's text and, when given, its diagnoses or medications (None keeps them as they are)."""
+    """Change a draft's text and, when given, its diagnoses or medications (None keeps them as
+    they are)."""
     text = _clean_body(body)
     coded = None if diagnoses is None else _clean_diagnoses(diagnoses)
     meds = None if medications is None else _clean_medications(medications)
@@ -694,7 +695,9 @@ def amend(*, note_ref: str, reason: Any, by: str, decision: policy.Decision) -> 
         new.medications_enc = _seal_medications(new, _open_medications(old))
         new.save()
         import base64
-        for old_a in NoteAttachment.objects.filter(note=old, scan_state=ScanState.CLEAN, **_scope()):
+        for old_a in NoteAttachment.objects.filter(
+            note=old, scan_state=ScanState.CLEAN, **_scope()
+        ):
             try:
                 old_data = base64.b64decode(
                     decrypt(
@@ -980,10 +983,21 @@ def erase_expired(
             for note in rows.select_for_update().filter(erased_at__isnull=True):
                 NoteAddendum.objects.filter(note=note, **_scope()).update(body_enc="")
                 NoteAttachment.objects.filter(note=note, **_scope()).update(content_enc="")
-                note.body_enc, note.diagnoses_enc, note.medications_enc, note.erased_at = "", "", "", now
+                note.body_enc = ""
+                note.diagnoses_enc = ""
+                note.medications_enc = ""
+                note.erased_at = now
                 note.entity_version += 1
-                note.save(update_fields=["body_enc", "diagnoses_enc", "medications_enc", "erased_at",
-                                         "entity_version", "updated_at"])
+                note.save(
+                    update_fields=[
+                        "body_enc",
+                        "diagnoses_enc",
+                        "medications_enc",
+                        "erased_at",
+                        "entity_version",
+                        "updated_at",
+                    ]
+                )
                 _audit("system", "erased_retention", note)
                 erased += 1
     return erased

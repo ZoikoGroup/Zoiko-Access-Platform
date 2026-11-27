@@ -1,9 +1,16 @@
 """The status exchange between a clinic and a partner: references and status only (DEV-163)."""
 
 import json
+import os
 from typing import Any
 
+import django
 import pytest
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.test")
+if not django.apps.apps.ready:
+    django.setup()
+
 from django.test import Client
 
 from foundation import fhir
@@ -105,6 +112,12 @@ def made(clinic, lab, consent=True, **over):
         give_profile(clinic)
         assert agree(clinic, request_id).status_code == 200
     return request_id
+
+
+def review_result(clinic, request_id, version=1, subject="doc"):
+    """A doctor marks the result reviewed, naming the version they read (DEV-373)."""
+    return clinic.post(f"exchange/requests/{request_id}/review", {"version": version},
+                       subject=subject)
 
 
 def step(lab, request_id, name, **extra):
@@ -304,16 +317,15 @@ def test_a_clinic_can_cancel_until_the_result_arrives_and_not_after(world):
 def test_only_a_doctor_with_a_relationship_marks_a_result_reviewed(world):
     _, clinic, lab = world
     request_id = made(clinic, lab)
-    review = f"exchange/requests/{request_id}/review"
-    assert clinic.post(review, subject="doc").status_code == 409  # nothing to review yet
+    assert review_result(clinic, request_id).status_code == 409  # nothing to review yet
     deliver_all_the_way(lab, request_id)
-    assert clinic.post(review, subject="ops").status_code == 403  # staff cannot review
+    assert review_result(clinic, request_id, subject="ops").status_code == 403  # staff cannot
     boss = clinic.login("boss", trust.ActorType.FACILITY_USER, "R13")
-    assert boss and clinic.post(review, subject="boss").status_code == 403
-    assert clinic.post(review, subject="doc2").status_code == 403  # no relationship
-    done = clinic.post(review, subject="doc")
+    assert boss and review_result(clinic, request_id, subject="boss").status_code == 403
+    assert review_result(clinic, request_id, subject="doc2").status_code == 403  # no relationship
+    done = review_result(clinic, request_id)
     assert body(done)["request"]["state"] == "reviewed"
-    assert clinic.post(review, subject="doc").status_code == 200  # repeating is harmless
+    assert review_result(clinic, request_id).status_code == 200  # repeating is harmless
 
 
 def test_delivery_is_never_review(world):
@@ -369,7 +381,7 @@ def test_a_patient_sees_what_was_requested_for_them_and_how_far_it_has_got(world
     for name, extra in (("accept", {}), ("start", {}), ("deliver", {"result_ref": "RES-0001"})):
         step(lab, request_id, name, **extra)
     assert mine(clinic)[0]["state"] == "result_available"  # ready, not yet read by a doctor
-    clinic.post(f"exchange/requests/{request_id}/review", subject="doc")
+    review_result(clinic, request_id, subject="doc")
     shown = mine(clinic)[0]
     assert shown["state"] == "reviewed" and shown["reviewed_at"]
 
@@ -413,7 +425,7 @@ def test_the_clinic_dashboard_counts_results_waiting_for_a_doctor(world):
     assert attention(clinic) == 0  # not delivered yet
     deliver_all_the_way(lab, request_id)
     assert attention(clinic) == 1  # ready, nobody has read it
-    clinic.post(f"exchange/requests/{request_id}/review", subject="doc")
+    review_result(clinic, request_id, subject="doc")
     assert attention(clinic) == 0
 
 
@@ -436,8 +448,8 @@ def test_the_patient_is_told_once_when_a_doctor_reviews_a_result(world):
     deliver()
     assert len(notices(clinic)) == before  # a result being ready tells the patient nothing yet
     review = f"exchange/requests/{request_id}/review"
-    assert clinic.post(review, subject="doc").status_code == 200
-    clinic.post(review, subject="doc")  # repeating it must not tell them twice
+    assert clinic.post(review, {"version": 1}, subject="doc").status_code == 200
+    clinic.post(review, {"version": 1}, subject="doc")  # repeating it must not tell them twice
     deliver()
     fresh = [n for n in notices(clinic) if n["kind"] == "exchange_reviewed"]
     assert len(fresh) == 1
@@ -451,7 +463,7 @@ def test_nothing_is_announced_when_review_is_refused(world):
     _, clinic, lab = world
     request_id = made(clinic, lab)
     deliver_all_the_way(lab, request_id)
-    assert clinic.post(f"exchange/requests/{request_id}/review", subject="ops").status_code == 403
+    assert review_result(clinic, request_id, subject="ops").status_code == 403
     deliver()
     assert [n for n in notices(clinic) if n["kind"] == "exchange_reviewed"] == []
 
@@ -958,11 +970,11 @@ def test_a_delivered_message_a_critical_rating_and_an_opened_summary_never_count
     assert row["state"] == "result_available" and row["reviewed_at"] is None
     # nobody but a treating doctor, using the review step itself, can mark it reviewed
     for who in ("ops", "doc2", "pat"):
-        assert clinic.post(f"exchange/requests/{request_id}/review", subject=who).status_code == 403
+        assert review_result(clinic, request_id, subject=who).status_code == 403
     assert lab.call("post", f"exchange/requests/{request_id}/review").status_code == 403
     after = body(clinic.get("exchange/requests", subject="doc"))["requests"][0]
     assert after["state"] == "result_available"
-    assert clinic.post(f"exchange/requests/{request_id}/review", subject="doc").status_code == 200
+    assert review_result(clinic, request_id, subject="doc").status_code == 200
 
 
 # ------------------------------------------------ the lab chooses its order system (DEV-323)
@@ -1075,7 +1087,7 @@ def correct(lab, request_id, **over):
 def test_a_correction_is_a_new_version_and_the_first_stays_readable(world):
     _, clinic, lab = world
     request_id = delivered_with(clinic, lab, "abnormal")
-    assert clinic.post(f"exchange/requests/{request_id}/review", subject="doc").status_code == 200
+    assert review_result(clinic, request_id, subject="doc").status_code == 200
     r = correct(lab, request_id)
     assert r.status_code == 200, r.content
     got = body(r)["request"]
@@ -1358,7 +1370,7 @@ def _reviewed_with_values(clinic, lab, hours_ago):
     request_id = accepted(clinic, lab)
     step(lab, request_id, "deliver", result_ref="RES-0042", flag="normal", values=VALUES,
          summary="Clinician-only wording.")
-    assert clinic.post(f"exchange/requests/{request_id}/review", subject="doc").status_code == 200
+    assert review_result(clinic, request_id, subject="doc").status_code == 200
     from modules.trust import api as trust_api
 
     platform = next(t for t in trust_api.list_tenants() if t["type"] == "platform")
@@ -1372,6 +1384,11 @@ def _reviewed_with_values(clinic, lab, hours_ago):
 
 def mine_values(clinic, request_id, subject="pat"):
     return clinic.get(f"exchange/mine/{request_id}/values", subject=subject)
+
+
+def mine_trend(clinic, request_id, key, subject="pat"):
+    return clinic.get(f"exchange/mine/{request_id}/trend?key={key}", subject=subject)
+
 
 
 def test_the_patient_sees_values_a_day_after_the_doctor_reviewed_them(world):
@@ -1405,6 +1422,32 @@ def test_nobody_but_the_patient_reads_their_values(world):
     clinic.patient("other")
     assert mine_values(clinic, request_id, "other").status_code == 404
     assert mine_values(clinic, request_id, "ops").status_code == 404
+
+
+def test_the_patient_sees_their_value_trend_for_reviewed_results(world):
+    _, clinic, lab = world
+    early = _reviewed_with_values(clinic, lab, hours_ago=2)
+    late1 = _reviewed_with_values(clinic, lab, hours_ago=25)
+    _reviewed_with_values(clinic, lab, hours_ago=50)            # a third, older result
+
+    # A trend asked of one ready result gives points from all this patient's ready reviewed results
+    # A value with a SNOMED CT code is found by its code (as for the doctor's trend, DEV-339) ...
+    res = mine_trend(clinic, late1, "26604007")
+    assert res.status_code == 200
+    points = body(res)["points"]
+    assert [p["value"] for p in points] == [128, 128]      # the two ready ones, not the early one
+    # ... one without a code by its name
+    assert [p["value"] for p in body(mine_trend(clinic, late1, "Blood group"))["points"]] == [
+        "O positive", "O positive"]
+
+    # Accessing trend with an unready / unreviewed result is 404
+    assert mine_trend(clinic, early, "26604007").status_code == 404
+
+    # Other roles or other patients cannot see this patient's trend
+    clinic.patient("other_pat")
+    assert mine_trend(clinic, late1, "26604007", "other_pat").status_code == 404
+    assert mine_trend(clinic, late1, "26604007", "ops").status_code == 404
+
 
 
 # ------------------------------------------------ held messages tried again (DEV-338)
@@ -1702,3 +1745,94 @@ def test_an_hl7_result_carrying_its_pdf_attaches_it(world, scanner_on):
     [att] = files(clinic, request_id).json()["attachments"]
     assert att["filename"] == "Full report.pdf"
     assert len(body(result(clinic, request_id))["result"]["values"]) == 3  # the PDF is not a value
+
+
+# ------------------------------------------------------------------ preliminary results (DEV-370)
+def test_a_preliminary_report_is_shown_labelled_and_can_never_be_marked_reviewed(world):
+    """GHE-08 AT14 / H03: a preliminary result never satisfies "reviewed final", so it never reaches
+    the patient as finished; the doctor still sees it, labelled."""
+    from tests.test_fhir_api import send_fhir
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    r = send_fhir(sender, _report(request_id, status="preliminary"), "fhir-pre-0001")
+    assert r.status_code == 202 and r.json()["quarantined"] is False, r.content
+    got = body(result(clinic, request_id))["result"]
+    assert got["preliminary"] is True and got["summary"] == "Haemoglobin 128 g/L."
+    review = review_result(clinic, request_id, subject="doc")
+    assert review.status_code == 409 and "preliminary" in review.content.decode()
+    patient = next(x for x in mine(clinic) if x["id"] == request_id)
+    assert patient["values_ready"] is False
+
+
+def test_the_final_report_replaces_the_preliminary_one_and_can_then_be_reviewed(world):
+    from tests.test_fhir_api import send_fhir
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    send_fhir(sender, _report(request_id, "rep-p1", "partial", text="Partial: Hb 128."),
+              "fhir-pre-0002")
+    send_fhir(sender, _report(request_id, "rep-p2", "preliminary", text="Prelim: Hb 129."),
+              "fhir-pre-0003")
+    got = body(result(clinic, request_id))["result"]
+    assert got["preliminary"] is True and got["summary"] == "Prelim: Hb 129."  # still not final
+    r = send_fhir(sender, _report(request_id, "rep-f", "final", text="Haemoglobin 130 g/L."),
+                  "fhir-pre-0004")
+    assert r.status_code == 202 and r.json()["quarantined"] is False, r.content
+    got = body(result(clinic, request_id))["result"]
+    assert got["preliminary"] is False and got["correction"] == "final" and got["version"] == 3
+    assert [v["preliminary"] for v in got["earlier"]] == [True, True]     # kept, as delivered
+    assert clinic.post(f"exchange/requests/{request_id}/review", {"version": 3},
+                       subject="doc").status_code == 200
+
+
+def test_a_preliminary_critical_value_still_alerts_at_once(world):
+    """Not holding preliminary results is deliberate: a dangerous value must not wait for the final
+    report to reach the person who ordered the test."""
+    from tests.test_fhir_api import send_fhir
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    give_email(clinic, clinic.desk, "desk@clinic.test")
+    request_id = accepted(clinic, lab)
+    raw = _report(request_id, status="preliminary", flag="CRIT", text="Potassium 6.8 mmol/L.")
+    assert send_fhir(sender, raw, "fhir-pre-0005").json()["quarantined"] is False
+    assert len(mails("critical_result")) == 1
+
+
+@pytest.mark.parametrize("status", ["unknown", ""])
+def test_a_report_with_no_known_status_is_held_for_a_person(world, status):
+    from tests.test_fhir_api import send_fhir
+
+    _, clinic, lab = world
+    sender = _fhir_partner(world)
+    request_id = accepted(clinic, lab)
+    r = send_fhir(sender, _report(request_id, status=status), f"fhir-pre-hold-{status or 'none'}")
+    assert r.status_code == 202 and r.json()["quarantined"] is True
+
+
+# ------------------------------------------------------------- a review names its version (DEV-373)
+def test_a_review_must_name_the_version_the_doctor_read(world):
+    """GHE-08 AT27: nobody can mark a result reviewed without saying which version they read, and a
+    review of any version but the current one is refused."""
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab, "abnormal")
+    review = f"exchange/requests/{request_id}/review"
+    for bad in ({}, {"version": "1"}, {"version": 0}, {"version": True}):
+        assert clinic.post(review, bad, subject="doc").status_code == 422, bad
+    assert clinic.post(review, {"version": 2}, subject="doc").status_code == 409
+
+
+def test_a_correction_that_arrives_while_the_doctor_reads_cannot_be_reviewed_unseen(world):
+    _, clinic, lab = world
+    request_id = delivered_with(clinic, lab, "abnormal")       # the doctor opens version 1 ...
+    correct(lab, request_id)                                    # ... and version 2 arrives
+    review = f"exchange/requests/{request_id}/review"
+    stale = clinic.post(review, {"version": 1}, subject="doc")
+    assert stale.status_code == 409 and "version" in stale.content.decode()
+    done = clinic.post(review, {"version": 2}, subject="doc")
+    assert done.status_code == 200
+    assert body(done)["request"]["reviewed_version"] == 2      # the evidence names the version
+    assert clinic.post(review, {"version": 2}, subject="doc").status_code == 200   # harmless again

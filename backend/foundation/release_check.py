@@ -72,6 +72,28 @@ def release_problems(conf: Any = settings) -> list[str]:
         problems.append("the pretend payment provider (BILLING_PRETEND_PROVIDER) is on")
     if getattr(conf, "BILLING_PAYMENT_PROVIDER", "") == "pretend":
         problems.append("payments are set to the pretend provider (BILLING_PAYMENT_PROVIDER)")
+    # DEV-383: features a market's signed country pack has not switched on must stay off.
+    if str(getattr(conf, "ZOIKO_PACK_GATING", "enforce")).strip().lower() != "enforce":
+        problems.append("country-pack gating is not enforced (ZOIKO_PACK_GATING must be enforce)")
+    # DEV-384: only addresses Zoiko approved may receive a customer's data.
+    if str(getattr(conf, "ZOIKO_EGRESS", "enforce")).strip().lower() != "enforce":
+        problems.append("outgoing addresses are not enforced (ZOIKO_EGRESS must be enforce)")
+    # DEV-386: only message wording approved by safety and privacy is sent.
+    if str(getattr(conf, "ZOIKO_TEMPLATE_GATING", "enforce")).strip().lower() != "enforce":
+        problems.append("message templates are not enforced (ZOIKO_TEMPLATE_GATING must be "
+                        "enforce)")
+    # DEV-387: one caller cannot flood the API.
+    if str(getattr(conf, "ZOIKO_RATE_LIMITING", "enforce")).strip().lower() != "enforce":
+        problems.append("rate limits are not enforced (ZOIKO_RATE_LIMITING must be enforce)")
+    # DEV-388: without the counts there is no error budget, and no release hold on it.
+    if not getattr(conf, "ZOIKO_SLO_RECORDING", True):
+        problems.append("request counting for the error budget is off (ZOIKO_SLO_RECORDING)")
+    # DEV-389: no report number without an approved measure.
+    if str(getattr(conf, "ZOIKO_MEASURE_GATING", "enforce")).strip().lower() != "enforce":
+        problems.append("report measures are not enforced (ZOIKO_MEASURE_GATING must be enforce)")
+    small = getattr(conf, "REPORT_SMALL_CELL_K", 5)
+    if not isinstance(small, int) or small < 5:
+        problems.append("reports would show counts under 5 (REPORT_SMALL_CELL_K must be 5 or more)")
     return problems
 
 

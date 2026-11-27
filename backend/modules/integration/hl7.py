@@ -37,6 +37,16 @@ _RANGE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*-\s*(-?\d+(?:\.\d+)?)\s*$")
 _ID = re.compile(r"[^A-Za-z0-9\-.]")
 
 
+def _status(value: str, where: str) -> str:
+    """The FHIR status for an OBR-25 / OBX-11 code. A missing or unknown code is REFUSED, so the
+    message is held for a person (DEV-369): guessing "final" could show a preliminary or
+    unrecognised result to a doctor as finished (GHE-22 AT-015)."""
+    found = STATUS.get(value.strip().upper())
+    if found is None:
+        raise Hl7Error(f"missing or unknown result status in {where}")
+    return found
+
+
 class Hl7Error(ValueError):
     """The text is not an ORU^R01 message this intake can read."""
 
@@ -119,7 +129,7 @@ def to_fhir(text: str) -> dict[str, Any]:
         "resourceType": "DiagnosticReport",
         "id": report_id,
         "category": [fhir.IMAGING_REPORT_CATEGORY if imaging else fhir.LAB_REPORT_CATEGORY],
-        "status": STATUS.get(_field(obr, 25).strip().upper(), "final"),
+        "status": _status(_field(obr, 25), "OBR-25"),
         "subject": subject,
         "basedOn": [{"reference": f"ServiceRequest/{request_fhir_id}"}],
     }
@@ -156,7 +166,7 @@ def to_fhir(text: str) -> dict[str, Any]:
             "resourceType": "Observation",
             "id": f"{report_id}-v{i}"[:64],
             "category": [fhir.IMAGING_VALUE_CATEGORY if imaging else fhir.LAB_VALUE_CATEGORY],
-            "status": STATUS.get(_field(obx, 11).strip().upper(), "final"),
+            "status": _status(_field(obx, 11), "OBX-11"),
             "subject": subject,
         }
         test = _concept(_field(obx, 3), enc)

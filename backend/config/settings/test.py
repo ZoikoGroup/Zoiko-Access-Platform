@@ -28,3 +28,18 @@ BILLING_PRETEND_PROVIDER = True
 
 # A throwaway table for proving tenant isolation. Exists only under test settings.
 INSTALLED_APPS = [*INSTALLED_APPS, "tests.probe"]  # noqa: F405
+# Demo and test customers have no signed country pack: allow, and log what would be refused
+# (DEV-383). Tests that check refusals switch this to "enforce" themselves.
+ZOIKO_PACK_GATING = "report"
+# Test webhook receivers are not approved by anyone: send, and log (DEV-384). Tests of the
+# allowlist switch this to "enforce" themselves.
+ZOIKO_EGRESS = "report"
+# Test wording is not approved by anyone: send, and log (DEV-386). Tests of the approval switch
+# this to "enforce" themselves.
+ZOIKO_TEMPLATE_GATING = "report"
+# Tests make many requests quickly; the rate-limit tests switch this on themselves (DEV-387).
+ZOIKO_RATE_LIMITING = "off"
+# One extra write per request is not needed by most tests; the error-budget tests switch it on.
+ZOIKO_SLO_RECORDING = False
+# Report measures are not approved in tests: show, and log (DEV-389); their tests enforce.
+ZOIKO_MEASURE_GATING = "report"

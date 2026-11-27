@@ -23,11 +23,20 @@ from modules.policy import api as policy
 from modules.scheduling import api as scheduling
 from modules.trust import api as trust
 
-from .models import OPEN_STATES, CloseReason, WaitEntry, WaitState
+from .models import (
+    OPEN_STATES,
+    CloseReason,
+    PriorityReason,
+    WaitEntry,
+    WaitPriority,
+    WaitRule,
+    WaitState,
+)
 
 # The same right as booking: being on the list is a way of asking to book.
 WRITE_BOOKING = "write:booking"
 MAX_OFFERS_PER_OPENING = 20
+MAX_OFFER_HOURS = 168                    # a clinic's own offer window: 1 hour to a week
 
 
 def _scope() -> dict[str, Any]:
@@ -46,6 +55,7 @@ def entry_dict(e: WaitEntry) -> dict[str, Any]:
         "organization_ref": e.organization_ref, "state": e.state,
         "offered_at": e.offered_at.isoformat() if e.offered_at else None,
         "closed_reason": e.closed_reason, "created_at": e.created_at.isoformat(),
+        "priority": int(e.priority), "priority_reason": e.priority_reason,
     }
 
 
@@ -106,9 +116,11 @@ def get_entry(entry_ref: str) -> dict[str, Any]:
 
 def list_entries(
     *, person_refs: list[str] | None = None, organization_ref: str = "", open_only: bool = True,
-    limit: int = 200,
+    limit: int = 200, page: Any = None,
 ) -> list[dict[str, Any]]:
     """Newest first. The caller has authorized each patient or organization it asks for."""
+    from foundation import pagination
+
     rows = WaitEntry.objects.filter(**_scope())
     if open_only:
         rows = rows.filter(state__in=OPEN_STATES)
@@ -116,7 +128,75 @@ def list_entries(
         rows = rows.filter(person_ref__in=person_refs)
     if organization_ref:
         rows = rows.filter(organization_ref=organization_ref)
-    return [entry_dict(e) for e in rows.order_by("-created_at")[: max(1, min(limit, 500))]]
+    found = (
+        pagination.apply(rows, page)
+        if page is not None
+        else list(rows.order_by("-created_at")[: max(1, min(limit, 500))])
+    )
+    return [entry_dict(e) for e in found]
+
+
+def set_priority(
+    *, entry_ref: str, priority: Any, reason: Any, actor_public_id: str,
+    decision: policy.Decision,
+) -> dict[str, Any]:
+    """Clinic staff move someone up (or back down) the queue for a service (DEV-366). Anything
+    above routine needs a reason code (`PriorityReason`). Only an entry still waiting or offered
+    can change. The caller must be clinic staff: a patient never ranks themselves."""
+    if (isinstance(priority, bool) or not isinstance(priority, int)
+            or priority not in WaitPriority.values):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["priority"])
+    reason = reason if isinstance(reason, str) else ""
+    if priority == WaitPriority.ROUTINE:
+        reason = ""
+    elif reason not in PriorityReason.values:
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["reason"])
+    with transaction.atomic():
+        entry = WaitEntry.objects.select_for_update().filter(
+            public_id=entry_ref, **_scope()).first()
+        if entry is None:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        policy.check_receipt(
+            decision, actor_public_id=actor_public_id, operation=WRITE_BOOKING,
+            organization_public_id=entry.organization_ref, subject_ref=entry.person_ref)
+        if entry.state not in OPEN_STATES:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        if entry.priority == priority and entry.priority_reason == reason:
+            return entry_dict(entry)                                       # repeating is harmless
+        entry.priority, entry.priority_reason = priority, reason
+        entry.prioritized_by_ref = actor_public_id
+        entry.entity_version += 1
+        entry.save(update_fields=[
+            "priority", "priority_reason", "prioritized_by_ref", "entity_version", "updated_at"])
+        _audit(actor_public_id, "waitlist.set_priority", entry.public_id)
+        return entry_dict(entry)
+
+
+def offer_hours_for(organization_ref: str) -> int:
+    """How long this clinic gives a person to use an offered time: its own choice, or the service
+    default (DEV-366)."""
+    own = WaitRule.objects.filter(organization_ref=organization_ref, **_scope()).values_list(
+        "offer_hours", flat=True).first()
+    return int(own or settings.WAITLIST_OFFER_HOURS)
+
+
+def set_offer_hours(organization_ref: str, hours: Any, *, by: str) -> int:
+    """Set this clinic's offer window (1 to 168 hours), or None for the service default. Returns
+    the window now in force."""
+    if hours is not None and (
+            isinstance(hours, bool) or not isinstance(hours, int)
+            or not 1 <= hours <= MAX_OFFER_HOURS):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["waitlist_offer_hours"])
+    with transaction.atomic():
+        rule, made = WaitRule.objects.get_or_create(
+            organization_ref=organization_ref, defaults={"offer_hours": hours}, **_scope())
+        if not made and rule.offer_hours != hours:
+            rule.offer_hours = hours
+            rule.entity_version += 1
+            rule.save(update_fields=["offer_hours", "entity_version", "updated_at"])
+        record(actor_ref=by, action="waitlist.set_offer_hours", object_type="waitlist_rule",
+               object_ref=rule.public_id, outcome=AuditOutcome.ALLOWED)
+    return offer_hours_for(organization_ref)
 
 
 def waiting_counts(organization_ref: str = "") -> dict[str, int]:
@@ -146,7 +226,7 @@ def offer_open_times(service_ref: str, *, clock: Clock | None = None) -> int:
         queue = list(
             WaitEntry.objects.select_for_update(skip_locked=True)
             .filter(service_ref=service_ref, state=WaitState.WAITING, **_scope())
-            .order_by("created_at")[:room])
+            .order_by("-priority", "created_at")[:room])     # most urgent first
         for entry in queue:
             entry.state = WaitState.OFFERED
             entry.offered_at = now
@@ -190,13 +270,23 @@ def close_for_death(person_ref: str) -> int:
 
 def expire_old_offers(*, older_than: dt.timedelta | None = None, clock: Clock | None = None) -> int:
     """An offer nobody used goes back to waiting after a while, so the next free time can be
-    offered again. Runs in the worker for the bound tenant."""
+    offered again. The while is each clinic's own window (`set_offer_hours`, DEV-366) unless
+    `older_than` says otherwise. Runs in the worker for the bound tenant."""
     now = utc_now(clock)
-    limit = (older_than if older_than is not None
-             else dt.timedelta(hours=settings.WAITLIST_OFFER_HOURS))
+    windows: dict[str, dt.timedelta] = {}
+
+    def window(org: str) -> dt.timedelta:
+        if older_than is not None:
+            return older_than
+        if org not in windows:
+            windows[org] = dt.timedelta(hours=offer_hours_for(org))
+        return windows[org]
+
     with transaction.atomic():
-        stale = list(WaitEntry.objects.select_for_update(skip_locked=True).filter(
-            state=WaitState.OFFERED, offered_at__lte=now - limit, **_scope()))
+        offered = WaitEntry.objects.select_for_update(skip_locked=True).filter(
+            state=WaitState.OFFERED, offered_at__isnull=False, **_scope())
+        stale = [e for e in offered
+                 if e.offered_at is not None and e.offered_at <= now - window(e.organization_ref)]
         for entry in stale:
             entry.state = WaitState.WAITING
             entry.offered_at = None

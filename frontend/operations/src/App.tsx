@@ -23,6 +23,7 @@ import { Billing } from "./pages/Billing";
 import { Engine } from "./pages/Engine";
 import { Integrations } from "./pages/Integrations";
 import { Claims } from "./pages/Claims";
+import { InsuranceStatus } from "./pages/InsuranceStatus";
 import { PartnerRequests } from "./pages/PartnerRequests";
 import { RightsRequests } from "./pages/RightsRequests";
 import { Reports } from "./pages/Reports";
@@ -74,8 +75,10 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   const item = NAV.find((n) => n.id === page) ?? NAV[0];
 
   // Every screen below fetches its own data from the signed-in /api/v1 staff endpoints, as you.
+  const off = me.data?.switched_off ?? [];
   let body;
   if (!item.live) body = <Planned item={item} />;
+  else if (item.capability && off.includes(item.capability)) body = <SwitchedOff label={item.label} />;
   else if (page === "services") body = <Services staff={staff} />;
   else if (page === "appointments") body = <Appointments staff={staff} />;
   else if (page === "patients") body = <Patients key={patientQuery} initialSearch={patientQuery} />;
@@ -87,6 +90,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "rights") body = <RightsRequests />;
   else if (page === "exchange") body = <PartnerRequests />;
   else if (page === "claims") body = <Claims />;
+  else if (page === "insurance") body = <InsuranceStatus />;
   else if (page === "engine") body = <Engine />;
   else if (page === "billing") body = <Billing />;
   else if (page === "integrations") body = <Integrations />;
@@ -108,8 +112,20 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
       <Topbar displayName={shownName} tenantName={session.tenantName} login={session.login}
         roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
         onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} />
-      <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} />
+      <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} off={off} />
       <main className="content" id="main" tabIndex={0}>{body}</main>
+    </div>
+  );
+}
+
+/** A screen whose feature the organization's country pack has not switched on (DEV-383). */
+function SwitchedOff({ label }: { label: string }) {
+  return (
+    <div className="card" role="status">
+      <h2>{label} is not switched on here</h2>
+      <p>This feature is not yet approved for your organization's country. Zoiko switches features on
+        country by country, once the legal, privacy and safety checks for that country are signed. Ask
+        Zoiko support if you expected to have it.</p>
     </div>
   );
 }

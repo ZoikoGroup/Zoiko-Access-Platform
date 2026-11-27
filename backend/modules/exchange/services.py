@@ -233,6 +233,7 @@ def clinic_dict(r: ExchangeRequest) -> dict[str, Any]:
         "has_attachments": ResultAttachment.objects.filter(request=r).exists(),
         "result_version": r.result_version,
         "result_correction": r.result_correction or None,
+        "result_preliminary": r.result_preliminary,
         "on_hold": r.on_hold_at is not None,
         "hold_owner": r.on_hold_owner_ref,
         "hold_escalated": r.on_hold_escalated_at is not None,
@@ -241,6 +242,13 @@ def clinic_dict(r: ExchangeRequest) -> dict[str, Any]:
         "created_at": r.created_at.isoformat(),
         "result_at": r.result_at.isoformat() if r.result_at else None,
         "reviewed_at": r.reviewed_at.isoformat() if r.reviewed_at else None,
+        "reviewed_version": r.reviewed_version,
+        # The patient's dispute (DEV-385): "", open, confirmed or not_theirs, and why.
+        "dispute": r.dispute_state or None,
+        "dispute_reason": r.dispute_reason or None,
+        "disputed_at": r.disputed_at.isoformat() if r.disputed_at else None,
+        "dispute_decided_by": r.dispute_decided_by_ref,
+        "dispute_decision_note": r.dispute_decision_note,
     }
 
 
@@ -260,6 +268,7 @@ def partner_dict(r: ExchangeRequest) -> dict[str, Any]:
         "result_flag": r.result_flag,
         "result_version": r.result_version,
         "result_correction": r.result_correction or None,
+        "result_preliminary": r.result_preliminary,
         "on_hold": r.on_hold_at is not None,
         "consent": consent_of(r),
         "identity": shared_identity(r),
@@ -285,6 +294,10 @@ def patient_dict(r: ExchangeRequest) -> dict[str, Any]:
         "result_at": r.result_at.isoformat() if r.result_at else None,
         "reviewed_at": r.reviewed_at.isoformat() if r.reviewed_at else None,
         "values_ready": _patient_may_see_values(r, utc_now()),
+        # Held from the patient (DEV-385): "dispute" while their dispute is open, "not_theirs"
+        # once the clinic agreed it is not theirs. (The API adds "identity_check" too.)
+        "held": {"open": "dispute", "not_theirs": "not_theirs"}.get(r.dispute_state),
+        "dispute": r.dispute_state or None,
         "person": r.person_ref,
     }
 
@@ -298,6 +311,8 @@ def _patient_may_see_values(r: ExchangeRequest, now: dt.datetime) -> bool:
     the result back to review, so its values wait again."""
     return (
         r.state == State.REVIEWED
+        and r.dispute_state not in ("open", "not_theirs")      # held while disputed (DEV-385)
+        and not getattr(r, "result_preliminary", False)
         and r.reviewed_at is not None
         and bool(r.result_values_enc)
         and r.reviewed_at + dt.timedelta(hours=PATIENT_VALUES_DELAY_HOURS) <= now
@@ -503,7 +518,10 @@ def clinic_step(
     step: str,
     actor_ref: str,
     clock: Clock | None = None,
+    version: int | None = None,
 ) -> dict[str, Any]:
+    """`version`, for a review: the version of the result the doctor read (DEV-373). A review of
+    any other version is refused, so nobody can review a correction they have not seen."""
     if step not in CLINIC_STEPS:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     allowed_from, target = CLINIC_STEPS[step]
@@ -515,13 +533,25 @@ def clinic_step(
         )
         if row is None:
             raise ZoikoError(ErrorCode.NOT_FOUND)
+        if step == "review" and version != max(row.result_version, 1):
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION, fields=["version"])  # not what they read
         if row.state == target:
             return {**clinic_dict(row), "changed": False}  # repeating a step is harmless
         if row.state not in allowed_from:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
+        if step == "review" and row.dispute_state == "open":
+            # The patient says it is not theirs or is wrong: decide that first (DEV-385).
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION, fields=["dispute_open"])
+        if step == "review" and row.dispute_state == "not_theirs":
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION, fields=["not_this_patient"])
+        if step == "review" and row.result_preliminary:
+            # A preliminary result can never be "reviewed": the final one must come first
+            # (DEV-370, GHE-08 AT14). Doctors still see it, labelled, and its critical alert.
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION, fields=["preliminary"])
         row.state = target
         if step == "review":
             row.reviewed_by_ref, row.reviewed_at = actor_ref, utc_now(clock)
+            row.reviewed_version = row.result_version
         row.entity_version += 1
         row.save()
         _event(row, step, "clinic", actor_ref)
@@ -564,6 +594,7 @@ def partner_step(
     flag: Any = None,
     clock: Clock | None = None,
     values: Any = None,
+    preliminary: bool = False,
 ) -> dict[str, Any]:
     if step not in PARTNER_STEPS:
         raise ZoikoError(ErrorCode.NOT_FOUND)
@@ -609,6 +640,7 @@ def partner_step(
             row.result_ref, row.result_at = result_ref, now
             row.result_flag = str(flag or "")
             row.result_version = 1
+            row.result_preliminary = bool(preliminary)
             row.result_values_enc = _seal_values(row, clean_values)
             if clean_summary:
                 row.result_summary_enc = encrypt(
@@ -886,6 +918,7 @@ def read_result(*, request_ref: str, tenant_ref: str, actor_ref: str) -> dict[st
         "values": _open_values(row, row.result_values_enc),
         "version": row.result_version,
         "correction": row.result_correction or None,
+        "preliminary": row.result_preliminary,         # not final: cannot be reviewed (DEV-370)
         "earlier": _earlier_versions(row),
     }
 
@@ -907,6 +940,7 @@ def _earlier_versions(row: ExchangeRequest) -> list[dict[str, Any]]:
             "values": _open_values(row, v.values_enc),
             "result_ref": v.result_ref,
             "correction": v.correction or None,
+            "preliminary": v.preliminary,
             "delivered_at": v.delivered_at.isoformat() if v.delivered_at else None,
             "reviewed": v.reviewed_at is not None,
             "replaced_at": v.created_at.isoformat(),
@@ -925,6 +959,7 @@ def correct_result(
     correction: Any = Correction.CORRECTED,
     clock: Clock | None = None,
     values: Any = None,
+    preliminary: bool = False,
 ) -> dict[str, Any]:
     """The lab sends a later version of a result it already delivered (DEV-325, FHIR step 5). The
     current version is kept as it was (ExchangeResultVersion) and the new one replaces it. The
@@ -962,8 +997,8 @@ def correct_result(
             except CryptoError:
                 current = ""
         if (row.result_ref, row.result_flag, current, row.result_correction,
-                _open_values(row, row.result_values_enc)) == (
-            result_ref, flag, clean_summary, correction, clean_values
+                _open_values(row, row.result_values_enc), row.result_preliminary) == (
+            result_ref, flag, clean_summary, correction, clean_values, bool(preliminary)
         ):
             return {**partner_dict(row), "changed": False}  # the same correction again
         ExchangeResultVersion.objects.create(
@@ -976,6 +1011,7 @@ def correct_result(
             delivered_at=row.result_at,
             delivered_by_ref=row.responded_by_ref,
             correction=row.result_correction,
+            preliminary=row.result_preliminary,
             reviewed_by_ref=row.reviewed_by_ref,
             reviewed_at=row.reviewed_at,
             replaced_by_ref=actor_ref,
@@ -983,6 +1019,7 @@ def correct_result(
         )
         row.result_version = max(row.result_version, 1) + 1
         row.result_correction = correction
+        row.result_preliminary = bool(preliminary)
         row.result_ref, row.result_at, row.result_flag = result_ref, now, flag
         row.result_summary_enc = (
             encrypt(
@@ -995,7 +1032,7 @@ def correct_result(
         )
         row.result_values_enc = _seal_values(row, clean_values)
         row.state = State.RESULT_AVAILABLE
-        row.reviewed_by_ref, row.reviewed_at = "", None
+        row.reviewed_by_ref, row.reviewed_at, row.reviewed_version = "", None, None
         row.responded_by_ref = actor_ref
         row.entity_version += 1
         row.save()
@@ -1065,7 +1102,9 @@ def delivery_lookup(request_ref: str) -> dict[str, str] | None:
     return {
         "from_tenant_ref": row.from_tenant_ref,
         "to_tenant_ref": row.to_tenant_ref,
+        "person_ref": row.person_ref,
         "state": str(row.state),
+        "preliminary": "yes" if row.result_preliminary else "",
     }
 
 
@@ -1104,6 +1143,47 @@ def value_trend(
     if first is not None:
         _audit(actor_ref, "exchange.trend_read", first)
     return points[-MAX_TREND_POINTS:]
+
+
+def patient_value_trend(
+    *,
+    person_ref: str,
+    tenant_ref: str,
+    key: Any,
+    actor_ref: str,
+    clock: Clock | None = None,
+) -> list[dict[str, Any]]:
+    """One measured value across this patient's results at this clinic, oldest first, for the
+    patient (DEV-372). Only results whose values are ready for the patient are included
+    (_patient_may_see_values: reviewed by a treating doctor, 24h passed, not preliminary). Matched
+    by SNOMED CT code or name. Audited once per look. Call with the platform tenant bound."""
+    if not isinstance(key, str) or not 1 <= len(key.strip()) <= 80:
+        raise _bad("key")
+    wanted = key.strip().lower()
+    now = utc_now(clock)
+    rows = ExchangeRequest.objects.filter(
+        from_tenant_ref=tenant_ref, person_ref=person_ref,
+        state=State.REVIEWED, **_scope(),
+    ).exclude(result_values_enc="").order_by("result_at")
+    points: list[dict[str, Any]] = []
+    for r in rows:
+        if not _patient_may_see_values(r, now):
+            continue
+        for v in _open_values(r, r.result_values_enc):
+            code, name = str(v.get("code") or ""), str(v.get("name") or "")
+            if code == key.strip() or (not code and name.lower() == wanted):
+                points.append({
+                    "request": r.public_id, "label": r.label,
+                    "at": r.result_at.isoformat() if r.result_at else None,
+                    "value": v.get("value"), "unit": v.get("unit") or "",
+                    "low": v.get("low"), "high": v.get("high"), "flag": v.get("flag") or "",
+                    "reviewed": True, "version": r.result_version,
+                })
+    first = rows.first()
+    if first is not None:
+        _audit(actor_ref, "exchange.patient_trend_read", first)
+    return points[-MAX_TREND_POINTS:]
+
 
 
 

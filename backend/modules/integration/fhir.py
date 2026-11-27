@@ -459,6 +459,19 @@ def _handle_diagnostic_report(
     # The FHIR id of our request turned back into its Zoiko id ("." stands for "_", DEV-331).
     request_public_id = fhir_validator.from_fhir_id(ref_str.split("/", 1)[1])
     status = str(data.get("status") or "")
+    if status in ("", "unknown"):
+        # A report whose status nobody knows is never taken as final: a person decides (DEV-370).
+        q = _quarantine(
+            client=client,
+            delivery_id=delivery_id,
+            resource_type="DiagnosticReport",
+            partner_ref=str(data.get("id", ""))[:64],
+            digest=digest,
+            raw_body=raw_body,
+            issues=[{"path": "status", "code": "business-rule",
+                     "text": "a result with no known status needs a person to act on it"}],
+        )
+        return _reply(202, received=True, quarantined=True, id=q.public_id, error="status_unknown")
     if status in ("cancelled", "entered-in-error"):
         # A withdrawn result is never applied automatically: a person decides (DEV-325).
         q = _quarantine(
@@ -473,6 +486,8 @@ def _handle_diagnostic_report(
         )
         return _reply(202, received=True, quarantined=True, id=q.public_id, error="withdrawn")
     correction = status if status in ("amended", "corrected", "appended") else ""
+    # Not final yet (DEV-370): shown labelled and alerted on if critical, never "reviewed".
+    preliminary = status in ("registered", "partial", "preliminary")
     summary = str(data.get("conclusion") or "")
     flag = _map_flag(data.get("conclusionCode"))
     result_ref = _clean_result_ref(data.get("id") or delivery_id)
@@ -487,13 +502,23 @@ def _handle_diagnostic_report(
     problem: tuple[str, str, str, str] | None = None
     with tenant_transaction(_platform_ctx()):
         req = exchange.delivery_lookup(request_public_id)
-        if req is None or req["from_tenant_ref"] != clinic_tenant_public:
-            problem = ("basedOn[0]", "not_found",
-                       "referenced ServiceRequest not found for this clinic", "request_not_found")
-        else:
+    if req is None or req["from_tenant_ref"] != clinic_tenant_public:
+        problem = ("basedOn[0]", "not_found",
+                   "referenced ServiceRequest not found for this clinic", "request_not_found")
+    elif req.get("person_ref") and trust.open_case_people([req["person_ref"]]):
+        # DEV-385: hold arriving results in quarantine while a duplicate-record case is open.
+        problem = (
+            "subject",
+            "identity_check_open",
+            "patient is in an open duplicate-record check; decide the case before retrying",
+            "identity_check_open",
+        )
+    else:
+        with tenant_transaction(_platform_ctx()):
             try:
                 done = _apply_report(req, request_public_id, client.public_id, result_ref,
-                                     summary, flag, correction, clock, values or [])
+                                     summary, flag, correction, clock, values or [],
+                                     preliminary=preliminary)
             except ZoikoError as ze:
                 reason_text = "cannot deliver result: patient agreement missing or invalid state"
                 if ze.code == ErrorCode.NOT_FOUND:
@@ -584,9 +609,15 @@ def _apply_report(
     correction: str,
     clock: Clock | None,
     values: list[dict[str, Any]],
+    *,
+    preliminary: bool = False,
 ) -> dict[str, Any]:
     """Deliver the result, or a new version of one already delivered (DEV-325), with its measured
-    values (DEV-330). Call with the platform tenant bound."""
+    values (DEV-330). Call with the platform tenant bound. A result already delivered as
+    preliminary is replaced by the next report as a new version (DEV-370): by the final one
+    ("final"), or by a newer preliminary one ("amended", still preliminary)."""
+    if not correction and req.get("preliminary") and req["state"] == "result_available":
+        correction = "amended" if preliminary else "final"
     if correction and req["state"] in ("result_available", "reviewed"):
         return exchange.correct_result(
             request_ref=request_ref,
@@ -598,6 +629,7 @@ def _apply_report(
             correction=correction,
             clock=clock,
             values=values,
+            preliminary=preliminary,
         )
     if req["state"] == "accepted":
         exchange.partner_step(
@@ -617,6 +649,7 @@ def _apply_report(
         flag=flag,
         clock=clock,
         values=values,
+        preliminary=preliminary,
     )
 
 

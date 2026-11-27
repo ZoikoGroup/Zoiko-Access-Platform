@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { dropDevLogin } from "@shared/devLogin";
-import { changePassword, clearDisplayName, getDisplayName, getNameCheck, getPartnerRequests, getThreads, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, getPurpose, loadSession, setPurpose, setSession, signOutEverywhere, type Purpose, type Session } from "./api";
+import { changePassword, clearDisplayName, getDisplayName, getNameCheck, getPartnerRequests, getThreads, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, getPurpose, loadSession, setPurpose, setSession, signOutEverywhere, twoStepApi, type Purpose, type Session } from "./api";
 import { NAV, type PageId } from "./nav";
 import { Account } from "./Account";
 import { AlertPhone } from "./pages/AlertPhone";
@@ -61,27 +61,29 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   }, [poll]);
 
   const item = NAV.find((n) => n.id === page) ?? NAV[0];
+  const off = me.data?.switched_off ?? [];
   let body;
   if (!item.live) body = <Planned item={item} />;
+  else if (item.capability && off.includes(item.capability)) body = <SwitchedOff label={item.label} />;
   else if (page === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} onChangePassword={changePassword}
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
     nameCheck={getNameCheck}
-    email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
-  if (page === "account" && item.live) body = <>{body}<AlertPhone admin={false} /></>;
+    email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} twoStep={twoStepApi} />;
+  if (page === "account" && item.live && !(item.capability && off.includes(item.capability))) body = <>{body}<AlertPhone admin={false} /></>;
   else if (page === "patients") body = <Patients key={patientQuery} initialSearch={patientQuery} />;
-  else if (page === "referrals") body = <Referrals />;
+  else if (page === "referrals" && !(item.capability && off.includes(item.capability))) body = <Referrals />;
   else if (page === "notes") body = <Notes />;
-  else if (page === "messages") body = <Messages />;
+  else if (page === "messages" && !(item.capability && off.includes(item.capability))) body = <Messages />;
   else if (page === "results") body = <PartnerResults />;
-  else body = <Schedule />;
+  else if (!(item.capability && off.includes(item.capability)) && page !== "account") body = <Schedule />;
 
   return (
     <div className="shell">
       <a className="skip-link" href="#main">Skip to main content</a>
       <Topbar displayName={shownName} tenantName={session.tenantName} login={session.login}
         roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
-        onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} />
-      <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} badges={badges} />
+        onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} off={off} />
+      <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} badges={badges} off={off} />
       <main className="content" id="main" tabIndex={0}>
         <div className="notice" role="group" aria-label="Why you are working" style={{ marginBottom: 12 }}>
           <label>Why are you opening patient records?{" "}
@@ -94,6 +96,18 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
         </div>
         <div key={why}>{body}</div>
       </main>
+    </div>
+  );
+}
+
+/** A screen whose feature the organization's country pack has not switched on (DEV-383). */
+function SwitchedOff({ label }: { label: string }) {
+  return (
+    <div className="card" role="status">
+      <h2>{label} is not switched on here</h2>
+      <p>This feature is not yet approved for your organization&apos;s country. Zoiko switches features on
+        country by country, once the legal, privacy and safety checks for that country are signed. Ask
+        Zoiko support if you expected to have it.</p>
     </div>
   );
 }

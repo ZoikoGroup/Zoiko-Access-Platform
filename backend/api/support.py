@@ -66,8 +66,14 @@ def home_for(actor_type: str, role_codes: list[str], tenant_type: str = "") -> s
 View = Callable[..., HttpResponse]
 
 
-def endpoint(*methods: str) -> Callable[[View], Callable[..., HttpResponse]]:
-    """Wrap a view: only these methods, only a logged-in actor, tenant bound for its duration."""
+def endpoint(
+    *methods: str, during_set_up: bool = False,
+) -> Callable[[View], Callable[..., HttpResponse]]:
+    """Wrap a view: only these methods, only a logged-in actor, tenant bound for its duration.
+
+    A staff login whose customer requires two-step sign-in, and who has not set it up yet, may use
+    only the views marked `during_set_up` (setting it up, who am I, sign out): everything else is
+    STEP_UP_REQUIRED with the field "two_step_set_up" (DEV-380)."""
 
     def wrap(view: View) -> Callable[..., HttpResponse]:
         @wraps(view)
@@ -78,6 +84,14 @@ def endpoint(*methods: str) -> Callable[[View], Callable[..., HttpResponse]]:
                 return response
             header = request.headers.get("Authorization") or ""
             auth = trust.authenticate(header or None)
+            if auth.must_set_up_two_step and not during_set_up:
+                raise ZoikoError(ErrorCode.STEP_UP_REQUIRED, fields=["two_step_set_up"])
+            # Is this feature switched on for the customer's market (DEV-383)? One table, every
+            # endpoint: api/capability_gate.py.
+            from .capability_gate import check as capability_check
+
+            capability_check(request, auth)
+            _rate_limit(request, auth)
             # What the audit record keeps about this person: their kind of login, which session
             # (a fingerprint of the token, never the token) and the reason they stated.
             token = set_audit_extra({
@@ -95,6 +109,31 @@ def endpoint(*methods: str) -> Callable[[View], Callable[..., HttpResponse]]:
         return run
 
     return wrap
+
+
+def _rate_limit(request: HttpRequest, auth: trust.Authenticated) -> None:
+    """Per signed-in login (reading and changing apart) and per customer (DEV-387). Safety-
+    critical routes never count towards the customer-wide cap. foundation/ratelimit.py."""
+    from foundation.ratelimit import SAFETY_ROUTES, RateLimited, check
+
+    match = getattr(request, "resolver_match", None)
+    route = (match.route if match is not None else "").removeprefix("api/v1/")
+    kinds = [("actor_read" if request.method in ("GET", "HEAD") else "actor_write",
+              auth.actor_public_id)]
+    if route not in SAFETY_ROUTES:
+        kinds.append(("tenant", str(auth.context.tenant_id)))
+    verdict = check(kinds)
+    if not verdict.allowed:
+        raise RateLimited(verdict.retry_after)
+
+
+def require_recent_second_step(auth: trust.Authenticated) -> None:
+    """Before a risky action: a login with two-step sign-in on must have proved its code within
+    the last 15 minutes, or it is asked again (STEP_UP_REQUIRED, field "two_step"; the app asks
+    for the code, POSTs auth/two-step/recheck and retries). Logins without it pass (DEV-380)."""
+    if trust.two_step_needs_recheck(
+            two_step_on=auth.two_step_on, second_step_at=auth.second_step_at):
+        raise ZoikoError(ErrorCode.STEP_UP_REQUIRED, fields=["two_step"])
 
 
 def json_body(request: HttpRequest) -> dict[str, Any]:

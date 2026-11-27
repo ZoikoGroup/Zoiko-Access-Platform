@@ -30,16 +30,9 @@ def alert_critical_result(orderer_ref: str) -> int:
     address = trust.verified_login_email_of_actor(orderer_ref)
     if address is None:
         return texted  # no confirmed address: the red mark on their page remains
-    queue_email(
-        kind=CRITICAL_KIND,
-        to_address=address,
-        subject="A critical result is waiting for you",
-        body=(
-            "A result you ordered has come back rated critical.\n\n"
-            f"Open the doctor app: {settings.CLINICIAN_APP_URL}\n"
-            f"(or the staff app: {settings.STAFF_APP_URL})\n"
-        ),
-    )
+    queue_email(kind=CRITICAL_KIND, to_address=address, values={
+        "doctor_app_url": str(settings.CLINICIAN_APP_URL),
+        "staff_app_url": str(settings.STAFF_APP_URL)})
     return 1
 
 
@@ -77,15 +70,12 @@ def send_escalation_alerts(clock: Clock | None = None) -> int:
                 ).exists():
                     continue  # already told them today
                 recipients = trust.verified_emails_for_role(org, ADMIN_ROLE, clock)
-                body = (
-                    f"{waiting} partner request{' has' if waiting == 1 else 's have'} been on "
-                    "hold for more than 3 days and need a decision (cancel, or keep "
-                    f"waiting).\n\nOpen the staff app: {settings.STAFF_APP_URL}\n"
-                )
+                values = {
+                    "name": name, "day": day, "app_url": str(settings.STAFF_APP_URL),
+                    "requests": f"{waiting} partner request{' has' if waiting == 1 else 's have'}",
+                }
                 with transaction.atomic():
                     for address in recipients:
-                        queue_email(
-                            kind=ESCALATION_KIND, to_address=address, subject=subject, body=body
-                        )
+                        queue_email(kind=ESCALATION_KIND, to_address=address, values=values)
                         queued += 1
     return queued

@@ -13,6 +13,7 @@ import json
 import urllib.request
 from email.utils import parseaddr
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.mail.backends.base import BaseEmailBackend
@@ -39,6 +40,10 @@ class SendGridBackend(BaseEmailBackend):
         host = (getattr(settings, "SENDGRID_API_HOST", "") or DEFAULT_HOST).rstrip("/")
         if not host.startswith("https://"):
             raise SendGridError("SENDGRID_API_HOST must be https")
+        # Only the provider's own hosts (DEV-384): a mistyped setting must not send mail elsewhere.
+        allowed = tuple(getattr(settings, "EGRESS_PROVIDER_HOSTS", ()))
+        if (urlsplit(host).hostname or "").lower() not in allowed:
+            raise SendGridError("SENDGRID_API_HOST is not an allowed provider host")
         sent = 0
         for message in email_messages:
             payload = {

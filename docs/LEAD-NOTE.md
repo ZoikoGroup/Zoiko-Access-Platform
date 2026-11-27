@@ -107,6 +107,33 @@ Still waiting for a decision, so not built: where the master key is kept, a real
 
 Recorded in `docs/decisions/REGISTER.md` as DEV-316. These answers unblock UK Core validation in the FHIR checker, a signed release scope for the first slice, and production setup design. They do **not** turn on any switch: named reviewers, a real partner, provider contracts, retention periods and clinical-safety sign-off are still needed.
 
+## Decisions given on 26 November 2026 (by Venkatesh, for you to see)
+
+Sixteen proposals the developer had built were confirmed. Change any of them and the matching change is small. The details are in the register (DEV-390).
+
+- **Clinical safety:**
+  - Preliminary results are never "reviewed".
+  - Notes are not moved when duplicate records are merged.
+  - A result in doubt (duplicate check, patient dispute) cannot be reviewed until it is decided.
+  - One verified control is enough to accept a hazard.
+- **Sign-in and access:**
+  - Risky actions re-ask the code after 15 minutes.
+  - **Zoiko's own staff must use two-step before go-live** (now a release hold).
+  - Support access lasts 10, 20 or 30 minutes.
+  - Patients may stay signed in 30 days; staff 8 hours.
+- **Operations and data:**
+  - Report numbers under 5 are hidden.
+  - Zoiko approves each clinic webhook address.
+  - Every message template, security emails included, is approved before go-live.
+  - Rate limits as proposed.
+- **Clinic processes:**
+  - A doctor's care link lasts 30 days after a visit.
+  - A patient may take back a request to cancel (now built).
+  - Unanswered referrals go to the fallback doctor after 24 hours.
+  - Incident severity SEV-0 to SEV-3.
+
+Still needing you and the named owners: AI, retention periods, the key recovery holder, provider and partner contracts, who signs production releases, translations, and the clinical-safety review that switches clinical notes on.
+
 ## What happens next
 
 The decisions above are answered. The developer builds the newly unblocked items in the order the lead gives; the remaining open items are in `docs/decisions/REGISTER.md` section B. Nothing is blocked: everything built works and is tested; it is simply not yet confirmed by a clinical-safety owner.

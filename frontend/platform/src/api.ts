@@ -1,4 +1,6 @@
 // The only file that talks to the backend. Pages call these functions, never fetch().
+import { isNotSwitchedOn, NOT_SWITCHED_ON } from "@shared/packMessage";
+import { finishSignIn, makeTwoStepApi, needsSetUp, recheckIfAsked, SET_UP_FIRST } from "@shared/twoStepApi";
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
@@ -52,6 +54,9 @@ export function setSession(session: Session | null): void {
 }
 
 export interface LoginReply {
+  second_step?: boolean;          // two-step sign-in: the code is still to come (DEV-380)
+  ticket?: string;
+  must_set_up_two_step?: boolean;
   token: string;
   home: string;
   tenant: { id: string; name: string };
@@ -85,7 +90,7 @@ export async function signOutEverywhere(): Promise<void> {
   setSession(null);
 }
 
-async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function v1<T>(path: string, init: RequestInit = {}, retried = false): Promise<T> {
   if (!current) throw new ApiError("Not signed in", "UNAUTHENTICATED");
   const res = await fetch(`/api/v1/${path}`, {
     ...init,
@@ -95,7 +100,17 @@ async function v1<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError("The server sent something that is not JSON (is the backend reachable?)");
   }
   const body = (await res.json()) as T & { title?: string; code?: string };
-  if (!res.ok) throw new ApiError(body.title ?? `Request failed (${res.status})`, body.code);
+  if (!res.ok) {
+    // Two-step sign-in (DEV-380): a risky action may ask for the code again; then retry once.
+    const sent = body as { code?: string; fields?: string[] };
+    const fresh = retried || !current ? null : await recheckIfAsked(res.status, sent, current.token);
+    if (fresh && current) {
+      setSession({ ...current, token: fresh });
+      return v1<T>(path, init, true);
+    }
+    if (needsSetUp(res.status, sent)) throw new ApiError(SET_UP_FIRST, "STEP_UP_REQUIRED");
+    throw new ApiError(isNotSwitchedOn(body.code) ? NOT_SWITCHED_ON : body.title ?? `Request failed (${res.status})`, body.code);
+  }
   return body;
 }
 
@@ -469,3 +484,115 @@ export interface AttemptCustomer {
   id: string; name: string; status: string; counts: Record<string, number>; attempts: SupportAttempt[]; fhir_held: number;
 }
 export const getDeliveryAttempts = async () => (await v1<{ customers: AttemptCustomer[] }>("platform/delivery-attempts")).customers;
+
+// ------------------------------------------------------------------ two-step sign-in (DEV-380)
+/** The session as it is now (the two-step set-up swaps in a fresh token). */
+export const getSession = (): Session | null => current;
+/** The code after the password: the same reply a one-step sign-in gives. */
+export const finishSecondStep = (ticket: string, code: string) => finishSignIn<LoginReply>(ticket, code);
+export const twoStepApi = makeTwoStepApi(
+  <T,>(path: string, body?: unknown) =>
+    body === undefined ? v1<T>(path) : v1<T>(path, { method: "POST", body: JSON.stringify(body) }),
+  (token) => { if (current) setSession({ ...current, token }); },
+);
+
+// ------------------------------------------------------------------ short-term support access (DEV-381)
+export interface SupportAccessRow {
+  id: string; requester: string; ticket: string; reason: string; scopes: string[]; minutes: number;
+  state: "requested" | "lapsed" | "active" | "expired" | "refused" | "ended";
+  asked_at: string; decided_by: string; decided_at: string | null; ends_at: string | null;
+  ended_by: string; ended_at: string | null; uses: number; last_used_at: string | null;
+  customer: { id: string; name: string };
+}
+export interface SupportAccessData {
+  access: SupportAccessRow[];
+  customers: { id: string; name: string }[];
+  scopes: { code: string; label: string }[];
+  minutes: number[];
+}
+/** The plain-words message for a refused support-access call. */
+function supportError(e: unknown): Error {
+  const err = e as { code?: string } | null;
+  if (err?.code === "POLICY_DENIED") return new Error("Not allowed: support access needs the support role and two-step sign-in on (My account). A look also needs the grant to be active and to include that view.");
+  if (err?.code === "CONFLICT_VERSION") return new Error("You already have an open request or grant at this customer, or it has already ended.");
+  if (err?.code === "VALIDATION_FAILED") return new Error("Check the request: a ticket number, a reason of at least 10 characters, at least one view and a length.");
+  return e instanceof Error ? e : new Error("That did not work");
+}
+async function supportCall<T>(run: () => Promise<T>): Promise<T> {
+  try { return await run(); } catch (e) { throw supportError(e); }
+}
+export const getSupportAccess = () => supportCall(() => v1<SupportAccessData>("platform/support-access"));
+export const askSupportAccess = (body: { customer: string; ticket: string; reason: string; scopes: string[]; minutes: number }) =>
+  supportCall(() => v1<{ access: SupportAccessRow }>("platform/support-access", { method: "POST", body: JSON.stringify(body) }));
+export const endSupportAccess = (customer: string, id: string) =>
+  supportCall(() => v1<{ access: SupportAccessRow }>(`platform/support-access/${encodeURIComponent(customer)}/${encodeURIComponent(id)}/end`, { method: "POST", body: "{}" }));
+export const lookSupportAccess = (customer: string, id: string, scope: string) =>
+  supportCall(() => v1<{ scope: string; view: Record<string, unknown> }>(`platform/support-access/${encodeURIComponent(customer)}/${encodeURIComponent(id)}/${encodeURIComponent(scope)}`));
+
+// ------------------------------------------------------------------ hazard controls and the trace (DEV-382)
+export interface HazardControlRow {
+  id: string; hazard: string; control_no: string; kind: "preventive" | "detection" | "fallback" | "monitoring";
+  description: string; implementation: string; test_ref: string; test: "found" | "missing" | "not_shipped";
+  state: "proposed" | "verified" | "withdrawn"; proposed_by: string; verified_by: string;
+  verified_at: string | null; verified_build: string; evidence_note: string;
+  withdrawn_by: string; withdrawn_reason: string; created_at: string;
+}
+export interface HazardTrace {
+  hazards: { id: string; ref_no: string; title: string; status: string; residual_risk: string; controls: HazardControlRow[]; verified_controls: number }[];
+  gaps: { without_verified_control: number; accepted_without_verified_control: number; controls_waiting: number; tests_missing: number };
+  can_decide: boolean;
+}
+export const getHazardControls = async (hazard: string) =>
+  (await v1<{ controls: HazardControlRow[] }>(`platform/hazards/${encodeURIComponent(hazard)}/controls`)).controls;
+export const proposeHazardControl = (hazard: string, body: { kind: string; description: string; implementation: string; test_ref: string }) =>
+  v1<{ control: HazardControlRow }>(`platform/hazards/${encodeURIComponent(hazard)}/controls`, { method: "POST", body: JSON.stringify(body) });
+export const hazardControlStep = (control: string, step: "verify" | "withdraw", text: string) =>
+  v1<{ control: HazardControlRow }>(`platform/hazard-controls/${encodeURIComponent(control)}/${step}`, {
+    method: "POST", body: JSON.stringify(step === "verify" ? { note: text } : { reason: text }),
+  });
+export const getHazardTrace = () => v1<HazardTrace>("platform/hazard-trace");
+
+// ------------------------------------------------------------------ outgoing addresses (DEV-384)
+export interface EgressPermit {
+  id: string; customer: string; customer_name: string; host: string; purpose: "webhook" | "connector";
+  state: "proposed" | "approved" | "refused" | "revoked"; proposed_by: string; decided_by: string;
+  decided_at: string | null; reason: string; asked_at: string;
+}
+export interface EgressData {
+  permits: EgressPermit[]; mode: string; customers: { id: string; name: string }[]; can_decide: boolean;
+}
+export const getEgress = () => v1<EgressData>("platform/egress");
+export const proposeEgress = (customer: string, host: string, purpose: string) =>
+  v1<{ state: string }>("platform/egress", { method: "POST", body: JSON.stringify({ customer, host, purpose }) });
+export const decideEgress = (id: string, step: "approve" | "refuse" | "revoke", reason: string) =>
+  v1<{ permit: EgressPermit }>(`platform/egress/${encodeURIComponent(id)}/${step}`, { method: "POST", body: JSON.stringify({ reason }) });
+
+// ------------------------------------------------------------------ message templates (DEV-386)
+export interface MessageTemplate {
+  key: string; channel: "email" | "text"; class: string; audience: string; subject: string; body: string;
+  variables: string[]; exposure: string; version: string; wording: string; approved: boolean;
+  clinical_by: string; privacy_by: string; approved_at: string | null; previous_wording: string | null; held: number;
+}
+export interface TemplatesData { templates: MessageTemplate[]; mode: string; may_sign_as: string[] }
+export const getTemplates = () => v1<TemplatesData>("platform/templates");
+export const signTemplate = async (channel: string, key: string, as: "clinical" | "privacy") =>
+  (await v1<{ template: { approved: boolean; released: number } }>(
+    `platform/templates/${encodeURIComponent(channel)}/${encodeURIComponent(key)}/approve`,
+    { method: "POST", body: JSON.stringify({ as }) })).template;
+
+// ------------------------------------------------------------------ error budget (DEV-388)
+export interface Budget {
+  target: number; requests: number; failures: number; allowed_failures: number; used: number;
+  remaining: number; state: "healthy" | "warning" | "exhausted" | "not_enough_traffic";
+}
+export interface ErrorBudget {
+  window_days: number; budgets: { availability: Budget; latency: Budget };
+  burn: { last_hour: { availability: number; latency: number; requests: number }; last_6_hours: { availability: number; latency: number; requests: number } };
+  alerts: { alert: string; runbook: string }[]; exhausted: boolean; recording: boolean; runbooks: string[];
+}
+export const getErrorBudget = () => v1<ErrorBudget>("platform/error-budget");
+/** A safety officer lets one release go on while the budget is used up (at most 7 days). */
+export const overrideBudget = (id: string, reason: string, days: number) =>
+  v1<{ release: ReleaseReadiness }>(`platform/readiness/${encodeURIComponent(id)}/budget-override`, {
+    method: "POST", body: JSON.stringify({ reason, days }),
+  });

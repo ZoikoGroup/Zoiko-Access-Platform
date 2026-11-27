@@ -118,7 +118,10 @@ def clinic_dict(c: Claim) -> dict[str, Any]:
         "amount_paid_minor": c.amount_paid_minor,
         "paid_on": c.paid_on.isoformat() if c.paid_on else None,
         "remittance_advice": c.remittance_advice or None,
-        "attachments": [attachment_dict(a) for a in ClaimAttachment.objects.filter(claim=c, **_scope()).order_by("created_at")],
+        "attachments": [
+            attachment_dict(a)
+            for a in ClaimAttachment.objects.filter(claim=c, **_scope()).order_by("created_at")
+        ],
         "created_at": c.created_at.isoformat(),
         "decided_at": c.decided_at.isoformat() if c.decided_at else None,
         "paid_at": c.paid_at.isoformat() if c.paid_at else None,
@@ -143,7 +146,10 @@ def payer_dict(c: Claim) -> dict[str, Any]:
         "amount_paid_minor": c.amount_paid_minor,
         "paid_on": c.paid_on.isoformat() if c.paid_on else None,
         "remittance_advice": c.remittance_advice or None,
-        "attachments": [attachment_dict(a) for a in ClaimAttachment.objects.filter(claim=c, **_scope()).order_by("created_at")],
+        "attachments": [
+            attachment_dict(a)
+            for a in ClaimAttachment.objects.filter(claim=c, **_scope()).order_by("created_at")
+        ],
         "created_at": c.created_at.isoformat(),
     }
 
@@ -252,7 +258,8 @@ def add_attachment(
         else:
             raise ZoikoError(ErrorCode.POLICY_DENIED)
 
-        if ClaimAttachment.objects.filter(claim=claim, **_scope()).count() >= MAX_ATTACHMENTS_PER_CLAIM:
+        existing = ClaimAttachment.objects.filter(claim=claim, **_scope()).count()
+        if existing >= MAX_ATTACHMENTS_PER_CLAIM:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
 
         a = ClaimAttachment(

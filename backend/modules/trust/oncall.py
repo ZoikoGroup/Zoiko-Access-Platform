@@ -135,12 +135,8 @@ def escalate_due(clock: Clock | None = None) -> int:
             log_event(row, "escalated", "system", "Not acknowledged in time: sent to the deputy")
             address = verified_login_email_of_actor(row.deputy_ref) if row.deputy_ref else None
             if address:
-                queue_email(
-                    kind="incident_escalation", to_address=address,
-                    subject="A Zoiko incident needs you",
-                    body=("Hello,\n\nAn incident you are deputy for was not acknowledged in time. "
-                          f"Sign in to see it: {getattr(settings, 'PLATFORM_APP_URL', '')}"
-                          "/?page=incidents\n\nZoiko Access\n"))
+                queue_email(kind="incident_escalation", to_address=address, values={
+                    "app_url": str(getattr(settings, "PLATFORM_APP_URL", ""))})
             done += 1
     return done
 

@@ -1,3 +1,5 @@
+import { isNotSwitchedOn, NOT_SWITCHED_ON } from "@shared/packMessage";
+import { finishSignIn, makeTwoStepApi } from "@shared/twoStepApi";
 import type { BookingHistoryData } from "@shared/BookingHistory";
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyPasswordError } from "@shared/ChangePassword";
@@ -19,6 +21,7 @@ export interface Me {
   purpose: string;
   persons: string[];
   roles: { role: string; organization: { id: string; name: string } }[];
+  switched_off?: string[];
 }
 
 export interface Service {
@@ -213,6 +216,8 @@ function authHeader(): Record<string, string> {
 }
 
 export interface LoginReply {
+  second_step?: boolean;
+  ticket?: string;
   token: string;
   expires_at?: string;
   remembered?: boolean;
@@ -283,7 +288,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<{ body:
   }
   const body = (await res.json()) as T & { title?: string; code?: string };
   if (!res.ok) {
-    throw new ApiError(body.title ?? `Request failed (${res.status})`, body.code ?? "ERROR", res.status);
+    throw new ApiError(isNotSwitchedOn(body.code) ? NOT_SWITCHED_ON : body.title ?? `Request failed (${res.status})`, body.code ?? "ERROR", res.status);
   }
   return { body, replayed: res.headers.get("Idempotent-Replayed") === "true" };
 }
@@ -381,6 +386,14 @@ export async function cancelBooking(id: string, reason = ""): Promise<Booking> {
   const { body } = await request<{ booking: Booking }>(`bookings/${encodeURIComponent(id)}/cancel`, {
     method: "POST",
     body: JSON.stringify(reason ? { reason } : {}),
+  });
+  return body.booking;
+}
+
+/** Take back a request to cancel a confirmed appointment, before the clinic answers (DEV-390). */
+export async function keepBooking(id: string): Promise<Booking> {
+  const { body } = await request<{ booking: Booking }>(`bookings/${encodeURIComponent(id)}/keep`, {
+    method: "POST", body: "{}",
   });
   return body.booking;
 }
@@ -603,7 +616,14 @@ export interface MyRequest {
   consent: "pending" | "granted" | "declined" | "withdrawn" | "expired"; consent_expires_at: string | null;
   created_at: string; result_at: string | null; reviewed_at: string | null;
   values_ready?: boolean;
+  /** Held from you (DEV-385): while your records are being checked, while your dispute is open,
+   *  or because your clinic agreed it is not yours. */
+  held?: "identity_check" | "dispute" | "not_theirs" | null;
+  dispute?: "open" | "confirmed" | "not_theirs" | null;
 }
+export type DisputeReason = "not_me" | "wrong_values" | "wrong_test";
+export const disputeMyResult = async (id: string, reason: DisputeReason) =>
+  (await request<{ dispute: { dispute: string } }>(`exchange/mine/${encodeURIComponent(id)}/dispute`, { method: "POST", body: JSON.stringify({ reason }) })).body.dispute;
 // The measured values of a reviewed result, a day after the doctor's review (DEV-332).
 export interface MyValue { name: string; code?: string; value: number | string; unit?: string; low?: number | null; high?: number | null; flag?: string }
 export const getMyValues = async (id: string) =>
@@ -636,6 +656,7 @@ export interface MyNote {
   id: string; note_date: string; version: number; corrected: boolean; amend_reason: string | null;
   author_name: string; signed_at: string | null; body?: string;
   for_name?: string | null; erased?: boolean;
+  held?: string;
   diagnoses?: { code: string; text: string; status: string }[];
   medications?: MyMedication[];
   attachments?: MyNoteAttachment[];
@@ -692,3 +713,11 @@ export const sendPhoneCode = async () => { await request("my/phone-check", { met
 export const confirmPhoneCode = async (code: string) => {
   await request("my/phone-check/confirm", { method: "POST", body: JSON.stringify({ code }) });
 };
+
+// Two-step sign-in (DEV-380, optional for patients).
+export const finishSecondStep = (ticket: string, code: string) => finishSignIn<LoginReply>(ticket, code);
+export const twoStepApi = makeTwoStepApi(
+  async <T,>(path: string, body?: unknown) =>
+    (await request<T>(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) })).body,
+  (token) => { if (current) setSession({ ...current, token }); },
+);

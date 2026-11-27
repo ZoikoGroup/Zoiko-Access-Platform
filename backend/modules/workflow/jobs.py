@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 
 from foundation.cell_context import tenant_transaction
+from modules.catalog import api as catalog
 from modules.messaging import api as messaging
 from modules.referral import api as referral
 from modules.rights import api as rights
@@ -26,25 +27,26 @@ def sync_tenant() -> int:
     are waiting (not how many it opened: opening twice changes nothing)."""
     seen = 0
     for org in trust.organization_names():
-        target = dt.timedelta(hours=trust.response_target_hours(org))
+        # Due at the clinic's response target, counting only its opening hours (DEV-367).
         for ref, since in scheduling.waiting_requests(org):
             open_item(organization_ref=org, kind=Kind.CONFIRM_BOOKING, subject_ref=ref,
-                      due_at=since + target)
+                      due_at=catalog.response_due(org, since))
             seen += 1
         for ref, since in messaging.unanswered_threads(org):
             open_item(organization_ref=org, kind=Kind.ANSWER_MESSAGE, subject_ref=ref,
-                      due_at=since + target)
+                      due_at=catalog.response_due(org, since))
             seen += 1
         for r in referral.list_referrals(destination_organization_ref=org):
             if r["state"] == "issued":
                 open_item(organization_ref=org, kind=Kind.DECIDE_REFERRAL,
                           subject_ref=r["public_id"],
-                          due_at=dt.datetime.fromisoformat(r["created_at"]) + target)
+                          due_at=catalog.response_due(
+                              org, dt.datetime.fromisoformat(r["created_at"])))
                 seen += 1
         for c in rights.list_cases(organization_ref=org):
             if c["state"] in ("received", "in_progress"):
                 due = (dt.datetime.fromisoformat(c["due_at"]) if c["due_at"]
-                       else dt.datetime.fromisoformat(c["created_at"]) + target)
+                       else catalog.response_due(org, dt.datetime.fromisoformat(c["created_at"])))
                 open_item(organization_ref=org, kind=Kind.ANSWER_DATA_REQUEST,
                           subject_ref=c["public_id"], due_at=due)
                 seen += 1

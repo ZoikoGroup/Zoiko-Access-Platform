@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { readDevLogin } from "@shared/devLogin";
+import { SecondStepForm } from "@shared/TwoStep";
 import { AuthShell, PasswordField, RememberRow, SsoButtons } from "../AuthShell";
-import { forgotPassword, registerAccount, setSession, signIn, type LoginReply, type Session } from "../api";
+import { finishSecondStep, forgotPassword, registerAccount, setSession, signIn, type LoginReply, type Session } from "../api";
 
 // Where each kind of person belongs. Only the staff console exists besides this app.
 const OTHER_APPS: Record<string, { name: string; url: string }> = {
@@ -46,6 +47,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
   const [error, setError] = useState("");
   const [elsewhere, setElsewhere] = useState<string | null>(null);
   const [remember, setRemember] = useState(false);
+  const [ticket, setTicket] = useState("");
 
   const registering = mode === "register";
 
@@ -77,9 +79,24 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
 
   async function devSignIn(org: string, who: string, secret: string) {   // development only
     setError(""); setElsewhere(null); setBusy(true);
-    try { finish(await signIn(org, who, secret)); }
+    try {
+      const reply = await signIn(org, who, secret);
+      if (reply.second_step && reply.ticket) { setTicket(reply.ticket); return; }
+      finish(reply);
+    }
     catch (err) { setError(err instanceof Error ? err.message : "Something went wrong"); }
     finally { setBusy(false); }
+  }
+
+  async function enterCode(code: string) {
+    setBusy(true); setError("");
+    try {
+      const reply = await finishSecondStep(ticket, code);
+      setTicket("");
+      finish(reply);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally { setBusy(false); }
   }
 
   async function submit(e: React.FormEvent) {
@@ -88,13 +105,33 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
     if (registering && password !== confirm) { setError("The two passwords do not match."); return; }
     setBusy(true);
     try {
-      finish(registering
+      const reply = registering
         ? await registerAccount(organization, login, password)
-        : await signIn(organization, login, password, remember));
+        : await signIn(organization, login, password, remember);
+      if (reply.second_step && reply.ticket) {
+        setTicket(reply.ticket);
+        setPassword("");
+        return;
+      }
+      finish(reply);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setPassword(""); setConfirm("");
     } finally { setBusy(false); }
+  }
+
+  if (ticket) {
+    return (
+      <AuthShell {...BRAND}
+        tabs={TABS} tab={mode} onTab={(id) => { setTicket(""); switchTo(id as "signin" | "register" | "forgot"); }}>
+        <div className="auth-card">
+          <h2>Two-step sign-in</h2>
+          <p className="lead">Your password was right. Now type the 6-digit code your authenticator app shows.</p>
+          <SecondStepForm busy={busy} error={error} onCode={(c: string) => void enterCode(c)}
+            onBack={() => { setTicket(""); setError(""); }} />
+        </div>
+      </AuthShell>
+    );
   }
 
   const other = elsewhere ? OTHER_APPS[elsewhere] : undefined;

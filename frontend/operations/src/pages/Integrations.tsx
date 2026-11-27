@@ -213,7 +213,10 @@ function EndpointRow({ e, onDone }: { e: WebhookEndpoint; onDone: () => Promise<
       setSecret(step === "rotate-secret" ? done.secret ?? "" : "");
       await onDone();
     } catch (err) {
-      setError(step === "verify"
+      const notApproved = (err as { code?: string }).code === "POLICY_DENIED";
+      setError(step === "verify" && notApproved
+        ? "Zoiko has not approved this address yet, so nothing is sent to it. You will be able to check it once it is approved."
+        : step === "verify"
         ? "The address did not answer the check correctly. It must reply with 2xx and repeat the challenge."
         : err instanceof Error ? err.message : "That did not work");
     } finally { setBusy(false); }
@@ -224,6 +227,12 @@ function EndpointRow({ e, onDone }: { e: WebhookEndpoint; onDone: () => Promise<
       <div className="info">
         <b>{e.label} <Pill kind={ENDPOINT_STATE[e.state].kind}>{ENDPOINT_STATE[e.state].text}</Pill></b>
         <small>{e.url}</small>
+        {e.address_permit && e.address_permit !== "approved" && (
+          <small><Pill kind={e.address_permit === "proposed" ? "warn" : "bad"}>
+            {e.address_permit === "proposed" ? "Waiting for Zoiko to approve this address"
+              : e.address_permit === "none" ? "This address cannot be approved (use a host name, not an IP number)"
+              : `Zoiko ${e.address_permit} this address`}</Pill> Nothing is sent to it until Zoiko approves it.</small>
+        )}
         <small>Sends: {e.topics.join(" ")}. Key {e.key_id}.{e.failure_streak > 0 ? ` ${e.failure_streak} deliveries gave up in a row.` : ""}</small>
         {secret && <small role="status">New secret (shown once, copy it now): <b>{secret}</b></small>}
         {error && <small style={{ color: "var(--bad)" }} role="alert">{error}</small>}

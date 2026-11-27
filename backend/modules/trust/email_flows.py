@@ -135,12 +135,7 @@ def send_verification(actor_public_id: str, *, clock: Clock | None = None) -> bo
         raise ZoikoError(ErrorCode.RATE_LIMITED)
     token = _issue(actor, TokenPurpose.VERIFY_EMAIL, VERIFY_TTL, now)
     link = f"{app_url_for(actor)}/?action=verify&token={token}"
-    queue_email(
-        kind="verify_email", to_address=cred.email, subject="Verify your email for Zoiko Access",
-        body=(
-            "Hello,\n\nPlease confirm this email address for your Zoiko Access account by opening "
-            f"this link (it works once and expires in 48 hours):\n\n{link}\n\n"
-            "If you did not create an account, you can ignore this email.\n\nZoiko Access\n"))
+    queue_email(kind="verify_email", to_address=cred.email, values={"link": link})
     _audit(actor.public_id, "auth.verification_sent")
     return True
 
@@ -214,14 +209,7 @@ def request_password_reset(*, tenant_name: str, login: str, clock: Clock | None 
             return
         token = _issue(cred.actor, TokenPurpose.RESET_PASSWORD, RESET_TTL, now)
         link = f"{app_url_for(cred.actor)}/?action=reset&token={token}"
-        queue_email(
-            kind="reset_password", to_address=cred.email,
-            subject="Reset your Zoiko Access password",
-            body=(
-                "Hello,\n\nSomeone asked to reset the password for your Zoiko Access account. "
-                "To choose a new one, open this link (it works once and expires in 1 hour):"
-                f"\n\n{link}\n\nIf this was not you, ignore this email: your password "
-                "has not changed.\n\nZoiko Access\n"))
+        queue_email(kind="reset_password", to_address=cred.email, values={"link": link})
         _audit(cred.actor.public_id, "auth.reset_requested")
 
 
@@ -259,12 +247,8 @@ def set_email(
                              used_at__isnull=True).update(used_at=now)
     _audit(actor_public_id, "auth.email_changed")
     if old and was_verified:
-        queue_email(
-            kind="email_changed", to_address=old,
-            subject="The email of your Zoiko Access account changed",
-            body=("Hello,\n\nThe email address of your Zoiko Access account was just changed to "
-                  f"{mask_address(address)}.\n\nIf this was not you, contact your clinic and "
-                  "reset your password now.\n\nZoiko Access\n"))
+        queue_email(kind="email_changed", to_address=old,
+                    values={"masked_address": mask_address(address)})
     return EmailChange(ok=True, sent=_try_send_verification(actor_public_id, clock))
 
 
@@ -300,15 +284,9 @@ def send_invitation(
     link = f"{app_url_for(actor)}/?action=reset&token={token}"
     # Sign-in asks for the ORGANIZATION (the customer), not the site named in the invitation.
     tenant_name = Tenant.objects.get(id=ctx.tenant_id).name
-    queue_email(
-        kind="invite_staff", to_address=cred.email,
-        subject=f"You have been invited to {organization_name} on Zoiko Access",
-        body=(
-            f"Hello,\n\nYou have been added to {organization_name} on Zoiko Access as "
-            f"{role_label}. To choose your password and sign in, open this link (it works "
-            f"once and expires in 7 days):\n\n{link}\n\n"
-            f"To sign in, use organization {tenant_name!r} and login {cred.email}."
-            "\n\nIf you were not expecting this, ignore this email.\n\nZoiko Access\n"))
+    queue_email(kind="invite_staff", to_address=cred.email, values={
+        "organization_name": organization_name, "role_label": role_label, "link": link,
+        "tenant_name": tenant_name, "login": cred.email})
     _audit(actor.public_id, "auth.invitation_sent")
 
 

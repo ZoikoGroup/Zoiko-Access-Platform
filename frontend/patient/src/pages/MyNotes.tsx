@@ -34,11 +34,16 @@ export function MyNotes() {
             : rows.map((n) => (
               <div className="appt" key={n.id}>
                 <div className="info">
-                  <b>Visit on {n.note_date} {n.corrected && <Pill kind="info">Corrected later</Pill>}</b>
+                  <b>Visit on {n.note_date} {n.corrected && <Pill kind="info">Corrected later</Pill>}{n.held === "identity_check" && <Pill kind="warn">On hold</Pill>}</b>
                   {n.for_name && <small>About {n.for_name}</small>}
                   <small>Written by {n.author_name || "your doctor"} · version {n.version}{n.amend_reason ? ` (${n.amend_reason.replace(/_/g, " ")})` : ""}</small>
+                  {n.held === "identity_check" && (
+                    <small>This note is on hold while your clinic checks that your records are not mixed up with someone else&apos;s. You will see it once that is done.</small>
+                  )}
                 </div>
-                <button className="btn ghost" onClick={() => void show(n.id)}>Read</button>
+                {n.held !== "identity_check" && (
+                  <button className="btn ghost" onClick={() => void show(n.id)}>Read</button>
+                )}
               </div>
             ))}
         </Card>

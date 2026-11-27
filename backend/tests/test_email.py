@@ -2,6 +2,7 @@ import datetime as dt
 import io
 import json
 import re
+from typing import Any
 
 import pytest
 from django.core import mail
@@ -68,30 +69,40 @@ def later(minutes):
     return FixedClock(utc_now() + dt.timedelta(minutes=minutes))
 
 
+LINK = {"link": "https://app.test/?action=verify&token=abc"}   # an approved template's gap
+
+
 # ------------------------------------------------------------------ the mail queue
 def test_email_is_queued_inside_a_transaction_and_refused_when_unsafe(site):
     with pytest.raises(mailer.MailError):
-        mailer.queue_email(kind="test_mail", to_address="a@b.org", subject="Hi", body="x")
+        mailer.queue_email(kind="verify_email", to_address="a@b.org", values=LINK)
     with tenant_transaction(site.ctx):
-        for bad in ({"to_address": "not-an-email"}, {"to_address": "a@b.org\nbcc:x@y.org"},
-                    {"to_address": "a@b.org,c@d.org"}, {"subject": "Hi\nBcc: x@y.org"},
-                    {"subject": "   "}, {"kind": "Bad Kind"}, {"body": "x" * 5001}):
-            args = {"kind": "test_mail", "to_address": "a@b.org", "subject": "Hi", "body": "x",
-                    **bad}
+        # Only an approved template, with exactly its gaps, each of the right shape (DEV-386).
+        cases: tuple[dict[str, Any], ...] = (
+                    {"to_address": "not-an-email"}, {"to_address": "a@b.org\nbcc:x@y.org"},
+                    {"to_address": "a@b.org,c@d.org"}, {"kind": "Bad Kind"},
+                    {"kind": "no_such_template"}, {"values": {}},
+                    {"values": {"link": "javascript:alert(1)"}},
+                    {"values": {"link": "https://x.org/\nBcc: y@z.org"}},
+                    {"values": {**LINK, "extra": "x"}})
+        for bad in cases:
+            args: dict[str, Any] = {"kind": "verify_email", "to_address": "a@b.org",
+                                    "values": LINK, **bad}
             with pytest.raises(ZoikoError) as e:
                 mailer.queue_email(**args)
             assert e.value.code == ErrorCode.VALIDATION_FAILED
-        row = mailer.queue_email(kind="test_mail", to_address=" A@B.org ", subject="Hi", body="x")
+        row = mailer.queue_email(kind="verify_email", to_address=" A@B.org ", values=LINK)
         assert row.to_address == "a@b.org" and row.state == MailState.QUEUED
 
 
 def test_sending_wipes_the_body_and_masks_the_address(site):
     with tenant_transaction(site.ctx):
-        mailer.queue_email(kind="test_mail", to_address="asha@example.org",
-                           subject="Your link", body="secret link https://x/?token=SECRET123")
+        mailer.queue_email(kind="verify_email", to_address="asha@example.org",
+                           values={"link": "https://x.org/?token=SECRET123"})
     assert mailer.send_due().sent == 1
     assert len(mail.outbox) == 1 and "SECRET123" in mail.outbox[0].body
-    assert mail.outbox[0].to == ["asha@example.org"] and mail.outbox[0].subject == "Your link"
+    assert mail.outbox[0].to == ["asha@example.org"]
+    assert mail.outbox[0].subject == "Verify your email for Zoiko Access"
     row = QueuedEmail.objects.get()
     assert row.state == MailState.SENT and row.sent_at is not None
     assert row.body == "" and row.to_address == "a***@example.org"
@@ -108,7 +119,7 @@ def test_a_failing_mail_server_causes_retries_then_gives_up_with_no_message_kept
 
     monkeypatch.setattr("django.core.mail.EmailMessage.send", send)
     with tenant_transaction(site.ctx):
-        mailer.queue_email(kind="test_mail", to_address="asha@example.org", subject="S", body="b")
+        mailer.queue_email(kind="verify_email", to_address="asha@example.org", values=LINK)
     clock = FixedClock(utc_now())
     for attempt in range(1, mailer.MAX_ATTEMPTS):
         result = mailer.send_due(clock=clock)
@@ -127,7 +138,7 @@ def test_a_failing_mail_server_causes_retries_then_gives_up_with_no_message_kept
 
 def test_a_claim_that_was_never_finished_is_picked_up_again(site):
     with tenant_transaction(site.ctx):
-        row = mailer.queue_email(kind="test_mail", to_address="a@b.org", subject="S", body="b")
+        row = mailer.queue_email(kind="verify_email", to_address="a@b.org", values=LINK)
     QueuedEmail.objects.filter(pk=row.pk).update(
         state=MailState.SENDING, locked_until=utc_now() - dt.timedelta(minutes=1))   # crashed
     assert mailer.send_due().sent == 1
@@ -341,7 +352,7 @@ def test_registration_still_works_if_the_mail_server_is_down(site, monkeypatch):
 
 def test_a_transaction_that_rolls_back_leaves_no_email(site):
     with pytest.raises(RuntimeError), tenant_transaction(site.ctx), transaction.atomic():
-        mailer.queue_email(kind="test_mail", to_address="a@b.org", subject="S", body="b")
+        mailer.queue_email(kind="verify_email", to_address="a@b.org", values=LINK)
         raise RuntimeError("the change failed")
     assert QueuedEmail.objects.count() == 0
 
@@ -365,8 +376,7 @@ def _send_that_fails_first(monkeypatch, times):
 def test_every_attempt_is_kept_even_after_the_email_finally_goes_through(site, monkeypatch):
     _send_that_fails_first(monkeypatch, 2)
     with tenant_transaction(site.ctx):
-        queued = mailer.queue_email(kind="test_mail", to_address="asha@example.org",
-                                    subject="S", body="b")
+        queued = mailer.queue_email(kind="verify_email", to_address="asha@example.org", values=LINK)
     clock = FixedClock(utc_now())
     for _ in range(3):
         mailer.send_due(clock=clock)
@@ -380,8 +390,8 @@ def test_every_attempt_is_kept_even_after_the_email_finally_goes_through(site, m
 def test_the_history_holds_no_address_no_text_and_no_error_message(site, monkeypatch):
     _send_that_fails_first(monkeypatch, 1)
     with tenant_transaction(site.ctx):
-        mailer.queue_email(kind="test_mail", to_address="asha@example.org",
-                           subject="Secret subject", body="one-time link SECRET123")
+        mailer.queue_email(kind="verify_email", to_address="asha@example.org",
+                           values={"link": "https://x.org/?token=SECRET123"})
     mailer.send_due()
     dump = " ".join(f"{t.email_ref}{t.outcome}{t.error}" for t in EmailAttempt.objects.all())
     assert dump and "asha" not in dump and "SECRET" not in dump and "Secret" not in dump
@@ -390,7 +400,7 @@ def test_the_history_holds_no_address_no_text_and_no_error_message(site, monkeyp
 
 def test_the_attempt_history_cannot_be_changed_or_removed(site):
     with tenant_transaction(site.ctx):
-        mailer.queue_email(kind="test_mail", to_address="a@b.org", subject="S", body="b")
+        mailer.queue_email(kind="verify_email", to_address="a@b.org", values=LINK)
     mailer.send_due()
     row = EmailAttempt.objects.get()
     with pytest.raises(DatabaseError), transaction.atomic():

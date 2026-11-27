@@ -36,6 +36,12 @@ def make_world():
     return w
 
 
+def require_zoiko_two_step(w, required=True):
+    """Zoiko's own staff must use two-step sign-in before go-live (DEV-390)."""
+    from modules.trust.models import Tenant
+    Tenant.objects.filter(public_id=w.tenant_public_id).update(staff_two_step_required=required)
+
+
 def settle_hazards(w, leave=None):
     """Seed the hazard register and accept every hazard (optionally leaving one in `leave`)."""
     from modules.safety import api as safety
@@ -81,6 +87,7 @@ def world():
     settle_hazards(w)
     approve_purposes(w)
     seed_matrix(w)
+    require_zoiko_two_step(w)
     return w
 
 
@@ -142,8 +149,9 @@ def test_a_new_release_is_not_ready_and_lists_everything_missing(world):
     assert rel["decision"] == "no_go" and len(rel["tuple_digest"]) == 64
     assert len(rel["blockers"]) == 11                       # six G3, four G4, and the country pack
     assert "g4.country_pack:missing" in rel["blockers"]
-    # the four system checks (hazards, incidents, purposes, matrix) are already clear here
-    assert sorted(q["status"] for q in rel["requirements"]) == ["missing"] * 11 + ["signed"] * 4
+    # the six system checks (hazards, incidents, purposes, matrix and, DEV-388, the error
+    # budget with no traffic yet, and DEV-390, Zoiko staff two-step) are already clear here
+    assert sorted(q["status"] for q in rel["requirements"]) == ["missing"] * 11 + ["signed"] * 6
 
 
 def test_only_support_creates_a_release_and_nobody_else_can_see_them(world):
@@ -404,6 +412,7 @@ def test_accepted_and_retired_hazards_let_it_through_and_resolving_the_last_one_
     from modules.safety.models import Hazard
     rel = release(bare)
     sign_g3(bare, rel)
+    require_zoiko_two_step(bare)                 # DEV-390: the other G3 system checks pass
     settle_hazards(bare, leave="VERIFIED")
     assert decision_of(bare, rel) == "no_go"
     with tenant_transaction(bare.ctx):

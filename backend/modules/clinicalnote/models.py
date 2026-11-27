@@ -83,9 +83,9 @@ class ScanState(models.TextChoices):
 
 class NoteAttachment(CellScopedModel):
     """A document or media file attached to a consultation note (DEV-376). Stored ENCRYPTED; only
-    a treating clinician caring for this patient (or the patient themselves after the 24-hour embargo)
-    may open it, and only once a virus scan found it clean. Attached while a draft; sealed when signed.
-    Amendments carry attachments forward into the new version."""
+    a treating clinician caring for this patient (or the patient themselves after the 24-hour
+    embargo) may open it, and only once a virus scan found it clean. Attached while a draft;
+    sealed when signed. Amendments carry attachments forward into the new version."""
 
     note = models.ForeignKey(ClinicalNote, on_delete=models.PROTECT, related_name="+")
     filename = models.CharField(max_length=100)

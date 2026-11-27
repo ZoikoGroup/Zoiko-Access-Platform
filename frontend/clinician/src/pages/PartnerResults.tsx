@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { downloadAttachment, getAttachments, getPartnerRequests, getPartners, getPatients, getResultSummary, getTrend, type Attachment, placeOrder, reviewPartnerResult, type PartnerChoice, type TrendPoint } from "../api";
+import { decidePartnerDispute, downloadAttachment, getAttachments, getPartnerRequests, getPartners, getPatients, getResultSummary, getTrend, type Attachment, placeOrder, reviewPartnerResult, type PartnerChoice, type TrendPoint } from "../api";
 import type { PartnerRequest, PatientRow, ResultSummary, ResultValue } from "../types";
 import { Card, Pill } from "../ui";
 import { Gate, useLoad } from "../useLoad";
@@ -26,11 +26,12 @@ function Row({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
   const [error, setError] = useState("");
   async function review() {
     setBusy(true); setError("");
-    try { await reviewPartnerResult(r.id); onChanged(); }
+    // The version on screen: the one the doctor opened, else the one the list shows (DEV-373).
+    try { await reviewPartnerResult(r.id, summary?.version ?? Math.max(r.result_version ?? 1, 1)); onChanged(); }
     catch (err) {
       const code = (err as { code?: string }).code;
       setError(code === "POLICY_DENIED" ? "You can only review while you are treating this patient (not when following up read only)."
-        : code === "CONFLICT_VERSION" ? "There is no ready result to review."
+        : code === "CONFLICT_VERSION" ? "It cannot be marked reviewed now: a newer version may have arrived, it may still be preliminary, the patient may be disputing it, or their records are being checked for a duplicate. Reload and read the notices on it."
         : err instanceof Error ? err.message : "That did not work");
     } finally { setBusy(false); }
   }
@@ -38,7 +39,7 @@ function Row({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
   return (
     <div className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
       <div className="info">
-        <b>{r.label} <Pill kind={state.kind}>{state.text}</Pill>{r.urgency === "urgent" && <> <Pill kind="warn">urgent</Pill></>}{r.result_flag === "critical" && <> <Pill kind="bad">CRITICAL RESULT</Pill></>}{r.result_flag === "abnormal" && <> <Pill kind="warn">abnormal</Pill></>}{(r.result_version ?? 0) > 1 && <> <Pill kind="warn">{r.result_correction ?? "corrected"}: version {r.result_version}</Pill></>}</b>
+        <b>{r.label} <Pill kind={state.kind}>{state.text}</Pill>{r.urgency === "urgent" && <> <Pill kind="warn">urgent</Pill></>}{r.result_flag === "critical" && <> <Pill kind="bad">CRITICAL RESULT</Pill></>}{r.result_flag === "abnormal" && <> <Pill kind="warn">abnormal</Pill></>}{(r.result_version ?? 0) > 1 && <> <Pill kind="warn">{r.result_correction ?? "corrected"}: version {r.result_version}</Pill></>}{r.result_preliminary && <> <Pill kind="warn">PRELIMINARY: not final</Pill></>}</b>
         <small>{KIND[r.kind]} · {r.partner} · {r.patient_name || r.patient} · order {r.token}</small>
         {r.result_ref && <small>The partner holds the result under reference {r.result_ref}. Opening it is done with the partner, outside this screen.</small>}
         {r.state === "declined" && r.decision_note && <small>Reason given: {r.decision_note}</small>}
@@ -50,7 +51,7 @@ function Row({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
             <ReportFiles requestId={r.id} />
             {(summary.earlier ?? []).map((v) => (
               <details key={v.version} style={{ marginTop: 6 }}>
-                <summary>Earlier version {v.version} ({v.flag}), replaced {v.replaced_at.slice(0, 10)}{v.reviewed ? ", it had been reviewed" : ""}</summary>
+                <summary>Earlier version {v.version} ({v.flag}){v.preliminary ? ", preliminary" : ""}, replaced {v.replaced_at.slice(0, 10)}{v.reviewed ? ", it had been reviewed" : ""}</summary>
                 <pre style={{ whiteSpace: "pre-wrap", margin: "4px 0 0", fontFamily: "inherit" }}>{v.summary}</pre>
                 <Values values={v.values} />
               </details>
@@ -63,12 +64,67 @@ function Row({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
         <div><button className="btn ghost" disabled={busy} onClick={() => void open()}>Read the lab's summary</button>
           <small style={{ display: "block", marginTop: 4 }}>Opening it is recorded.</small></div>
       )}
-      {r.state === "result_available" && (
+      {r.identity_check_open && (
+        <div className="notice" role="status">
+          <b>On hold: possible duplicate record.</b> This patient is in a duplicate-record check that has not been
+          decided, so this result may belong to the other record. It cannot be marked reviewed and the patient does
+          not see it until the check is decided (Duplicates, in the staff console).
+        </div>
+      )}
+      {r.dispute === "open" && <DisputeDecision r={r} onChanged={onChanged} />}
+      {r.dispute === "not_theirs" && (
+        <div className="error" role="status">
+          <b>Not this patient's result.</b> {r.dispute_decision_note} It is withheld from the patient. An incident
+          has been logged for Zoiko safety review; ask the lab to correct it.
+        </div>
+      )}
+      {r.state === "result_available" && r.result_preliminary && (
+        <div className="notice" role="status">
+          The lab says this result is <b>preliminary</b>: it is not final and may change. You can read it now
+          (a critical value has already been alerted), but it cannot be marked reviewed, and the patient does
+          not see it, until the lab sends the final result.
+        </div>
+      )}
+      {r.state === "result_available" && !r.result_preliminary && (
         <div>
           <button className="btn" disabled={busy} onClick={() => void review()}>I have reviewed this result</button>
           <small style={{ display: "block", marginTop: 4 }}>This records that you, a clinician, have reviewed it. A result being ready is never treated as reviewed.</small>
         </div>
       )}
+    </div>
+  );
+}
+
+const DISPUTE_REASON: Record<string, string> = {
+  not_me: "says this result is not theirs",
+  wrong_test: "says they did not have this test",
+  wrong_values: "says the values look wrong",
+};
+
+/** The patient disputes the result (DEV-385): the treating doctor decides whose it is. */
+function DisputeDecision({ r, onChanged }: { r: PartnerRequest; onChanged: () => void }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function decide(outcome: "confirmed" | "not_theirs") {
+    setBusy(true); setError("");
+    try { await decidePartnerDispute(r.id, outcome, note); onChanged(); }
+    catch (err) {
+      const code = (err as { code?: string }).code;
+      setError(code === "VALIDATION_FAILED" ? "Say briefly what you found (no patient details) before marking it not theirs."
+        : code === "POLICY_DENIED" ? "Only a doctor treating this patient can decide." : err instanceof Error ? err.message : "That did not work");
+    } finally { setBusy(false); }
+  }
+  return (
+    <div className="notice" role="status">
+      <b>On hold: the patient {DISPUTE_REASON[r.dispute_reason ?? ""] ?? "disputes this result"}.</b> Check the order
+      and the sample with the patient and the lab. It cannot be marked reviewed and the patient does not see it until you decide.
+      <div className="form-row" style={{ marginTop: 8 }}>
+        <input aria-label="What you found" placeholder="What you found (no patient details)" maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} />
+        <button className="btn" disabled={busy} onClick={() => void decide("confirmed")}>It is theirs: release it</button>
+        <button className="btn ghost" disabled={busy || note.trim().length < 5} onClick={() => void decide("not_theirs")}>It is not theirs</button>
+      </div>
+      {error && <div className="error" role="alert">{error}</div>}
     </div>
   );
 }

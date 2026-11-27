@@ -71,3 +71,22 @@ def test_an_imaging_report_comes_through_as_imaging_with_no_images():
                                                  [fhir.IMAGING_VALUE_CATEGORY])
                for e in b["entry"])
     assert fhir.validate(b, profile=fhir.UK_CORE) == []
+
+
+@pytest.mark.parametrize("status", ["", "Z", "final", "?"])
+def test_a_missing_or_unknown_report_status_is_refused_not_taken_as_final(status):
+    """GHE-22 AT-015 (DEV-369): guessing "final" could show an unfinished result as finished."""
+    with pytest.raises(Hl7Error, match="OBR-25"):
+        to_fhir(oru(status=status))
+
+
+@pytest.mark.parametrize("obx_status", ["", "Q"])
+def test_a_value_with_a_missing_or_unknown_status_is_refused(obx_status):
+    with pytest.raises(Hl7Error, match="OBX-11"):
+        to_fhir(oru(obx=[f"OBX|1|NM|26604007^Haemoglobin^SCT||128|g/L|115-165|N|||{obx_status}"]))
+
+
+def test_every_known_status_still_reads():
+    for code, fhir_status in (("F", "final"), ("P", "preliminary"), ("C", "corrected"),
+                              ("A", "amended"), ("X", "cancelled"), ("f", "final")):
+        assert fhir.report_of(to_fhir(oru(status=code)))["status"] == fhir_status

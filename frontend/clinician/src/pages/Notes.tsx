@@ -35,7 +35,7 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
   async function run(action: () => Promise<Note>, then?: (n: Note) => void) {
     setBusy(true); setError("");
     try { const n = await action(); then ? then(n) : onDone(id); }
-    catch (e) { setError(e instanceof ApiError && e.code === "CONFLICT_VERSION" ? "That cannot be done to this note now." : e instanceof Error ? e.message : "That did not work"); }
+    catch (e) { setError(e instanceof ApiError && e.code === "CONFLICT_VERSION" ? "That cannot be done to this note now (it may already be signed, or the patient's records are being checked for a duplicate)." : e instanceof Error ? e.message : "That did not work"); }
     finally { setBusy(false); }
   }
   if (error && !note) return <div className="error" role="alert">{error}</div>;
@@ -50,6 +50,13 @@ function Open({ id, onDone }: { id: string; onDone: (openId?: string) => void })
         {note.state === "superseded" && <small>This version was replaced; it is kept as it was signed.</small>}
         {note.erased && <small>The text was erased when the NHS retention period ended; the record that it existed stays.</small>}
       </div>
+      {note.identity_check_open && (
+        <div className="notice" role="status">
+          <b>On hold: possible duplicate record.</b> This patient is in a duplicate-record check that has not been
+          decided, so this note cannot be signed and the patient does not see it until the check is decided
+          (Duplicates, in the staff console).
+        </div>
+      )}
       {note.state === "draft" && note.mine ? (
         <>
           <label>Note

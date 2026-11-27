@@ -337,6 +337,7 @@ def test_valid_diagnostic_report_advances_exchange_to_result_available(
         flag="critical",
         clock=None,
         values=[],
+        preliminary=False,                 # a final report (DEV-370)
     )
 
 
@@ -487,10 +488,14 @@ def _intake(mock_exchange, mock_dec, mock_trust, mock_pclient, mock_quar, report
     mock_trust.tenant_public_id.return_value = "cust12345"
     mock_trust.list_tenants.return_value = [
         {"type": "platform", "status": "active", "public_id": "plat0001"}]
+    mock_trust.open_case_people.return_value = set()
     mock_quar.filter.return_value.count.return_value = 0
     mock_quar.filter.return_value.first.return_value = None
     mock_exchange.delivery_lookup.return_value = {
-        "from_tenant_ref": "cust12345", "to_tenant_ref": "partner_tenant_99", "state": state,
+        "from_tenant_ref": "cust12345",
+        "to_tenant_ref": "partner_tenant_99",
+        "person_ref": "per_001",
+        "state": state,
     }
     mock_exchange.correct_result.return_value = {"changed": True, "state": "result_available"}
     mock_exchange.partner_step.return_value = {"changed": True, "state": "result_available"}
@@ -532,7 +537,7 @@ def test_a_corrected_report_for_a_delivered_result_becomes_a_new_version(
     mock_exchange.correct_result.assert_called_once_with(
         request_ref="req-valid-001", tenant_ref="partner_tenant_99", actor_ref=client.public_id,
         result_ref="rep-201", summary="Corrected: haemoglobin 128 g/L.", flag="normal",
-        correction="corrected", clock=None, values=[],
+        correction="corrected", clock=None, values=[], preliminary=False,
     )
     assert mock_rec.call_args.kwargs["action"] == "integration.fhir_report_corrected"
 
@@ -572,3 +577,39 @@ def test_a_withdrawn_report_is_held_for_a_person_and_changes_nothing(
         assert status == 202 and res["quarantined"] is True and res["error"] == "withdrawn"
     mock_exchange.correct_result.assert_not_called()
     mock_exchange.partner_step.assert_not_called()
+
+
+@_patched
+@patch("modules.integration.fhir.FhirQuarantine.objects")
+@patch("modules.integration.fhir.PartnerClient.objects")
+@patch("modules.integration.fhir.trust")
+@patch("modules.integration.fhir.decrypt")
+@patch("modules.integration.fhir.encrypt", return_value="enc_payload")
+@patch("modules.integration.fhir.exchange")
+@patch("modules.integration.fhir.record")
+def test_a_report_for_a_patient_in_a_duplicate_check_is_quarantined(
+    mock_rec, mock_exchange, mock_enc, mock_dec, mock_trust, mock_pclient, mock_quar, _ctx
+):
+    client = DummyClient()
+    mock_pclient.select_for_update.return_value.filter.return_value.first.return_value = client
+    mock_dec.return_value = client.secret
+    mock_trust.context_for.return_value = MagicMock()
+    mock_trust.tenant_public_id.return_value = "cust12345"
+    mock_trust.list_tenants.return_value = [
+        {"type": "platform", "status": "active", "public_id": "plat0001"}]
+    mock_trust.open_case_people.return_value = {"per_001"}
+    mock_quar.filter.return_value.count.return_value = 0
+    mock_quar.filter.return_value.first.return_value = None
+    mock_exchange.delivery_lookup.return_value = {
+        "from_tenant_ref": "cust12345",
+        "to_tenant_ref": "partner_tenant_99",
+        "person_ref": "per_001",
+        "state": "in_progress",
+    }
+    raw = json.dumps(_corrected_report("final")).encode()
+    sig = signature_header(client.secret, client.key_id, int(time.time()), "del-dup-01", raw)
+    status, res, _ = receive_fhir(raw_body=raw, signature=sig, delivery_id="del-dup-01")
+    assert status == 202 and res["quarantined"] is True
+    assert res["error"] == "identity_check_open"
+    mock_exchange.partner_step.assert_not_called()
+    mock_exchange.correct_result.assert_not_called()

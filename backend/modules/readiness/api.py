@@ -7,10 +7,11 @@ from .services import (
     create_release,
     get_release,
     list_releases,
+    override_budget,
     re_evaluate,
     sign,
     veto,
 )
 
 __all__ = ["ALL_REQUIREMENTS", "create_release", "get_release", "list_releases", "re_evaluate",
-           "sign", "veto"]
+           "sign", "veto", "override_budget"]

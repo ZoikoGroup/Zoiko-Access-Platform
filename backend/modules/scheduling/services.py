@@ -513,6 +513,31 @@ def _finish_move(booking: Booking, actor_ref: str, side: str) -> None:
         _times_opened(origin.slot.service_ref)                 # the old time is free again
 
 
+def keep(*, booking_ref: str, actor_public_id: str, decision: policy.Decision) -> dict[str, Any]:
+    """The patient takes back their request to cancel a confirmed appointment, before the clinic
+    has answered: the appointment simply stays (DEV-108, confirmed 26 Nov 2026, DEV-390). Only the
+    patient's side may do it, and only while that request is still waiting."""
+    with transaction.atomic():
+        booking = _own_booking(booking_ref)
+        policy.check_receipt(
+            decision, actor_public_id=actor_public_id, operation=WRITE_BOOKING,
+            organization_public_id=booking.slot.organization_ref, subject_ref=booking.person_ref,
+        )
+        if booking.status != BookingStatus.CONFIRMED or booking.pending_change != "cancel":
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)       # nothing waiting to take back
+        if decision.role_code not in PATIENT_SIDE_ROLES:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)          # the clinic answers instead
+        booking.pending_change, booking.cancel_reason = "", ""
+        booking.entity_version += 1
+        booking.save(update_fields=["pending_change", "cancel_reason", "entity_version",
+                                    "updated_at"])
+        _audit(actor_public_id, "booking.cancel_request_withdrawn", "booking", booking.public_id)
+        log_event(booking, "change_withdrawn", state_from=booking.status,
+                  state_to=booking.status, source=side_of(decision.role_code),
+                  actor_ref=actor_public_id)
+        return booking_dict(booking)
+
+
 def cancel(
     *, booking_ref: str, actor_public_id: str, decision: policy.Decision, reason: str = ""
 ) -> dict[str, Any]:
@@ -771,6 +796,19 @@ def list_bookings(
     return [booking_dict(b) for b in rows.order_by("slot__starts_at")[: max(1, min(limit, 200))]]
 
 
+def patients_with_upcoming_visits(
+    organization_ref: str, clock: Clock | None = None
+) -> set[str]:
+    """Patients with a visit at this clinic still to come that is wanted (requested or confirmed),
+    asked of the database directly, so a busy clinic's later visits are never missed (DEV-368)."""
+    if not organization_ref:
+        return set()
+    return set(Booking.objects.filter(
+        slot__organization_ref=organization_ref, slot__starts_at__gte=utc_now(clock),
+        status__in=[BookingStatus.REQUESTED, BookingStatus.CONFIRMED], **_scope(),
+    ).values_list("person_ref", flat=True).distinct())
+
+
 def booking_counts(clock: Clock | None = None) -> dict[str, int]:
     """Bookings by status, and how many future slots are still free. Numbers only."""
     scope = _scope()
@@ -867,11 +905,14 @@ def waiting_requests(organization_ref: str, limit: int = 500) -> list[tuple[str,
 
 
 def overdue_requests(
-    hours: int, clock: Clock | None = None, organization_ref: str = ""
+    hours: int, clock: Clock | None = None, organization_ref: str = "",
+    cutoff: dt.datetime | None = None,
 ) -> int:
     """Requested bookings that have waited for confirmation for more than `hours` hours, for one
-    organization when given, else for the whole customer."""
-    cutoff = utc_now(clock) - dt.timedelta(hours=hours)
+    organization when given, else for the whole customer. `cutoff` (the clinic's own, counting its
+    opening hours: catalog.late_cutoff, DEV-367) replaces `hours` when given."""
+    if cutoff is None:
+        cutoff = utc_now(clock) - dt.timedelta(hours=hours)
     rows = Booking.objects.filter(
         status=BookingStatus.REQUESTED, created_at__lt=cutoff, **_scope())
     if organization_ref:

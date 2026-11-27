@@ -71,6 +71,24 @@ def step(world, name, ref="H01", subject="rao", **body):
     return post(world, f"platform/hazards/{hazard(world, ref)['id']}/{name}", body, subject)
 
 
+CONTROL = {
+    "kind": "preventive",
+    "description": "A booking is checked against the patient before it is confirmed",
+    "implementation": "backend/modules/scheduling/services.py",
+    "test_ref": "tests/test_hazards.py::test_retiring_needs_a_reason_and_is_final",
+}
+
+
+def with_verified_control(world, ref="H01"):
+    """A risk control proposed by one safety officer and verified by the other (DEV-382). Keeps
+    the hazard's state: it was not yet verified or accepted when the control was added."""
+    made = post(world, f"platform/hazards/{hazard(world, ref)['id']}/controls", CONTROL, "iyer")
+    assert made.status_code == 201, made.content
+    done = post(world, f"platform/hazard-controls/{json.loads(made.content)['control']['id']}"
+                "/verify", {"note": "Ran the named test against this build"}, "rao")
+    assert done.status_code == 200, done.content
+
+
 # ------------------------------------------------------------------ the seeded register
 def test_the_register_starts_with_the_hazards_the_docs_name_and_adds_them_once(platform):
     rows = register(platform)["hazards"]
@@ -167,6 +185,7 @@ def test_remaining_risk_is_accepted_only_after_a_verified_review_by_someone_othe
     platform,
 ):
     assess(platform)
+    with_verified_control(platform)                     # a checked risk control (DEV-382)
     assert step(platform, "accept", subject="rao").status_code == 409  # not verified yet
     step(platform, "review", subject="rao", verdict="verified")
     assert step(platform, "accept", subject="iyer").status_code == 403  # the assessor cannot
@@ -205,6 +224,7 @@ def test_retiring_needs_a_reason_and_is_final(platform):
 
 def test_every_step_is_in_the_history_and_the_audit_log_and_cannot_be_changed(platform):
     assess(platform)
+    with_verified_control(platform)
     step(platform, "review", subject="rao", verdict="verified")
     step(platform, "accept", subject="rao", note="ok")
     steps = json.loads(get(platform, f"platform/hazards/{hazard(platform)['id']}/history").content)[

@@ -64,8 +64,9 @@ def referral_dict(r: Referral) -> dict[str, Any]:
         "acknowledged_by_ref": r.acknowledged_by_ref,
         "acknowledged_at": r.acknowledged_at.isoformat() if r.acknowledged_at else None,
         "responsible_ref": r.responsible_ref or r.referrer_ref,
-        "escalated": r.state in OPEN_STATES and utc_now() - r.created_at > dt.timedelta(
-            hours=trust.response_target_hours(r.destination_organization_ref)),
+        # Past the receiving clinic's target, counting only its opening hours when set (DEV-367).
+        "escalated": r.state in OPEN_STATES and catalog.is_late(
+            r.destination_organization_ref, r.created_at),
     }
 
 

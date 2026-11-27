@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { BookingHistory } from "@shared/BookingHistory";
 import { PATIENT_REASONS } from "@shared/cancelReasons";
-import { ApiError, cancelBooking, downloadCalendar, getBookingHistory, getSlots, leaveWaitlist, rescheduleBooking, type Booking, type Slot, type WaitEntry } from "../api";
+import { ApiError, cancelBooking, keepBooking, downloadCalendar, getBookingHistory, getSlots, leaveWaitlist, rescheduleBooking, type Booking, type Slot, type WaitEntry } from "../api";
 import { dateBlock, dayKey, dayLabel, timeLabel } from "../format";
 import { Card, Pill, VerifiedMark, type PillKind } from "../ui";
 
@@ -78,6 +78,13 @@ function Row({ b, onChanged, earlierStays, onBookAgain }: {
       )}
       {upcoming && !waiting && !asking && !moving && <button className="btn ghost" onClick={() => void openTimes()}>Change time</button>}
       {upcoming && !waiting && !asking && <button className="btn ghost" onClick={() => setAsking(true)}>{b.status === "requested" ? "Cancel" : "Ask to cancel"}</button>}
+      {upcoming && b.pending_change === "cancel" && (
+        <button className="btn ghost" disabled={busy} onClick={() => {
+          setBusy(true); setError("");
+          keepBooking(b.id).then(() => onChanged()).catch(() => setError("Could not keep it: the clinic may have answered already. Reload."))
+            .finally(() => setBusy(false));
+        }}>Keep this appointment</button>
+      )}
       {upcoming && !waiting && asking && (
         <span>
           {b.status === "confirmed" && <small style={{ display: "block" }}>The clinic must confirm the cancellation. Until then this appointment stays.</small>}

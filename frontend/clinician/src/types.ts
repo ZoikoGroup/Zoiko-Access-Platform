@@ -22,6 +22,7 @@ export interface Note {
   note_date: string; state: "draft" | "signed" | "superseded"; version: number;
   supersedes: string | null; superseded_by: string | null; amend_reason: string | null;
   guardian_hidden?: boolean; erased?: boolean;
+  identity_check_open?: boolean;
   diagnoses?: Diagnosis[]; has_diagnoses?: boolean;
   medications?: Medication[]; has_medications?: boolean;
   attachments?: NoteAttachment[]; has_attachments?: boolean;
@@ -84,6 +85,12 @@ export interface PartnerRequest {
   /** The lab says this result is not final yet: it cannot be marked reviewed (DEV-370). */
   result_preliminary?: boolean;
   created_at: string; result_at: string | null; reviewed_at: string | null;
+  /** DEV-385: the patient is in an open duplicate-record case, so this is held. */
+  identity_check_open?: boolean;
+  /** DEV-385: the patient's dispute of this result, and why. */
+  dispute?: "open" | "confirmed" | "not_theirs" | null;
+  dispute_reason?: "not_me" | "wrong_values" | "wrong_test" | null;
+  dispute_decision_note?: string;
 }
 
 export interface ResultValue { name: string; code?: string; value: number | string; unit?: string; low?: number | null; high?: number | null; flag?: string }

@@ -14,6 +14,7 @@ from foundation.cell_context import require_context, tenant_transaction
 from foundation.mail import queue_email
 from foundation.models import QueuedEmail
 from foundation.timeutil import Clock, utc_now
+from modules.catalog import api as catalog
 from modules.messaging import api as messaging
 from modules.rights import api as rights
 from modules.scheduling import api as scheduling
@@ -36,9 +37,10 @@ def send_late_digest(clock: Clock | None = None) -> int:
     queued = 0
     for org, name in trust.organization_names().items():
         hours = trust.response_target_hours(org)        # this clinic's own target
-        bookings = scheduling.overdue_requests(hours, clock, organization_ref=org)
-        threads = messaging.overdue_threads_for_staff(org, hours, clock)
-        requests = rights.overdue_count(org, hours, clock)
+        cutoff = catalog.late_cutoff(org, clock)       # counting its opening hours (DEV-367)
+        bookings = scheduling.overdue_requests(hours, clock, organization_ref=org, cutoff=cutoff)
+        threads = messaging.overdue_threads_for_staff(org, hours, clock, cutoff=cutoff)
+        requests = rights.overdue_count(org, hours, clock, cutoff=cutoff)
         if bookings + threads + requests == 0:
             continue
         subject = f"Running late at {name}: {day}"[:200]
@@ -59,11 +61,11 @@ def send_late_digest(clock: Clock | None = None) -> int:
         if requests:
             items.append(f"- {_plural(requests, 'data request', 'data requests')} "
                          "past the date to answer")
-        body = (f"{name} has work waiting longer than {hours} hours:\n\n" + "\n".join(items)
-                + f"\n\nOpen the staff app: {settings.STAFF_APP_URL}\n")
+        values = {"name": name, "day": day, "hours": str(hours), "items": "\n".join(items),
+                  "app_url": str(settings.STAFF_APP_URL)}
         with transaction.atomic():
             for address in recipients:
-                queue_email(kind=KIND, to_address=address, subject=subject, body=body)
+                queue_email(kind=KIND, to_address=address, values=values)
                 queued += 1
     return queued
 

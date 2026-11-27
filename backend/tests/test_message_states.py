@@ -140,8 +140,9 @@ def test_a_patient_sees_what_they_have_not_opened_of_the_clinics_replies(p):
 def test_a_sent_email_keeps_a_fingerprint_of_what_was_sent_but_not_the_text(p):
     with tenant_transaction(p.clinic.ctx):
         row = mail.queue_email(kind="verify_email", to_address="ann@example.org",
-                               subject="Verify your email", body="Your one-time link: abc123")
-    expected = hashlib.sha256(b"Verify your email\nYour one-time link: abc123").hexdigest()
+                               values={"link": "https://app.test/?token=abc123"})
+    expected = hashlib.sha256(f"{row.subject}\n{row.body}".encode()).hexdigest()
+    assert "abc123" in row.body and row.template_key == "verify_email"
     assert row.content_digest == expected
     assert mail.send_due().sent == 1
     kept = QueuedEmail.objects.get(pk=row.pk)

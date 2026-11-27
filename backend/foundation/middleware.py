@@ -59,8 +59,15 @@ class MetricsMiddleware:
         started = time.monotonic()
         response = self.get_response(request)
         match = getattr(request, "resolver_match", None)
-        metrics.record(match.route if match and match.route else "unmatched",
-                       response.status_code, time.monotonic() - started)
+        route = match.route if match and match.route else "unmatched"
+        seconds = time.monotonic() - started
+        metrics.record(route, response.status_code, seconds)
+        try:                       # the 30-day error budget, in the database (DEV-388)
+            from .error_budget import count
+
+            count(route, response.status_code, seconds)
+        except Exception as exc:   # noqa: BLE001 - counting must never break the answer
+            logger.warning("slo_count_failed type=%s", type(exc).__name__)
         return response
 
 
@@ -82,7 +89,11 @@ class ErrorHandlingMiddleware:
 
     def process_exception(self, request: HttpRequest, exception: Exception) -> HttpResponse:
         if isinstance(exception, ZoikoError):
-            return problem_response(exception.code, exception.fields)
+            response = problem_response(exception.code, exception.fields)
+            wait = getattr(exception, "retry_after", None)       # a rate limit (DEV-387)
+            if isinstance(wait, int):
+                response["Retry-After"] = str(wait)
+            return response
         if isinstance(exception, Http404):
             return problem_response(ErrorCode.NOT_FOUND)
         logger.error(
@@ -91,3 +102,34 @@ class ErrorHandlingMiddleware:
             _safe_location(exception),
         )
         return problem_response(ErrorCode.INTERNAL_ERROR)
+
+
+# Requests that try a password, a code or an email address: far fewer per network address.
+_AUTH_PATHS = ("/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/forgot-password",
+               "/api/v1/auth/reset-password", "/api/v1/auth/verify-email")
+
+
+class RateLimitMiddleware:
+    """Per network address, before anything else is done (DEV-387, foundation/ratelimit.py).
+    Every /api/ request counts towards `ip`; sign-in, sign-up, the second step and password
+    resets also towards the much smaller `ip_auth`. Health checks are not counted. The address
+    is REMOTE_ADDR: behind a proxy, the proxy must set it from the real client."""
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        from .ratelimit import check
+
+        path = request.path
+        if path.startswith("/api/"):
+            address = str(request.META.get("REMOTE_ADDR", "") or "unknown")
+            kinds = [("ip", address)]
+            if request.method == "POST" and path.startswith(_AUTH_PATHS):
+                kinds.append(("ip_auth", address))
+            verdict = check(kinds)
+            if not verdict.allowed:
+                response = problem_response(ErrorCode.RATE_LIMITED)
+                response["Retry-After"] = str(verdict.retry_after)
+                return response
+        return self.get_response(request)

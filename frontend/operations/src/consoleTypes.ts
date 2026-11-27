@@ -74,3 +74,26 @@ export interface IdentityCheck {
 }
 
 export interface IdentityData { identity: IdentityInfo; history?: IdentityCheck[] }
+
+// ---- insurance status (backend/api/insurance.py, DEV-368): insurance only, never a full member id ----
+export type CoverState = "covered" | "ending_soon" | "none_in_force" | "not_shared";
+
+export interface InsurancePatient {
+  id: string;
+  patient_name: string | null;
+  state: CoverState;
+  /** A visit at this clinic that is still to come and has not been cancelled. */
+  upcoming_visit: boolean;
+  /** Empty unless the patient chose to share their insurance with staff. */
+  insurer: string;
+  plan: string;
+  valid_until: string | null;
+  member_last4: string;
+}
+
+export interface InsuranceStatusData {
+  counts: { patients: number; covered: number; ending_soon: number; none_in_force: number; not_shared: number; needs_attention: number };
+  ending_soon_days: number;
+  patients: InsurancePatient[];
+  attention: InsurancePatient[];
+}

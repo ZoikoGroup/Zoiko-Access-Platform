@@ -3,10 +3,17 @@
 A new field that looks like an identifier fails here until it is listed in
 foundation/identifiers.py, and a listed one that nothing uses any more fails too, so the catalogue
 cannot go stale."""
+import os
 import re
 import uuid
 
+import django
 import pytest
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.test")
+if not django.apps.apps.ready:
+    django.setup()
+
 from django.apps import apps
 from django.db import models
 

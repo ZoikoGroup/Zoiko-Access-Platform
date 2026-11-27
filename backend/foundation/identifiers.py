@@ -145,6 +145,14 @@ IDENTIFIERS: dict[str, Kind] = {
         names="a requirement in a specification (traceability Requirement)",
         format="the specification's own id, up to 24 characters", scope="global",
         leaves_cell=False),
+    "template_key": Kind(
+        names="a message template (foundation message_templates, DEV-386), e.g. verify_email",
+        format="a name in the template catalogue (checked there)", scope="global",
+        leaves_cell=False),
+    "test_ref": Kind(
+        names="an automated test that proves a hazard control (safety HazardControl, DEV-382)",
+        format="tests/test_<file>.py::test_<name>", scope="global", leaves_cell=False,
+        pattern=re.compile(r"^tests/test_[a-z0-9_]+\.py::test_[A-Za-z0-9_]+$")),
     "key_id": Kind(
         names="which signing secret signed something (never the secret itself)",
         format="short code, e.g. \"whk_1a2b3c4d\"", scope="tenant", leaves_cell=True),
@@ -229,6 +237,9 @@ FIELDS: dict[str, str] = {
     "ordering_key": "outbox_key", "dedupe_key": "outbox_key",
     "payment_ref": "external_ref", "result_ref": "external_ref", "subject_token": "external_ref",
     "authority_ref": "external_ref", "reference": "external_ref", "partner_ref": "external_ref",
+    "ticket_ref": "external_ref",                       # a support ticket number (DEV-381)
+    "test_ref": "test_ref", "control_no": "ref_no",     # DEV-382
+    "template_key": "template_key",                     # DEV-386
     "connector_key": "connector_key", "operation_ref": "operation_ref",
     "proof_ref": "proof_ref", "external_id": "clinical_record_id",
     "member_ref": "member_ref", "member_id": "member_ref", "member_ref_enc": "member_ref",
@@ -253,6 +264,11 @@ FIELDS.update(dict.fromkeys((
     "uploaded_by_ref",                                             # DEV-345
     "proof_checked_by_ref",                                        # DEV-352
     "merged_by_ref", "unmerged_by_ref",                            # DEV-365
+    "prioritized_by_ref",                                          # DEV-366
+    "requester_ref",                                               # DEV-381
+    "verified_by_ref",                                             # DEV-382
+    "dispute_by_ref", "dispute_decided_by_ref",                    # DEV-385
+    "clinical_by_ref", "privacy_by_ref",                           # DEV-386
 ), "actor_ref"))
 
 # Where one field name means different things in different tables: (app_label.Model, field).

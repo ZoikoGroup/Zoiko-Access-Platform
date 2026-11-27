@@ -70,12 +70,17 @@ def staff_directory() -> dict[str, Any]:
         Credential.objects.filter(email__gt="", email_verified_at__isnull=True, **scope)
         .values_list("actor_id", flat=True)
     )
+    two_step_on = set(
+        Credential.objects.filter(totp_enabled_at__isnull=False, **scope)
+        .values_list("actor_id", flat=True)
+    )
     return {
         "organizations": [{"id": o.public_id, "name": o.name, "status": o.status} for o in orgs],
         "staff": [
             {"id": a.public_id, "login": a.subject, "name": names_set.get(a.public_id, ""),
              "type": a.actor_type, "status": a.status,
-             "roles": held.get(a.pk, []), "pending_invite": a.pk in pending}
+             "roles": held.get(a.pk, []), "pending_invite": a.pk in pending,
+             "two_step_on": a.pk in two_step_on}
             for a in staff.order_by("created_at")
         ],
     }

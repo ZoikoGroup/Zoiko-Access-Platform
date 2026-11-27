@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { inviteStaff, resendInvite, setMemberStatus } from "../api";
+import { inviteStaff, resendInvite, resetMemberTwoStep, setMemberStatus } from "../api";
 import { getDirectory } from "../api";
 import type { Directory } from "../types";
 import { Gate, useLoad } from "../useLoad";
@@ -88,6 +88,14 @@ function View({ dir, onChanged }: { dir: Directory; onChanged: () => void }) {
                         onClick={() => void run(`r${m.id}`, () => resendInvite(m.id), "Invitation sent again")}>
                         Resend invitation
                       </button>
+                    )}
+                    {!me && m.two_step_on && (
+                      <>{" "}
+                        <button className="btn ghost" disabled={busy !== ""}
+                          onClick={() => void run(`t${m.id}`, () => resetMemberTwoStep(m.id), "Two-step sign-in reset")}>
+                          Reset two-step
+                        </button>
+                      </>
                     )}
                   </span>,
                 ] : []),

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { ChangePassword } from "./ChangePassword";
 import { EmailCard, type EmailStatus } from "./EmailCard";
 import { NameCard } from "./NameCard";
+import { TwoStepCard } from "./TwoStep";
+import type { TwoStepApi } from "./twoStepApi";
 import { Card, Pill } from "./ui";
 
 export interface NameCheckInfo {
@@ -32,10 +34,12 @@ function NameCheckCard({ load }: { load: () => Promise<NameCheckInfo> }) {
 
 /** "My account" for the apps that have no profile page of their own: who is signed in, and the
  *  change-password form. Nothing here is read from the server: it is what the sign-in returned. */
-export function Account({ login, tenantName, roles, onChangePassword, name, email, nameCheck }: {
+export function Account({ login, tenantName, roles, onChangePassword, name, email, nameCheck, twoStep }: {
   login: string; tenantName: string; roles: string[];
   /** Optional: the state of the clinic's check of this person's name (doctors only). */
   nameCheck?: () => Promise<NameCheckInfo>;
+  /** Optional: two-step sign-in for staff logins (DEV-380). */
+  twoStep?: TwoStepApi;
   onChangePassword: (current: string, next: string) => Promise<void>;
   name: {
     load: () => Promise<string>;
@@ -52,7 +56,7 @@ export function Account({ login, tenantName, roles, onChangePassword, name, emai
     <>
       <div className="hero"><div>
         <h1>My account</h1>
-        <p>Who you are signed in as, and your password.</p>
+        <p>Who you are signed in as, your password and two-step sign-in.</p>
       </div></div>
       <div className="grid">
         <Card title="Signed in as">
@@ -64,6 +68,7 @@ export function Account({ login, tenantName, roles, onChangePassword, name, emai
         {nameCheck && <NameCheckCard load={nameCheck} />}
         <EmailCard {...email} />
         <ChangePassword onChange={onChangePassword} />
+        {twoStep && <TwoStepCard api={twoStep} />}
       </div>
     </>
   );

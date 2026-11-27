@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { readDevLogin } from "@shared/devLogin";
 import { AuthShell, PasswordField, RememberRow, SsoButtons } from "../AuthShell";
-import { setSession, signIn, type Session } from "../api";
+import { finishSecondStep, getSession, setSession, signIn, signOutEverywhere, twoStepApi, type LoginReply, type Session } from "../api";
+import { RequiredSetUp, SecondStepForm } from "@shared/TwoStep";
 
 // Where each kind of person belongs.
 const OTHER_APPS: Record<string, { name: string; url: string }> = {
@@ -21,6 +22,9 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [elsewhere, setElsewhere] = useState<string | null>(null);
+  // Two-step sign-in (DEV-380): the ticket while the code is due, and a required set-up.
+  const [ticket, setTicket] = useState("");
+  const [settingUp, setSettingUp] = useState(false);
 
   useEffect(() => {                       // development only: see shared/src/devLogin.ts
     const dev = readDevLogin();
@@ -32,26 +36,73 @@ export function SignIn({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
     await attempt(organization, login, password);
   }
 
+  /** A session from sign-in (with or without the code): only for this app's people. */
+  function arrive(reply: LoginReply) {
+    if (reply.home !== "platform") {
+      setElsewhere(reply.home);            // right password, wrong app: do not keep the token
+      setPassword("");
+      return;
+    }
+    const session: Session = {
+      token: reply.token, tenantName: reply.tenant.name, login: reply.actor.login, roles: reply.roles,
+    };
+    setSession(session);
+    if (reply.must_set_up_two_step) setSettingUp(true);   // the organization requires it
+    else onSignedIn(session);
+  }
+
+  async function enterCode(code: string) {
+    setBusy(true); setError("");
+    try {
+      const reply = await finishSecondStep(ticket, code);
+      setTicket("");
+      arrive(reply);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign-in failed");
+    } finally { setBusy(false); }
+  }
+
   async function attempt(organization: string, login: string, password: string) {
     setBusy(true); setError(""); setElsewhere(null);
     try {
       const reply = await signIn(organization, login, password);
-      if (reply.home !== "platform") {
-        setElsewhere(reply.home);            // right password, wrong app: do not keep the token
+      if (reply.second_step && reply.ticket) {      // right password: now the code
+        setTicket(reply.ticket);
         setPassword("");
         return;
       }
-      const session: Session = {
-        token: reply.token, tenantName: reply.tenant.name, login: reply.actor.login, roles: reply.roles,
-      };
-      setSession(session);
-      onSignedIn(session);
+      arrive(reply);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed");
       setPassword("");
     } finally { setBusy(false); }
   }
 
+  if (settingUp) {
+    return (
+    <AuthShell headline="Keep every customer's care" accent="running safely."
+      subtitle="Customers, incidents, releases and safety work for Zoiko staff."
+      points={["See the health of every customer at a glance", "Spot tampering or backlogs early", "Never see a patient's information"]}>
+        <RequiredSetUp api={twoStepApi}
+          onDone={() => { const now = getSession(); setSettingUp(false); if (now) onSignedIn(now); }}
+          onCancel={() => { void signOutEverywhere(); setSettingUp(false); }} />
+      </AuthShell>
+    );
+  }
+  if (ticket) {
+    return (
+    <AuthShell headline="Keep every customer's care" accent="running safely."
+      subtitle="Customers, incidents, releases and safety work for Zoiko staff."
+      points={["See the health of every customer at a glance", "Spot tampering or backlogs early", "Never see a patient's information"]}>
+        <div className="auth-card">
+          <h2>Two-step sign-in</h2>
+          <p className="lead">Your password was right. Now type the 6-digit code your authenticator app shows.</p>
+          <SecondStepForm busy={busy} error={error} onCode={(c: string) => void enterCode(c)}
+            onBack={() => { setTicket(""); setError(""); }} />
+        </div>
+      </AuthShell>
+    );
+  }
   const other = elsewhere ? OTHER_APPS[elsewhere] : undefined;
   return (
     <AuthShell headline="Keep every customer's care" accent="running safely."

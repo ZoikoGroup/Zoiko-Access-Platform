@@ -52,6 +52,8 @@ FULL_ACCESS = frozenset({
     "foundation_inboxmessage",
     "foundation_idempotencykey",
     "foundation_queuedemail",
+    "foundation_ratewindow",          # one-minute counters, deleted when old (DEV-387)
+    "foundation_slominute",           # per-minute request counts, deleted after 35 days (DEV-388)
     "probe_probe",
 })
 

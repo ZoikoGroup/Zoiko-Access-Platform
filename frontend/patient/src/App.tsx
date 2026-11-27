@@ -29,13 +29,13 @@ export type PageId =
   | "dashboard" | "find" | "appointments" | "referrals" | "records" | "careteam" | "family"
   | "bills" | "insurance" | "messages" | "notifications" | "privacy" | "profile" | "help" | "requests" | "notes" | "claims" | "programme";
 
-interface NavItem { id: PageId; label: string; icon: string; waitsFor?: string }
+interface NavItem { id: PageId; label: string; icon: string; waitsFor?: string; capability?: string }
 
 const NAV: NavItem[] = [
   { id: "dashboard", label: "Home", icon: "dashboard" },
-  { id: "find", label: "Find Healthcare", icon: "search" },
-  { id: "appointments", label: "Appointments", icon: "appointments" },
-  { id: "referrals", label: "My Referrals", icon: "referrals" },
+  { id: "find", label: "Find Healthcare", icon: "search", capability: "provider_directory" },
+  { id: "appointments", label: "Appointments", icon: "appointments", capability: "booking" },
+  { id: "referrals", label: "My Referrals", icon: "referrals", capability: "referrals" },
   { id: "requests", label: "My Tests & Requests", icon: "services" },
   { id: "notes", label: "My Notes", icon: "services" },
   { id: "claims", label: "My Claims", icon: "compliance" },
@@ -45,7 +45,7 @@ const NAV: NavItem[] = [
   { id: "family", label: "Family Members", icon: "patients" },
   { id: "bills", label: "Bills & Payments", icon: "billing" },
   { id: "insurance", label: "Insurance & Claims", icon: "compliance" },
-  { id: "messages", label: "Messages", icon: "messages" },
+  { id: "messages", label: "Messages", icon: "messages", capability: "messaging" },
   { id: "notifications", label: "Notifications", icon: "bell" },
   { id: "privacy", label: "Privacy & Consent", icon: "shield" },
   { id: "profile", label: "My Profile", icon: "settings" },
@@ -130,12 +130,15 @@ export default function App() {
   }
 
   const item = NAV.find((n) => n.id === page) ?? NAV[0];
+  const off = me?.switched_off ?? [];
+  const visibleNav = NAV.filter((n) => !n.capability || !off.includes(n.capability));
   // The patient's own saved name (My Profile) when there is one; otherwise a name made from the login.
   const ownName = profiles.find((x) => x.own)?.name.trim() ?? "";
   const name = ownName ? ownName.split(" ")[0] : displayName(session.login);
   let body;
   if (!me) body = <div className="notice">Loading…</div>;
   else if (!LIVE.includes(page)) body = <Planned title={item.label} waitsFor={item.waitsFor ?? ""} />;
+  else if (item.capability && off.includes(item.capability)) body = <SwitchedOff label={item.label} />;
   else if (page === "find") body = <FindCare key={`${findQuery}|${findService}`} initialQuery={findQuery} initialService={findService} me={me} waiting={waiting} profiles={profiles} onBooked={refresh} goTo={setPage} />;
   else if (page === "appointments") body = <Appointments bookings={bookings} waiting={waiting} onChanged={refresh} onBookAgain={bookAgain} />;
   else if (page === "messages") body = <Messages onChanged={refresh} />;
@@ -162,7 +165,7 @@ export default function App() {
           <Logo />
           <div><b>Zoiko Access</b><small>Global Healthcare Access</small></div>
         </div>
-        <QuickSearch pages={NAV.filter((n) => LIVE.includes(n.id))} onPage={(id) => openPage(id as PageId)}
+        <QuickSearch pages={visibleNav.filter((n) => LIVE.includes(n.id))} onPage={(id) => openPage(id as PageId)}
           fallback={{ icon: "search", label: (t) => `Find care “${t}”`, onChoose: (t) => { setFindQuery(t); setPage("find"); } }} />
         <span className="spacer" />
         <button className="bell" onClick={() => setPage("notifications")}
@@ -178,7 +181,7 @@ export default function App() {
         <button className="btn ghost" onClick={() => { void signOutEverywhere().then(forget); }}>Sign out</button>
       </header>
       <nav className="sidebar" aria-label="Main">
-        {NAV.map((n) => (
+        {visibleNav.map((n) => (
           <button key={n.id} className={`nav-item ${page === n.id ? "active" : ""}`}
             onClick={() => openPage(n.id)} aria-current={page === n.id ? "page" : undefined}>
             <Icon name={n.icon} />
@@ -219,6 +222,16 @@ function VerifyBanner({ address }: { address: string }) {
       </button>
       {state === "wait" && <span>Please wait a minute before asking again.</span>}
       {state === "error" && <span>Could not send right now.</span>}
+    </div>
+  );
+}
+
+/** A screen whose feature the organization's country pack has not switched on (DEV-383). */
+function SwitchedOff({ label }: { label: string }) {
+  return (
+    <div className="card" role="status">
+      <h2>{label} is not available here</h2>
+      <p>This feature is not yet switched on for your clinic&apos;s country.</p>
     </div>
   );
 }

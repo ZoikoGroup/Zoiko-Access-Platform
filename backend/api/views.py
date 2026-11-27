@@ -607,6 +607,10 @@ def _act_on_booking(
             done = scheduling.confirm(
                 booking_ref=booking_id, actor_public_id=auth.actor_public_id, decision=decision
             )
+        elif verb == "keep":     # the patient takes back a cancel request (DEV-390)
+            done = scheduling.keep(
+                booking_ref=booking_id, actor_public_id=auth.actor_public_id, decision=decision
+            )
         else:
             reason = text(json_body(request), "reason", required=False)
             done = scheduling.cancel(
@@ -631,6 +635,14 @@ def booking_cancel(
     request: HttpRequest, auth: trust.Authenticated, booking_id: str
 ) -> HttpResponse:
     return _act_on_booking(request, auth, booking_id, "cancel")
+
+
+@endpoint("POST")
+def booking_keep(
+    request: HttpRequest, auth: trust.Authenticated, booking_id: str
+) -> HttpResponse:
+    """The patient takes back their request to cancel, before the clinic answers (DEV-390)."""
+    return _act_on_booking(request, auth, booking_id, "keep")
 
 
 def _ics_text(value: str) -> str:
@@ -1404,6 +1416,9 @@ def platform_delivery_attempts(request: HttpRequest, auth: trust.Authenticated) 
 def platform_overview(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
     """One row per customer tenant with AGGREGATE numbers only: no patient rows, names or emails.
     Each view is recorded in the platform tenant's own audit chain."""
+    from .capability_gate import all_capabilities
+    from .capability_gate import mode as gating_mode
+
     org = _platform_only(auth)
     _authorize(auth, "read:platform", organization_public_id=org)
     tenants = trust.list_tenants()
@@ -1416,15 +1431,23 @@ def platform_overview(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
             outcome=evidence.AuditOutcome.ALLOWED,
             details={"tenants": len(tenants)},
         )
+    all_caps = all_capabilities()
     with tenant_transaction():
         incidents = [i for i in trust.list_incidents() if i["status"] == "open"]
         waiting = [s for s in trust.list_changes() if s["status"] == "pending"]
         latest = trust.list_releases(limit=1)
+        hazard_gaps = safety.trace()["gaps"]
+        caps_by_country = {
+            c: jurisdiction.enabled_capabilities(c)
+            for c in {t["country"] for t in tenants if t.get("country")}
+        }
     platform_work = {
         "open_incidents": len(incidents),
         # Open incidents that are SEV-0 or SEV-1 (the key keeps its older name "high").
         "high_incidents": sum(1 for i in incidents if i["severity"] in ("sev0", "sev1")),
         "suspensions_waiting": len(waiting),
+        "missing_control_tests": hazard_gaps["tests_missing"],
+        "unverified_controls": hazard_gaps["controls_waiting"],
         "latest_release": (
             {"version": latest[0]["version"], "released_on": latest[0]["released_on"]}
             if latest
@@ -1435,6 +1458,16 @@ def platform_overview(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
     since = now - dt.timedelta(hours=24)
     rows = []
     for t in tenants:
+        on = (
+            caps_by_country.get(t["country"], frozenset()) & all_caps
+            if t["type"] != "platform" and t.get("country")
+            else frozenset()
+        )
+        caps = (
+            {"on": sorted(on), "off": sorted(all_caps - on)}
+            if t["type"] != "platform"
+            else {"on": [], "off": []}
+        )
         with tenant_transaction(trust.context_for(t["public_id"])):
             rows.append(
                 {
@@ -1444,6 +1477,7 @@ def platform_overview(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
                     "status": t["status"],
                     "self_registration": t["self_registration"] == "true",
                     "country": t["country"],
+                    "capabilities": caps,
                     "created_at": t["created_at"],
                     "counts": trust.counts(),
                     "services": catalog.service_counts(),
@@ -1456,6 +1490,7 @@ def platform_overview(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
         {
             "cell": auth.context.cell_id,
             "generated_at": now.isoformat(),
+            "pack_gating": gating_mode(),
             "outbox": backlog_stats(),
             "mail": mail_stats(),
             "work": platform_work,
@@ -3596,7 +3631,8 @@ def claim_withdraw(
 def claim_attachments_sent(
     request: HttpRequest, auth: trust.Authenticated, claim_id: str
 ) -> HttpResponse:
-    """The clinic attaches a supporting document (PDF, PNG, JPEG, up to 10 MB) to an undecided claim."""
+    """The clinic attaches a supporting document (PDF, PNG, JPEG, up to 10 MB) to an
+    undecided claim."""
     org = _clinic_org(auth)
     mine = _my_customer(auth)
     with tenant_transaction(_platform_context()):
@@ -4577,13 +4613,14 @@ def message_threads(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
         return JsonResponse(
             {"thread": _thread_json(made, False)}, status=200 if outcome.replayed else 201
         )
+    pg = _page_req(request, auth, "messages.threads")
     if staff:
         _staff_only(auth)
         if org is None or not is_allowed(auth, "read:comms", organization_public_id=org):
-            return JsonResponse({"threads": []})
+            return JsonResponse(_with_cursor({"threads": []}, pg))
         with tenant_transaction():
             rows = messaging.list_threads(
-                organization_ref=org, viewer_ref=auth.actor_public_id, viewer_side="staff"
+                organization_ref=org, viewer_ref=auth.actor_public_id, viewer_side="staff", page=pg
             )
     else:
         with tenant_transaction():
@@ -4592,7 +4629,8 @@ def message_threads(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
         with tenant_transaction():
             rows = (
                 messaging.list_threads(
-                    person_refs=persons, viewer_ref=auth.actor_public_id, viewer_side="patient"
+                    person_refs=persons, viewer_ref=auth.actor_public_id,
+                    viewer_side="patient", page=pg,
                 )
                 if persons
                 else []
@@ -4600,7 +4638,7 @@ def message_threads(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
     out = [_thread_json(t, staff) for t in rows]
     if staff:
         _add_names(auth, out, "patient")  # staff see the name where allowed
-    return JsonResponse({"threads": out})
+    return JsonResponse(_with_cursor({"threads": out}, pg))
 
 
 def _thread_access(
@@ -4696,18 +4734,20 @@ def clinician_messages(request: HttpRequest, auth: trust.Authenticated) -> HttpR
     persons = [
         p for p in mine if is_allowed(auth, "read:comms", organization_public_id=org, subject_ref=p)
     ]
+    pg = _page_req(request, auth, "clinician.messages")
     if org is None or not persons:
-        return JsonResponse({"threads": []})
+        return JsonResponse(_with_cursor({"threads": []}, pg))
     with tenant_transaction():
         rows = messaging.list_threads(
             person_refs=persons,
             organization_ref=org,
             viewer_ref=auth.actor_public_id,
             viewer_side="staff",
+            page=pg,
         )
     out = [_thread_json(t, True) for t in rows]
     _add_names(auth, out, "patient")
-    return JsonResponse({"threads": out})
+    return JsonResponse(_with_cursor({"threads": out}, pg))
 
 
 # ------------------------------------------------------------------ family members
@@ -5217,14 +5257,15 @@ def waitlist_entries(request: HttpRequest, auth: trust.Authenticated) -> HttpRes
                 decision=decision,
             )
         return JsonResponse({"entry": _waitlist_json([made], auth)[0]}, status=201)
+    pg = _page_req(request, auth, "waitlist.entries")
     with tenant_transaction():
         reachable = trust.reachable_persons(auth.actor_public_id)
     persons = [p for p in reachable if is_allowed(auth, "read:booking", subject_ref=p)]
     rows: list[dict[str, Any]] = []
     if persons:
         with tenant_transaction():
-            rows = waitlist.list_entries(person_refs=persons)
-    return JsonResponse({"entries": _waitlist_json(rows, auth)})
+            rows = waitlist.list_entries(person_refs=persons, page=pg)
+    return JsonResponse(_with_cursor({"entries": _waitlist_json(rows, auth)}, pg))
 
 
 @endpoint("GET")
@@ -6781,10 +6822,12 @@ def clinician_notes(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
                 organization_ref=org,
             )
         names = trust.actor_labels()
+    checking = identity_held([person])  # DEV-385
     shown = []
     for row in rows:
         item = _note_json(row, names)
         item["mine"] = row["author"] == auth.actor_public_id
+        item["identity_check_open"] = person in checking
         shown.append(item)
     return JsonResponse({"notes": shown, **({"next_cursor": next_cursor} if paged else {})})
 
@@ -6814,6 +6857,7 @@ def clinician_note(request: HttpRequest, auth: trust.Authenticated, note_id: str
         names = trust.actor_labels()
     out = _note_json(got, names)
     out["mine"] = got["author"] == auth.actor_public_id
+    out["identity_check_open"] = bool(identity_held([got["person"]]))
     return JsonResponse({"note": out})
 
 
@@ -6834,6 +6878,8 @@ def clinician_note_step(
     decision = _authorize(
         auth, op, organization_public_id=found["organization"], subject_ref=found["person"]
     )
+    if step == "sign":
+        refuse_if_identity_held(found["person"])  # DEV-385: held during duplicate check
     with tenant_transaction():
         if step == "edit":
             done = notes.edit_draft(
@@ -6955,6 +7001,7 @@ def my_notes(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
         return JsonResponse({"notes": [], "enabled": False})
     notes = _notes_on()
     people = _note_people(auth, notes)
+    checking = identity_held(list(people.keys()))  # DEV-385
     rows: list[dict[str, Any]] = []
     for person, as_guardian in people.items():
         decision = _authorize(auth, notes.READ, subject_ref=person)
@@ -6966,6 +7013,8 @@ def my_notes(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
             who = trust.profile_summary_for([person]).get(person, "") if as_guardian else ""
         for row in found:
             row["for_name"] = who or None
+            if person in checking:
+                row["held"] = IDENTITY_CHECK
         rows += found
     with tenant_transaction():
         names = trust.actor_labels()
@@ -6986,6 +7035,8 @@ def my_note(request: HttpRequest, auth: trust.Authenticated, note_id: str) -> Ht
     if found["person"] not in people:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     decision = _authorize(auth, notes.READ, subject_ref=found["person"])
+    if identity_held([found["person"]]):  # held during a duplicate-record check (DEV-385)
+        raise ZoikoError(ErrorCode.NOT_FOUND)
     with tenant_transaction():
         got = notes.patient_read(
             note_ref=note_id, person_ref=found["person"], by=auth.actor_public_id,
@@ -7010,6 +7061,8 @@ def my_note_attachment(
     if found["person"] not in people:
         raise ZoikoError(ErrorCode.NOT_FOUND)
     decision = _authorize(auth, notes.READ, subject_ref=found["person"])
+    if identity_held([found["person"]]):  # held during a duplicate-record check (DEV-385)
+        raise ZoikoError(ErrorCode.NOT_FOUND)
     with tenant_transaction():
         name, ctype, data = notes.patient_open_attachment(
             note_ref=note_id,

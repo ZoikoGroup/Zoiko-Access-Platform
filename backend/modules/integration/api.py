@@ -2,6 +2,10 @@
 
 This is the ONLY module other domain modules may import from `modules.integration`.
 """
+from .egress import ask as ask_egress
+from .egress import decide as decide_egress
+from .egress import listing as egress_permits
+from .egress import mode as egress_mode
 from .fhir import (
     list_quarantined,
     parse_payload,
@@ -38,6 +42,7 @@ from .services import (
 
 __all__ = [
     "parse_payload",
+    "ask_egress", "decide_egress", "egress_mode", "egress_permits",     # DEV-384
     "retry_code_held",
     "retry_quarantined",
     "FhirQuarantineState",

@@ -63,6 +63,7 @@ export interface Directory {
     id: string; login: string; name?: string; type: string; status: string;
     roles: { role: string; organization_id: string; organization_name: string; status: string }[];
     pending_invite: boolean;
+    two_step_on?: boolean;
   }[];
   can_manage: boolean;
   me: string;

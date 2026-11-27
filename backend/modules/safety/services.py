@@ -4,7 +4,8 @@ Rules (the docs name the fields and the status words; the steps below are how we
 - A hazard is ASSESSED by one person (severity, probability, how it was judged, the remaining
   risk) and REVIEWED by a DIFFERENT person. Nobody reviews their own assessment.
 - Remaining risk can be ACCEPTED only after an independent review has verified it, by someone
-  other than the assessor, and never when the remaining risk is HIGH (it must be reduced first).
+  other than the assessor, and never when the remaining risk is HIGH (it must be reduced first),
+  and only with at least one verified risk control and none still waiting (controls.py, DEV-382).
 - Assessing again after a review clears the review, so an old sign-off never covers a new judgment.
 - Every step is written to an append-only history and to the audit log. Notes must never hold
   patient details.
@@ -276,6 +277,10 @@ def accept(hazard_ref: str, *, actor_ref: str, note: object = "") -> dict[str, A
             raise ZoikoError(ErrorCode.POLICY_DENIED)
         if h.residual_risk == "high":
             raise _bad("residual_risk")  # reduce it first, then assess again
+        from .controls import ready_to_accept  # noqa: PLC0415 - controls imports this module
+
+        if not ready_to_accept(h.public_id):
+            raise _bad("controls")  # at least one verified control, none waiting (DEV-382)
         _step(h, "accept", HazardStatus.ACCEPTED, actor_ref, text)
     return hazard_dict(h)
 

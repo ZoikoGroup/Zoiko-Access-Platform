@@ -294,12 +294,17 @@ def list_cases(
     return [case_dict(c) for c in rows.order_by("-created_at")[: max(1, min(limit, 200))]]
 
 
-def overdue_count(organization_ref: str, hours: int, clock: Clock | None = None) -> int:
+def overdue_count(
+    organization_ref: str, hours: int, clock: Clock | None = None,
+    cutoff: dt.datetime | None = None,
+) -> int:
     """How many open requests are past their answer date (a number only; nothing is read). A request
-    whose date came from a country pack is late after that date; one with no date is late once it
-    has waited the clinic's own response target."""
+    whose date came from a country pack is late after that date (calendar time: a legal deadline
+    never stretches for opening hours); one with no date is late once it has waited the clinic's
+    own response target (`cutoff`, counting opening hours, DEV-367, replaces `hours` when given)."""
     now = utc_now(clock)
-    cutoff = now - dt.timedelta(hours=hours)
+    if cutoff is None:
+        cutoff = now - dt.timedelta(hours=hours)
     return RightsCase.objects.filter(
         organization_ref=organization_ref, state__in=OPEN_STATES, **_scope()
     ).filter(Q(due_at__lt=now) | Q(due_at__isnull=True, created_at__lt=cutoff)).count()

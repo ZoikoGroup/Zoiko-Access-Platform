@@ -253,17 +253,22 @@ def close_thread(
 
 def list_threads(
     *, person_refs: list[str] | None = None, organization_ref: str = "", limit: int = 100,
-    viewer_ref: str = "", viewer_side: str = "",
+    viewer_ref: str = "", viewer_side: str = "", page: Any = None,
 ) -> list[dict[str, Any]]:
     """Newest activity first. The caller has authorized each patient or organization it asks for.
     With a viewer, each thread also says how many messages from the other side THIS login has not
     opened (`unread_for_me`): one staff member's reply or opening never clears it for another."""
+    from foundation import pagination
+
     rows = Thread.objects.filter(**_scope())
     if person_refs is not None:
         rows = rows.filter(person_ref__in=person_refs)
     if organization_ref:
         rows = rows.filter(organization_ref=organization_ref)
-    threads = list(rows.order_by("-last_message_at")[: max(1, min(limit, 200))])
+    if page is not None:
+        threads = pagination.apply(rows, page)
+    else:
+        threads = list(rows.order_by("-last_message_at")[: max(1, min(limit, 200))])
     out = [thread_dict(t) for t in threads]
     if viewer_ref and viewer_side:
         seen = set(MessageView.objects.filter(
@@ -299,11 +304,14 @@ def unanswered_threads(
 
 
 def overdue_threads_for_staff(
-    organization_ref: str, hours: int, clock: Clock | None = None
+    organization_ref: str, hours: int, clock: Clock | None = None,
+    cutoff: dt.datetime | None = None,
 ) -> int:
     """Open threads whose newest message the clinic has not opened for more than `hours` hours.
-    Counted from the newest message, so a long-waiting thread is never over-reported."""
-    cutoff = utc_now(clock) - dt.timedelta(hours=hours)
+    Counted from the newest message, so a long-waiting thread is never over-reported. `cutoff`
+    (catalog.late_cutoff, counting opening hours, DEV-367) replaces `hours` when given."""
+    if cutoff is None:
+        cutoff = utc_now(clock) - dt.timedelta(hours=hours)
     return Thread.objects.filter(
         organization_ref=organization_ref, status=ThreadStatus.OPEN, staff_unread__gt=0,
         last_message_at__lt=cutoff, **_scope()).count()

@@ -15,6 +15,7 @@ from django.conf import settings
 
 from foundation.cell_context import CellContext, build_context, tenant_transaction
 from foundation.errors import ErrorCode, ZoikoError
+from foundation.timeutil import utc_now
 
 from .auth import TOKEN_PREFIX, authenticate_token
 from .models import Actor, Status, Tenant
@@ -31,6 +32,12 @@ class Authenticated:
     tenant_name: str = ""
     tenant_type: str = ""
     roles: tuple[str, ...] = ()   # role codes held right now
+    # Two-step sign-in (DEV-380): when the second step was last proved (Unix seconds, 0 never),
+    # whether this login has it switched on, and whether it must still be set up (the customer
+    # requires it for staff). The unsigned DEVELOPMENT login counts as proved just now.
+    second_step_at: int = 0
+    two_step_on: bool = False
+    must_set_up_two_step: bool = False
 
 
 def authenticate(authorization_header: str | None) -> Authenticated:
@@ -69,4 +76,5 @@ def authenticate(authorization_header: str | None) -> Authenticated:
     if actor is None:
         raise ZoikoError(ErrorCode.UNAUTHENTICATED)  # same answer for every failure: no hints
     return Authenticated(
-        ctx, actor.public_id, actor.actor_type, tenant.name, tenant.type, roles)
+        ctx, actor.public_id, actor.actor_type, tenant.name, tenant.type, roles,
+        second_step_at=int(utc_now().timestamp()))

@@ -140,7 +140,8 @@ def test_a_pack_refuses_a_step_its_state_does_not_allow(platform, state, action)
 
 # ====================================================================== 2. bookings
 # The clinic's own steps (desk staff). "started" is a confirmed appointment whose time has come.
-BOOKING_ACTIONS = ("confirm", "cancel", "reschedule", "attendance", "ask-provider")
+# "keep" (DEV-390) takes back a patient's cancel request: none of these states has one waiting.
+BOOKING_ACTIONS = ("confirm", "cancel", "reschedule", "attendance", "ask-provider", "keep")
 BOOKING_ALLOWED: dict[str, set[str]] = {
     "requested": {"confirm", "cancel", "reschedule", "ask-provider"},
     "confirmed": {"confirm", "cancel", "reschedule"},     # confirming again is harmless

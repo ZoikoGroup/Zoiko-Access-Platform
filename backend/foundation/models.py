@@ -115,6 +115,8 @@ class MailState(models.TextChoices):
     SENT = "sent", "Sent"
     FAILED = "failed", "Failed"  # gave up; a person must look
     CANCELLED = "cancelled", "Cancelled before it was sent"   # TC37, DEV-182
+    # Its template version is not approved yet (DEV-386): kept, and sent once it is approved.
+    HELD = "held", "Held: its template is not approved yet"
 
 
 class QueuedEmail(CellScopedModel):
@@ -138,6 +140,9 @@ class QueuedEmail(CellScopedModel):
     # SHA-256 of "subject, a line break, body" as queued. It stays after the body is wiped, so there
     # is evidence of exactly what was sent without keeping a one-time link (GHE-16, DEV-113).
     content_digest = models.CharField(max_length=64, blank=True, default="")
+    # The approved template and version it was built from (DEV-386, GHE-16 template_version).
+    template_key = models.CharField(max_length=40, blank=True, default="")
+    template_version = models.CharField(max_length=16, blank=True, default="")
     # What the provider later said happened (DEV-354): delivered, bounced, dropped or deferred.
     # "Sent" only means the provider accepted it; this is the closest we get to "arrived".
     delivery_status = models.CharField(max_length=12, blank=True, default="")
@@ -166,6 +171,7 @@ class QueuedText(CellScopedModel):
     sent_at = models.DateTimeField(null=True, blank=True)
     last_error = models.CharField(max_length=64, blank=True, default="")
     content_digest = models.CharField(max_length=64, blank=True, default="")
+    template_version = models.CharField(max_length=16, blank=True, default="")   # DEV-386
     # DEV-199: the provider's id for the message, and how far it got by the provider's receipts.
     provider_ref = models.CharField(max_length=64, blank=True, default="")
     delivery_status = models.CharField(max_length=16, blank=True, default="")
@@ -219,3 +225,65 @@ class ProviderCircuit(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name}: {self.failures} failures"
+
+
+class TemplateApproval(CellScopedModel):
+    """One version of one message template, and who approved it (DEV-386, GHE-16 WF-15).
+
+    A version is approved only when BOTH a safety officer (clinical, R12) and a DIFFERENT person
+    for privacy (Zoiko support, R11) have approved its exact wording. Like the mail queue this
+    table is NOT row-level secured: every customer's sending reads it, and it holds no personal
+    data, only wording and who approved it. Rows are made in Zoiko's platform tenant."""
+
+    channel = models.CharField(max_length=8)                 # email | text
+    key = models.CharField(max_length=40)
+    version = models.CharField(max_length=16)
+    wording = models.TextField()                             # exactly what was approved
+    clinical_by_ref = models.CharField(max_length=22, blank=True, default="")
+    clinical_at = models.DateTimeField(null=True, blank=True)
+    privacy_by_ref = models.CharField(max_length=22, blank=True, default="")
+    privacy_at = models.DateTimeField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)    # when the second one signed
+
+    class Meta(CellScopedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["cell_id", "channel", "key", "version"],
+                                    name="template_approval_uq"),
+        ]
+        indexes = [models.Index(fields=["cell_id", "channel", "key"], name="template_appr_idx")]
+
+
+class RateWindow(models.Model):
+    """How many requests one caller made in one minute (DEV-387, GHE-13 "rate control"). The
+    counter is shared by every server process, so it lives here. `key` is a keyed fingerprint
+    (never a raw network address or login). Old windows are deleted by the worker. Not
+    tenant-scoped and not row-level secured: plumbing, like the mail queue."""
+
+    id = models.BigAutoField(primary_key=True)
+    key = models.CharField(max_length=64)
+    window_start = models.DateTimeField()
+    count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["key", "window_start"], name="ratewindow_key_uq"),
+        ]
+        indexes = [models.Index(fields=["window_start"], name="ratewindow_start_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.key[:12]}@{self.window_start:%H:%M}"
+
+
+class SloMinute(models.Model):
+    """Requests in one minute, cell-wide, for the 30-day error budget (DEV-388, GHE-18 section 05).
+    Counts only: no route, tenant, person or address. Written by every web process (one upsert per
+    request), so the budget survives restarts; kept 35 days, then deleted by the worker."""
+
+    id = models.BigAutoField(primary_key=True)
+    minute = models.DateTimeField(unique=True)
+    total = models.PositiveIntegerField(default=0)
+    server_errors = models.PositiveIntegerField(default=0)   # 5xx: the availability indicator
+    fast = models.PositiveIntegerField(default=0)            # within the latency threshold
+
+    def __str__(self) -> str:
+        return f"{self.minute:%Y-%m-%d %H:%M} {self.server_errors}/{self.total}"

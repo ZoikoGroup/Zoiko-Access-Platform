@@ -29,6 +29,7 @@ from modules.evidence.api import AuditOutcome, record
 from modules.policy import api as policy
 from modules.trust import api as trust
 
+from . import egress
 from .delivery import (
     TIMEOUT_SECONDS,
     Transport,
@@ -70,13 +71,25 @@ def _secret_of(ep: WebhookEndpoint) -> str:
         raise ZoikoError(ErrorCode.INTERNAL_ERROR) from exc
 
 
-def endpoint_dict(ep: WebhookEndpoint) -> dict[str, Any]:
-    return {
+class EgressNotPermitted(UnsafeTarget):
+    """Zoiko has not approved this host for this customer (DEV-384)."""
+
+
+def _customer_ref() -> str:
+    return trust.tenant_public_id(require_context().tenant_id)
+
+
+def endpoint_dict(ep: WebhookEndpoint, *, with_permit: bool = False) -> dict[str, Any]:
+    out = {
         "public_id": ep.public_id, "label": ep.label, "url": ep.url, "topics": list(ep.topics),
         "key_id": ep.key_id, "state": ep.state, "created_at": ep.created_at.isoformat(),
         "verified_at": ep.verified_at.isoformat() if ep.verified_at else None,
         "failure_streak": ep.failure_streak,
     }
+    if with_permit:   # Zoiko's approval of the address (DEV-384): none, proposed, approved ...
+        out["address_permit"] = egress.state_for(
+            _customer_ref(), egress.host_of(ep.url), egress.EgressPurpose.WEBHOOK)
+    return out
 
 
 def delivery_dict(d: WebhookDelivery) -> dict[str, Any]:
@@ -150,12 +163,20 @@ def create_endpoint(
         record(actor_ref=actor_public_id, action="integration.endpoint_created",
                object_type="webhook_endpoint", object_ref=row.public_id,
                outcome=AuditOutcome.ALLOWED)
-        return {**endpoint_dict(row), "secret": secret}
+        # Ask Zoiko to approve the address before anything is sent there (DEV-384). A raw IP
+        # number can never be approved, so it is not asked for (it then receives nothing).
+        host = egress.host_of(url)
+        if egress.is_host_name(host):
+            egress.ask(_customer_ref(), host, egress.EgressPurpose.WEBHOOK,
+                       label=trust.actor_labels().get(actor_public_id, ""))
+        return {**endpoint_dict(row, with_permit=True), "secret": secret}
 
 
 def _send(
     ep: WebhookEndpoint, body: bytes, delivery_id: str, transport: Transport, now: dt.datetime
 ) -> tuple[int, bytes]:
+    if not egress.may_send(_customer_ref(), ep.url, egress.EgressPurpose.WEBHOOK):
+        raise EgressNotPermitted("address not approved")
     stamp = int(now.timestamp())
     headers = {
         "Content-Type": "application/json", "User-Agent": "Zoiko-Webhooks/1",
@@ -180,17 +201,23 @@ def verify_endpoint(
         if ep.state == EndpointState.REVOKED:
             raise ZoikoError(ErrorCode.CONFLICT_VERSION)
         challenge = secrets.token_urlsafe(16)
+        not_approved = False
         body = json.dumps({"type": "webhook.ping.v1", "challenge": challenge},
                           separators=(",", ":"), sort_keys=True).encode()
         try:
             status, answer = _send(ep, body, secrets.token_hex(16), send, now)
             ok = 200 <= status < 300 and json.loads(answer or b"{}").get("challenge") == challenge
+        except EgressNotPermitted:
+            ok, not_approved = False, True
         except (UnsafeTarget, OSError, ValueError, AttributeError):
             ok = False
         if not ok:
             record(actor_ref=actor_public_id, action="integration.verify_failed",
                    object_type="webhook_endpoint", object_ref=ep.public_id,
-                   outcome=AuditOutcome.DENIED)
+                   outcome=AuditOutcome.DENIED,
+                   reason_code="address_not_approved" if not_approved else "")
+            if not_approved:       # Zoiko has not approved the address yet (DEV-384)
+                raise ZoikoError(ErrorCode.POLICY_DENIED, fields=["address_not_approved"])
             raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["url"])
         if ep.state == EndpointState.PENDING:
             ep.state = EndpointState.ACTIVE
@@ -258,7 +285,7 @@ def rotate_secret(
 
 def list_endpoints() -> list[dict[str, Any]]:
     rows = WebhookEndpoint.objects.filter(**_scope()).order_by("-created_at")
-    return [endpoint_dict(r) for r in rows]
+    return [endpoint_dict(r, with_permit=True) for r in rows]
 
 
 def gave_up_count() -> int:
@@ -351,6 +378,8 @@ def _attempt(row: WebhookDelivery, transport: Transport, now: dt.datetime) -> No
     error = ""
     try:
         status, _ = _send(ep, row.body.encode(), str(row.delivery_id), transport, now)
+    except EgressNotPermitted:
+        error = "address_not_approved"      # DEV-384: resend it once Zoiko has approved it
     except UnsafeTarget:
         error = "unsafe_target"
     except Exception as exc:    # noqa: BLE001 - only the class name is kept (messages can hold data)
@@ -359,7 +388,7 @@ def _attempt(row: WebhookDelivery, transport: Transport, now: dt.datetime) -> No
     if status is not None and 200 <= status < 300:
         row.state, row.delivered_at, row.last_error = DeliveryState.DELIVERED, now, ""
         ep.failure_streak = 0
-    elif error == "unsafe_target" or (
+    elif error in ("unsafe_target", "address_not_approved") or (
         status is not None and 400 <= status < 500 and status not in _RETRYABLE_STATUS
     ):
         row.state = DeliveryState.DEAD_LETTER               # a clear "no": do not hammer it
@@ -367,7 +396,7 @@ def _attempt(row: WebhookDelivery, transport: Transport, now: dt.datetime) -> No
         row.state = DeliveryState.DEAD_LETTER
     else:
         row.state, row.next_attempt_at = DeliveryState.RETRYING, now + _delay(row.attempts)
-    if row.state == DeliveryState.DEAD_LETTER:
+    if row.state == DeliveryState.DEAD_LETTER and error != "address_not_approved":
         ep.failure_streak += 1
         if ep.failure_streak >= PAUSE_AFTER_DEAD_LETTERS and ep.state == EndpointState.ACTIVE:
             ep.state = EndpointState.PAUSED                  # stop sending until a person looks

@@ -16,6 +16,8 @@ function concerns(d: OverviewData): Concern[] {
   if (w.high_incidents > 0) out.push({ kind: "bad", text: `${w.high_incidents} SEV-0 or SEV-1 incident${w.high_incidents === 1 ? " is" : "s are"} still open`, go: "incidents" });
   if (w.open_incidents > w.high_incidents) out.push({ kind: "warn", text: `${w.open_incidents - w.high_incidents} other incident${w.open_incidents - w.high_incidents === 1 ? " is" : "s are"} still open`, go: "incidents" });
   if (w.suspensions_waiting > 0) out.push({ kind: "warn", text: `${w.suspensions_waiting} suspension or reinstatement request${w.suspensions_waiting === 1 ? " is" : "s are"} waiting for a second person`, go: "settings" });
+  if ((w.missing_control_tests ?? 0) > 0) out.push({ kind: "bad", text: `${w.missing_control_tests} hazard control test${w.missing_control_tests === 1 ? " is" : "s are"} missing from this build`, go: "hazards" });
+  if ((w.unverified_controls ?? 0) > 0) out.push({ kind: "warn", text: `${w.unverified_controls} hazard control${w.unverified_controls === 1 ? " is" : "s are"} waiting for an independent check`, go: "hazards" });
   if (d.outbox.quarantined > 0) out.push({ kind: "bad", text: `${d.outbox.quarantined} event(s) gave up delivering and need a person` });
   if (d.mail.failed > 0) out.push({ kind: "bad", text: `${d.mail.failed} email(s) could not be sent and gave up` });
   if ((d.outbox.oldest_pending_seconds ?? 0) > 300) {
