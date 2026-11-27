@@ -55,6 +55,7 @@ function TwoStep({ call }: { call: SecurityCall }) {
       {status === null ? <div className="empty">{error ? "Could not load." : "Loading…"}</div> : (
         <>
           <p><Pill kind={status.enabled ? "ok" : "info"}>{status.enabled ? "On" : "Off"}</Pill>{status.enabled ? ` ${status.recovery_left} recovery codes left.` : ""}</p>
+          {status.enabled && <small>Lost your phone and your recovery codes? Your clinic (or, for staff, your clinic administrator) can turn it off after checking who you are, so you can set it up again.</small>}
           {codes && (
             <div className="notice" role="status">
               <b>Save these recovery codes now. They are not shown again.</b> Each one signs you in once if you do not have your phone.

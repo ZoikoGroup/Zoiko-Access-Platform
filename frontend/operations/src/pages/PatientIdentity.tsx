@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getIdentity, recordIdentityCheck, withdrawIdentityCheck } from "../api";
+import { getIdentity, recordIdentityCheck, resetPatientSecondFactor, withdrawIdentityCheck } from "../api";
 import type { IdentityData } from "../consoleTypes";
 import { Card, Pill } from "../ui";
 
@@ -100,6 +100,22 @@ export function PatientIdentity({ person, onChanged }: { person: string; onChang
                     <button className="btn ghost" onClick={() => setWithdrawing(false)}>Cancel</button>
                   </>
                 )}
+            </div>
+          )}
+          {data?.second_factor?.has_login && (
+            <div className="sub">
+              <b>Two-step sign-in</b>{" "}
+              <Pill kind={data.second_factor.on ? "ok" : "info"}>{data.second_factor.on ? "On" : "Off"}</Pill>
+              {data.second_factor.on && (
+                <p>
+                  If the patient lost their phone and recovery codes, you can turn it off so they can sign in with their password
+                  and set it up again. {id.status === "verified" ? "Their identity is verified, so you can do this." : "First check their identity against an official document above: it can only be reset while their identity is verified."}
+                  {" "}<button className="btn ghost" disabled={busy || id.status !== "verified"}
+                    onClick={() => void run(() => resetPatientSecondFactor(person), "Two-step sign-in is off and the patient was signed out everywhere.")}>
+                    Reset two-step sign-in
+                  </button>
+                </p>
+              )}
             </div>
           )}
           {data?.history && data.history.length > 0 && (

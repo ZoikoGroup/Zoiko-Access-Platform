@@ -52,6 +52,7 @@ export interface Compliance extends Evidence {
 
 export interface Dashboard extends Evidence {
   tenant: string;
+  patients_by_region?: RegionCount[] | null;
   counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
   late: { hours: number; bookings: number; messages: number; data_requests: number };
   today: { confirmed: number; waiting: number; still_to_come: number };
@@ -229,7 +230,14 @@ export interface ClinicSettings {
   waitlist_offer_default?: number;        // what it is when the clinic has not chosen
   weekly_report?: boolean;                // the weekly summary email to the clinic's administrators
   late_email_recipients: number;
+  region?: string;                        // the region this site serves, for counts only
+  privileges_enforced?: boolean;          // doctors need a privilege for a service's times
+  /** What the signed country pack for this customer's country switches on. */
+  market?: { enforced: boolean; country: string; on: string[]; all: string[] };
 }
+
+/** Patients per region and site of this customer (administrators only): counts, never names. */
+export interface RegionCount { region: string; patients: number; sites: { name: string; patients: number }[] }
 
 /** A clinic's working days and opening times (0 = Monday), or null when it has not set any. */
 export interface BusinessHours { days: number[]; opens: string; closes: string; holidays: string[] }

@@ -23,7 +23,8 @@ const WORDS: Record<string, string> = {
   intended_purpose: "Every capability has an approved intended purpose (checked by the system)",
   clinical_safety_matrix: "No clinical-safety requirement is marked not built (checked by the system)",
 };
-const CAPABILITIES = ["provider_directory", "booking", "messaging", "referrals", "waiting_list"];
+const CAPABILITIES = ["provider_directory", "booking", "messaging", "referrals", "waiting_list",
+  "partner_booking", "diagnostics", "clinical_ai", "record_exchange"];
 
 function friendly(e: unknown): string {
   const code = e instanceof ApiError ? e.code : "";

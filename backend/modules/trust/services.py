@@ -436,6 +436,57 @@ def set_response_target(organization_public_id: str, hours: int | None, *, by: s
     return response_target_hours(organization_public_id)
 
 
+def region_of(organization_public_id: str) -> str:
+    ctx = require_context()
+    return str(Organization.objects.filter(
+        public_id=organization_public_id, cell_id=ctx.cell_id, tenant_id=ctx.tenant_id
+    ).values_list("region", flat=True).first() or "")
+
+
+def set_region(organization_public_id: str, region: Any, *, by: str) -> str:
+    """The region this site serves, in the clinic's own words (DEV-368). "" clears it."""
+    if not isinstance(region, str) or len(region.strip()) > 60 or any(
+            ord(c) < 32 for c in region):
+        raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["region"])
+    words = " ".join(region.split())
+    with transaction.atomic():
+        org = _own(Organization, organization_public_id)
+        org.region = words
+        org.entity_version += 1
+        org.save(update_fields=["region", "entity_version", "updated_at"])
+        _audit(by, "organization.set_region", "organization", org.public_id)
+    return words
+
+
+def patients_by_region() -> list[dict[str, Any]]:
+    """How many patients each site of this customer is connected to, grouped by the region each
+    site gave (DEV-368). Counts only. A patient connected to two sites counts at both; the region
+    total counts them once."""
+    from django.db.models import Count
+
+    from .models import PersonSite
+
+    ctx = require_context()
+    scope = {"cell_id": ctx.cell_id, "tenant_id": ctx.tenant_id}
+    sites = list(Organization.objects.filter(status=Status.ACTIVE, **scope)
+                 .values_list("public_id", "name", "region").order_by("name"))
+    counts = dict(PersonSite.objects.filter(**scope).values("organization_ref")
+                  .annotate(n=Count("person", distinct=True))
+                  .values_list("organization_ref", "n"))
+    grouped: dict[str, list[tuple[str, str]]] = {}
+    for ref, name, region in sites:
+        grouped.setdefault(region or "", []).append((ref, name))
+    out = []
+    for region in sorted(grouped, key=lambda r: (r == "", r.lower())):
+        refs = [ref for ref, _ in grouped[region]]
+        total = (PersonSite.objects.filter(organization_ref__in=refs, **scope)
+                 .values("person").distinct().count())
+        out.append({"region": region, "patients": total,
+                    "sites": [{"name": name, "patients": counts.get(ref, 0)}
+                              for ref, name in grouped[region]]})
+    return out
+
+
 def booking_system_of(organization_public_id: str) -> str:
     """The partner connector that confirms this clinic's bookings, or "" (the clinic confirms)."""
     ctx = require_context()

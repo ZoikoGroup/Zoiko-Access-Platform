@@ -219,7 +219,8 @@ export interface IdentityCheck {
   withdraw_reason: string;
 }
 
-export interface IdentityData { identity: IdentityInfo; history?: IdentityCheck[] }
+export interface SecondFactorState { has_login: boolean; on: boolean }
+export interface IdentityData { identity: IdentityInfo; history?: IdentityCheck[]; second_factor?: SecondFactorState | null }
 
 // ---- billing & claims overview (backend/api/billing.py): insurance only, no money yet ---------------
 export type CoverState = "covered" | "ending_soon" | "none_in_force" | "not_shared";

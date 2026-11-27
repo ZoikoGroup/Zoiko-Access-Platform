@@ -7,9 +7,9 @@ After its expiry date it counts for nothing. Patients see only checked, unexpire
 registration number or a note.
 
 A PRIVILEGE is what one clinic allows a doctor to do there: a service of that clinic, from a day,
-optionally until a day. It is a record for the clinic's own governance. TEMPORARY RULE: it is not
-enforced anywhere (booking and times work as before), because the clinic's policy for that is not
-written yet.
+optionally until a day. A clinic that switches enforcement on (DEV-366) can give a doctor times for
+a service, and patients can book them, only while the doctor holds a privilege for it; a clinic
+that leaves it off works as before.
 """
 from __future__ import annotations
 
@@ -252,3 +252,45 @@ def withdraw_privilege(
         row.save()
         _audit(by_ref, "privilege_withdrawn", row.public_id)
         return privilege_dict(row, now.date())
+
+
+def privileges_enforced(organization_ref: str) -> bool:
+    from .models import Organization
+
+    return bool(Organization.objects.filter(public_id=organization_ref, **_scope())
+                .values_list("privileges_enforced", flat=True).first())
+
+
+def set_privileges_enforced(organization_ref: str, on: Any, *, by_ref: str) -> bool:
+    """The clinic administrator; the caller checks the role (DEV-366)."""
+    from .models import Organization
+
+    if not isinstance(on, bool):
+        raise _bad("privileges_enforced")
+    with transaction.atomic():
+        org = Organization.objects.select_for_update().filter(
+            public_id=organization_ref, **_scope()).first()
+        if org is None:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        if org.privileges_enforced != on:
+            org.privileges_enforced = on
+            org.entity_version += 1
+            org.save(update_fields=["privileges_enforced", "entity_version", "updated_at"])
+            _audit(by_ref, "privileges_enforced_on" if on else "privileges_enforced_off",
+                   organization_ref)
+    return on
+
+
+def privilege_allows(actor_ref: str, organization_ref: str, service_ref: str,
+                     on_day: dt.date) -> bool:
+    """True when the clinic does not enforce privileges, or the doctor holds one for this service
+    that is in force on that day (not withdrawn, started, not ended)."""
+    if not privileges_enforced(organization_ref):
+        return True
+    from django.db.models import Q
+
+    return Privilege.objects.filter(
+        Q(valid_until__isnull=True) | Q(valid_until__gte=on_day),
+        actor__public_id=actor_ref, organization_ref=organization_ref, service_ref=service_ref,
+        withdrawn_at__isnull=True, valid_from__lte=on_day, **_scope()).exists()
+

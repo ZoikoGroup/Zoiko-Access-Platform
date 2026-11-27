@@ -12,6 +12,7 @@ import datetime as dt
 from django.db import transaction
 
 from foundation.cell_context import require_context
+from foundation.outbox import emit
 from foundation.timeutil import utc_now
 
 from .models import ClinicalReference, ReferenceStatus, WithdrawReason
@@ -41,8 +42,10 @@ def erase_older(cutoff: dt.datetime, held: frozenset[str], organization_ref: str
     """Erase this clinic's pointers past the cut-off, leaving out every patient on hold."""
     now = utc_now()
     erased = 0
+    people: set[str] = set()
     with transaction.atomic():
         for ref in _due(cutoff, held, organization_ref).select_for_update():
+            people.add(ref.person_ref)
             ref.external_id = ""
             if ref.status == ReferenceStatus.ACTIVE:
                 ref.status, ref.withdrawn_reason = (
@@ -51,4 +54,9 @@ def erase_older(cutoff: dt.datetime, held: frozenset[str], organization_ref: str
             ref.entity_version += 1
             ref.save()
             erased += 1
+        # Each patient is told once per erasure, in the same transaction (DEV-369). The notice
+        # names the clinic, never a record.
+        for person in sorted(people):
+            emit(event_type="reference.erased.v1", aggregate_type="person", aggregate_ref=person,
+                 payload={"person_ref": person, "organization_ref": organization_ref})
     return erased

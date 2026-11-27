@@ -394,6 +394,24 @@ def on_message_event(event: PublishedEvent) -> None:
     _email_the_patient(thread["person_ref"], "message_received")
 
 
+ERASE_CONSUMER = "comms.erase_notifier"
+
+
+def on_reference_event(event: PublishedEvent) -> None:
+    """Tell a patient a clinic removed pointers to records it keeps about them, because the agreed
+    keeping period ended (DEV-369). Never which record."""
+    if event.event_type != "reference.erased.v1":
+        return
+    org = (trust.get_organization(str(event.payload["organization_ref"])) or {}).get(
+        "name", "Your clinic")
+    _notify(
+        person_ref=str(event.payload["person_ref"]), kind="reference_erased",
+        title="Record pointers removed",
+        body=(f"{org} removed pointers to records it keeps about you, because the agreed keeping "
+              "period ended. Ask the clinic if you need a copy.")[:300],
+        source_event_id=event.event_id)
+
+
 def register_subscribers() -> None:
     """Idempotent: safe to call at start-up and again from tests."""
     if not any(s.consumer == CONSUMER for s in subscriptions()):
@@ -410,4 +428,6 @@ def register_subscribers() -> None:
         subscribe(EXCHANGE_CONSUMER, "exchange.", on_exchange_event)
     if not any(s.consumer == CLAIM_CONSUMER for s in subscriptions()):
         subscribe(CLAIM_CONSUMER, "claim.", on_claim_event)
+    if not any(s.consumer == ERASE_CONSUMER for s in subscriptions()):
+        subscribe(ERASE_CONSUMER, "reference.", on_reference_event)
 

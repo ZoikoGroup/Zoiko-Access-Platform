@@ -16,6 +16,7 @@ import json
 import re
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 
 from foundation.cell_context import require_context
@@ -171,6 +172,18 @@ def _own(permit_ref: str) -> AiUsePermit:
     return found
 
 
+def market_allows(lane: str) -> None:
+    """AI outside the admin-assist lane is clinical AI (DEV-365). With country packs enforced it
+    may be authorized, tried in shadow or run only where a signed, current pack for the customer's
+    country switches `clinical_ai` on. Admin assist is never gated."""
+    if lane == Lane.ADMIN_ASSIST or not settings.PACKS_ENFORCED:
+        return
+    from modules.jurisdiction import api as jurisdiction
+
+    if "clinical_ai" not in jurisdiction.customer_capabilities(require_context().tenant_id):
+        raise ZoikoError(ErrorCode.JURISDICTION_INACTIVE)
+
+
 def advance(
     permit_ref: str,
     to_state: str,
@@ -184,6 +197,8 @@ def advance(
     """Move a permit one step along the allowed path. Anything off the path is refused."""
     now = utc_now(clock)
     reason = " ".join((reason or "").split())[:300]
+    if to_state in (S.AUTHORIZED, S.SHADOW):
+        market_allows(_own(permit_ref).lane)          # read first: it binds the platform briefly
     with transaction.atomic():
         p = _own(permit_ref)
         if to_state not in TRANSITIONS.get(p.state, frozenset()):

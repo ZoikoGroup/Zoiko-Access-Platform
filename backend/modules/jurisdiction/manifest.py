@@ -20,7 +20,10 @@ from foundation.errors import ErrorCode, ZoikoError
 CAPABILITIES = ("provider_directory", "booking", "messaging", "referrals", "waiting_list",
                 "diagnostics", "clinical_ai", "record_exchange",
                 "partner_booking")      # DEV-224: a partner's booking system may confirm bookings
-NOT_BUILT = frozenset({"diagnostics", "clinical_ai", "record_exchange"})
+# Every capability can now be switched on (DEV-365): diagnostics gates lab orders, clinical_ai
+# gates AI outside the admin lane, record_exchange gates sending to partners and clinic record
+# references. Kept so a capability that is listed before it is built can be held off again.
+NOT_BUILT: frozenset[str] = frozenset()
 EVIDENCE_KINDS = ("legal", "dpia", "cyber", "clinical")
 EVIDENCE_STATES = ("PENDING", "PROVIDED", "NOT_APPLICABLE_REVIEW_NEEDED")
 REQUIRED_TO_SIGN = ("legal", "dpia", "cyber")      # clinical may be "needs review", never PENDING

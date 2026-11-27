@@ -70,6 +70,12 @@ class Organization(CellScopedModel):
     # "opens": "09:00", "closes": "17:00", "holidays": ["2026-12-25"]}. Empty means not set, and
     # deadlines then count every hour of the day.
     business_hours = models.JSONField(null=True, blank=True)
+    # The region this site serves, in the clinic's own words ("North", "Lagos Island"), for counts
+    # only (DEV-368). Empty means not set.
+    region = models.CharField(max_length=60, blank=True, default="")
+    # When on, a doctor's times for a service are bookable only while the doctor holds a privilege
+    # for it here (DEV-366). Off by default, so existing clinics work as before.
+    privileges_enforced = models.BooleanField(default=False)
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="org_scope_idx")]

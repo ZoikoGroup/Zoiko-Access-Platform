@@ -42,6 +42,8 @@ EVENTS: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     "rights.requested.v1": ("rights_case", ("case_ref",), ()),
     "rights.withdrawn.v1": ("rights_case", ("case_ref", "side"), ()),
     "rights.closed.v1": ("rights_case", ("case_ref", "actor_ref"), ()),
+    # A clinic erased this patient's record pointers past the keeping period (DEV-369).
+    "reference.erased.v1": ("person", ("person_ref", "organization_ref"), ()),
     "family.decided.v1": ("family", ("grant_ref", "outcome"), ()),
     "delegation.revoked.v1": ("delegation", ("grant_ref", "delegate_ref"), ()),
     "delegation.age_review.v1": ("delegation", ("grant_ref", "person_ref"), ()),

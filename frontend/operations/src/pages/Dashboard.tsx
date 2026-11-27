@@ -4,9 +4,6 @@ import { Gate, useLoad } from "../useLoad";
 import type { PageId } from "../nav";
 import { Card, Donut, Icon, Pill, StatCard, Table, timeOf } from "../ui";
 
-const PLANNED = [
-  { title: "Patients by region", note: "Needs more than one cell; not planned yet." },
-];
 
 export function Dashboard({ tenantName, api, database, onGo }: {
   tenantName: string; api: Health; database: Health; onGo: (page: PageId) => void;
@@ -161,13 +158,19 @@ function View({ d, tenantName, api, database, onGo }: {
         </div>
       )}
 
-      <div className="grid cols-3">
-        {PLANNED.map((p) => (
-          <Card key={p.title} className="planned" title={<>{p.title} <Pill kind="warn">not built yet</Pill></>}>
-            <div className="empty">{p.note}</div>
+      {d.patients_by_region && (
+        <div className="grid">
+          <Card title="Patients by region" sub="How many patients each of your sites is connected to, grouped by the region each site gave (Settings). Counts only. A patient seen at two sites counts once in a region.">
+            {d.patients_by_region.length === 0 ? <div className="empty">No site yet.</div> : (
+              <Table headers={["Region", "Patients", "Sites"]} empty=""
+                rows={d.patients_by_region.map((r) => [
+                  r.region || <i key="n">No region set</i>, String(r.patients),
+                  r.sites.map((s) => `${s.name} (${s.patients})`).join(", "),
+                ])} />
+            )}
           </Card>
-        ))}
-      </div>
+        </div>
+      )}
     </>
   );
 }

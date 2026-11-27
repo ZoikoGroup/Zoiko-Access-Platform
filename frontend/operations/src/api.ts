@@ -250,6 +250,8 @@ export async function changePassword(currentPassword: string, newPassword: strin
 
 export const getSettings = () => v1<ClinicSettings>("staff/settings");
 export const setResponseTarget = (hours: number | null) => post("staff/settings", { hours });
+export const setRegion = (region: string) => post("staff/settings", { region });
+export const setPrivilegesEnforced = (on: boolean) => post("staff/settings", { privileges_enforced: on });
 export const setWaitlistOfferHours = (hours: number | null) =>
   post("staff/settings", { waitlist_offer_hours: hours });
 export const setWeeklyReport = (weekly_report: boolean) => post("staff/settings", { weekly_report });
@@ -526,6 +528,8 @@ export const recordIdentityCheck = (person: string, body: { evidence_type: strin
   post(`people/${enc(person)}/identity/check`, body);
 export const withdrawIdentityCheck = (person: string, reason: string) =>
   post(`people/${enc(person)}/identity/withdraw`, { reason });
+export const resetPatientSecondFactor = (person: string) =>
+  post(`people/${enc(person)}/second-factor/reset`);
 
 export const getDeveloper = () => v1<DeveloperData>("staff/developer");
 export const createApiClient = (body: { name: string; environment: string; scopes: string[]; rate_limit?: number }) =>

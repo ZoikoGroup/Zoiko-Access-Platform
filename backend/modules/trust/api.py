@@ -113,7 +113,10 @@ from .qualifications import (
     add_qualification,
     decide_qualification,
     grant_privilege,
+    privilege_allows,
+    privileges_enforced,
     privileges_for,
+    set_privileges_enforced,
     withdraw_privilege,
 )
 from .qualifications import list_for as qualifications_for
@@ -121,7 +124,9 @@ from .qualifications import shown_to_patients as patient_qualifications
 from .releases import add_release, list_releases
 from .second_factor import confirm as second_factor_confirm
 from .second_factor import disable as second_factor_disable
+from .second_factor import for_person as patient_second_factor
 from .second_factor import reset_for_member as reset_second_factor
+from .second_factor import reset_for_patient as reset_patient_second_factor
 from .second_factor import start_setup as second_factor_start
 from .second_factor import status as second_factor_status
 from .second_factor import verify as second_factor_verify
@@ -142,12 +147,15 @@ from .services import (
     list_tenants,
     organization_names,
     overview,
+    patients_by_region,
+    region_of,
     register_actor,
     response_target_hours,
     role_info,
     set_actor_status,
     set_booking_system,
     set_business_hours,
+    set_region,
     set_response_target,
     set_self_registration,
     tenant_country,
@@ -213,6 +221,9 @@ __all__ = [
     "withdraw_check", "name_check_states",
     "add_qualification", "decide_qualification", "grant_privilege", "privileges_for",
     "withdraw_privilege", "qualifications_for", "patient_qualifications",
+    "patient_second_factor", "reset_patient_second_factor", "privilege_allows",
+    "privileges_enforced", "set_privileges_enforced", "region_of", "set_region",
+    "patients_by_region",
     "set_display_name", "change_password", "set_email", "reset_password",
     "revoke_proxy_grant",
     "revoke_sessions", "send_verification",

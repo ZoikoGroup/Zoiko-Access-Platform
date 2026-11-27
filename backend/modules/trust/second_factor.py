@@ -321,3 +321,46 @@ def reset_for_member(
         cred.save(update_fields=["session_epoch", "updated_at"])
         record(actor_ref=actor_public_id, action="auth.second_factor_reset", object_type="actor",
                object_ref=member.public_id, outcome=AuditOutcome.ALLOWED)
+
+
+def for_person(person_public_id: str) -> dict[str, bool]:
+    """Whether this patient has a login and whether two-step sign-in is on for it (DEV-367)."""
+    from .models import Person
+
+    person = Person.objects.filter(public_id=person_public_id, **_scope()).first()
+    if person is None or person.linked_actor_id is None:
+        return {"has_login": False, "on": False}
+    return {"has_login": True, "on": _confirmed(person.linked_actor_id) is not None}
+
+
+def reset_for_patient(
+    person_public_id: str, *, organization_ref: str, actor_public_id: str,
+    clock: Clock | None = None,
+) -> None:
+    """Clinic staff turn two-step sign-in off for a patient who lost their phone and recovery
+    codes (DEV-367), and sign that login out everywhere. Only while the patient's identity is
+    verified (checked against an official document, still valid): that check is how the clinic
+    knows it is really them. The caller checks the patient is connected to the clinic."""
+    from .identity_proof import status_of
+    from .models import Person
+
+    with transaction.atomic():
+        person = Person.objects.select_related("linked_actor").filter(
+            public_id=person_public_id, **_scope()).first()
+        if person is None:
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        if person.linked_actor is None or person.linked_actor.public_id == actor_public_id:
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
+        if status_of(person_public_id, clock=clock).get("status") != "verified":
+            raise ZoikoError(ErrorCode.POLICY_DENIED, fields=["identity"])
+        cred = Credential.objects.select_for_update().filter(
+            actor=person.linked_actor, **_scope()).first()
+        removed = SecondFactor.objects.filter(actor=person.linked_actor, **_scope()).delete()[0]
+        if cred is None or not removed:
+            raise ZoikoError(ErrorCode.CONFLICT_VERSION)       # nothing to reset
+        cred.session_epoch += 1
+        cred.save(update_fields=["session_epoch", "updated_at"])
+        record(actor_ref=actor_public_id, action="auth.second_factor_reset_patient",
+               object_type="person", object_ref=person.public_id,
+               outcome=AuditOutcome.ALLOWED, reason_code=organization_ref)
+

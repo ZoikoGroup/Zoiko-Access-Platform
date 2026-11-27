@@ -129,8 +129,10 @@ def person_identity(
         orgs = trust.organization_names()
         labels = trust.actor_labels()
         past = trust.identity_history(person_id) if staff else []
+        two_step = trust.patient_second_factor(person_id) if staff else None
     body: dict[str, Any] = {"identity": _identity_json(info, orgs, staff)}
     if staff:
+        body["second_factor"] = two_step
         body["history"] = [
             {"id": r["id"], "evidence_type": r["evidence_type"], "outcome": r["outcome"],
              "clinic": orgs.get(r["organization_ref"], ""),
@@ -138,6 +140,26 @@ def person_identity(
              "valid_until": r["valid_until"], "withdrawn": r["withdrawn"],
              "withdraw_reason": r["withdraw_reason"]} for r in past]
     return JsonResponse(body)
+
+
+@endpoint("POST")
+def person_second_factor_reset(
+    request: HttpRequest, auth: trust.Authenticated, person_id: str
+) -> HttpResponse:
+    """Turn two-step sign-in off for a patient who lost their phone and recovery codes (DEV-367).
+    Clinic staff who may change the patient's record, only while the patient's identity is
+    verified; the patient is signed out everywhere and can set it up again."""
+    org = _staff_only(auth)
+    if org is None:
+        raise ZoikoError(ErrorCode.POLICY_DENIED)
+    _authorize(auth, "write:person", organization_public_id=org, subject_ref=person_id)
+    with tenant_transaction():
+        if not trust.person_at_site(person_id, org):
+            raise ZoikoError(ErrorCode.NOT_FOUND)
+        trust.reset_patient_second_factor(person_id, organization_ref=org,
+                                          actor_public_id=auth.actor_public_id)
+        now = trust.patient_second_factor(person_id)
+    return JsonResponse({"second_factor": now})
 
 
 @endpoint("POST")

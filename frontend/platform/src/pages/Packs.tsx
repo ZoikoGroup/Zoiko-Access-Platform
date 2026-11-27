@@ -13,6 +13,8 @@ const CAPABILITIES: [string, string][] = [
   ["provider_directory", "Find a doctor"], ["booking", "Booking"], ["messaging", "Messages"],
   ["referrals", "Referrals"], ["waiting_list", "Waiting list"],
   ["partner_booking", "Bookings confirmed by a partner's system"],
+  ["diagnostics", "Lab orders (diagnostics)"], ["clinical_ai", "Clinical AI (any lane except admin assist)"],
+  ["record_exchange", "Sending records to partners (pharmacy, home care, record references)"],
 ];
 const EVIDENCE: [string, string][] = [["legal", "Legal"], ["dpia", "Privacy assessment"], ["cyber", "Security review"], ["clinical", "Clinical"]];
 const EVIDENCE_WORDS: Record<string, string> = { PENDING: "Not yet", PROVIDED: "Provided", NOT_APPLICABLE_REVIEW_NEEDED: "Not applicable (review needed)" };
@@ -47,7 +49,7 @@ function ManifestFields({ m, onChange }: { m: PackManifest; onChange: (m: PackMa
             <input type="checkbox" checked={!!m.capabilities[code]} onChange={(e) => onChange({ ...m, capabilities: { ...m.capabilities, [code]: e.target.checked } })} /> {text}
           </label>
         ))}
-        <small>Diagnostics, clinical AI and record exchange are not built, so they cannot be switched on.</small>
+        <small>Results coming back from partners are never refused, whatever the pack says.</small>
       </fieldset>
       <fieldset><legend>Evidence (the documents themselves stay in the country's own vault)</legend>
         {EVIDENCE.map(([code, text]) => (

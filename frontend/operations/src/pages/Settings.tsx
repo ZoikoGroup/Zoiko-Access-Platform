@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { changePassword, clearDisplayName, getBookingSystem, getBusinessHours, getDisplayName, getEmailStatus, getSettings, resendVerification, saveDisplayName, setBookingSystem, setBusinessHours, setEmail, setResponseTarget, setWaitlistOfferHours, setWeeklyReport, type Staff, securityCall } from "../api";
+import { useEffect, useState } from "react";
+import { changePassword, clearDisplayName, getBookingSystem, getBusinessHours, getDisplayName, getEmailStatus, getSettings, resendVerification, saveDisplayName, setBookingSystem, setBusinessHours, setEmail, setPrivilegesEnforced, setRegion, setResponseTarget, setWaitlistOfferHours, setWeeklyReport, type Staff, securityCall } from "../api";
 import { SecurityCards } from "@shared/Security";
 import { ChangePassword } from "../ChangePassword";
 import { EmailCard } from "../EmailCard";
 import { NameCard } from "../NameCard";
+import type { ClinicSettings } from "../types";
 import { Gate, useLoad } from "../useLoad";
 import { Card, Pill, Table } from "../ui";
 import { NoStaff } from "./Appointments";
@@ -200,6 +201,68 @@ function BookingSystemCard() {
   );
 }
 
+const CAPABILITY_WORDS: Record<string, string> = {
+  provider_directory: "Find a doctor", booking: "Booking", messaging: "Messages", referrals: "Referrals",
+  waiting_list: "Waiting list", partner_booking: "Bookings confirmed by a partner's system",
+  diagnostics: "Lab orders (diagnostics)", clinical_ai: "Clinical AI", record_exchange: "Sending records to partners",
+};
+
+function RegionCard({ region, canSet, onSaved }: { region: string; canSet: boolean; onSaved: () => void }) {
+  const [value, setValue] = useState(region);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => setValue(region), [region]);
+  async function save(e: React.FormEvent) {
+    e.preventDefault(); setBusy(true); setError("");
+    try { await setRegion(value); onSaved(); } catch (err) { setError(err instanceof Error ? err.message : "Could not save"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Card title="Region" sub="The area this site serves, in your own words. Used only to count patients by region on the Dashboard.">
+      {error && <div className="error" role="alert">{error}</div>}
+      {canSet ? (
+        <form className="form-row" onSubmit={(e) => void save(e)}>
+          <label>Region<input value={value} maxLength={60} placeholder="North" onChange={(e) => setValue(e.target.value)} /></label>
+          <button className="btn" type="submit" disabled={busy || value.trim() === region}>{busy ? "Saving…" : "Save"}</button>
+        </form>
+      ) : <p>{region ? <Pill kind="info">{region}</Pill> : "Not set."} Only your clinic administrator can change it.</p>}
+    </Card>
+  );
+}
+
+function PrivilegesCard({ on, canSet, onSaved }: { on: boolean; canSet: boolean; onSaved: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function flip() {
+    setBusy(true); setError("");
+    try { await setPrivilegesEnforced(!on); onSaved(); } catch (err) { setError(err instanceof Error ? err.message : "Could not save"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <Card title="Doctors' privileges" sub="When enforced, a doctor can be given times for a service, and patients can book them, only while the doctor holds a privilege for that service here (Providers, then a doctor's credentials).">
+      {error && <div className="error" role="alert">{error}</div>}
+      <p><Pill kind={on ? "ok" : "info"}>{on ? "Enforced" : "Recorded only"}</Pill>{" "}
+        {on ? "Times of a doctor without a privilege for the service cannot be added or booked." : "Privileges are kept as a record; booking works as before."}</p>
+      {canSet ? <button className="btn ghost" disabled={busy} onClick={() => void flip()}>{on ? "Stop enforcing" : "Enforce privileges"}</button>
+        : <small>Only your clinic administrator can change this.</small>}
+    </Card>
+  );
+}
+
+function PackCard({ market }: { market: NonNullable<ClinicSettings["market"]> }) {
+  return (
+    <Card title="What your country allows" sub={market.enforced
+      ? `Set by Zoiko's signed country pack for ${market.country || "your country (not recorded yet)"}. Anything not switched on is refused when someone tries to start it.`
+      : "Country packs are not enforced on this service, so booking, messages and referrals work everywhere. The list below is what a signed pack would allow."}>
+      <ul className="checklist">
+        {market.all.map((c) => (
+          <li key={c}><Pill kind={market.on.includes(c) ? "ok" : "info"}>{market.on.includes(c) ? "On" : "Off"}</Pill> {CAPABILITY_WORDS[c] ?? c.replace(/_/g, " ")}</li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 export function Settings({ staff }: { staff: Staff | null }) {
   const [version, setVersion] = useState(0);
   const result = useLoad(getSettings, 60_000, version);
@@ -218,6 +281,9 @@ export function Settings({ staff }: { staff: Staff | null }) {
             <OfferWindow hours={s.waitlist_offer_hours} standard={s.waitlist_offer_default ?? s.waitlist_offer_hours}
               canSet={s.can_set_target ?? false} onSaved={() => setVersion((v) => v + 1)} />
             <WeeklyReport on={s.weekly_report ?? false} canSet={s.can_set_target ?? false} onSaved={() => setVersion((v) => v + 1)} />
+            <RegionCard region={s.region ?? ""} canSet={s.can_set_target ?? false} onSaved={() => setVersion((v) => v + 1)} />
+            <PrivilegesCard on={s.privileges_enforced ?? false} canSet={s.can_set_target ?? false} onSaved={() => setVersion((v) => v + 1)} />
+            {s.market && <PackCard market={s.market} />}
             <OpeningHours />
             <BookingSystemCard />
             <Card title="Timing rules">

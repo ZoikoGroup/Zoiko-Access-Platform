@@ -230,6 +230,7 @@ urlpatterns = [
     path("staff/matches/<str:case_id>/unmerge", identity.staff_match_unmerge),
     path("people/<str:person_id>/identity", identity.person_identity),
     path("people/<str:person_id>/identity/check", identity.person_identity_check),
+    path("people/<str:person_id>/second-factor/reset", identity.person_second_factor_reset),
     path("people/<str:person_id>/identity/withdraw", identity.person_identity_withdraw),
     path("staff/exceptions", console.staff_exceptions),
     path("staff/workflow-exceptions/<str:exception_id>/resolve",

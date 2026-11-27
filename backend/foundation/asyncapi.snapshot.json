@@ -185,6 +185,14 @@
     }
    }
   },
+  "reference_erased_v1": {
+   "address": "reference.erased.v1",
+   "messages": {
+    "reference_erased_v1": {
+     "$ref": "#/components/messages/reference_erased_v1"
+    }
+   }
+  },
   "referral_acknowledged_v1": {
    "address": "referral.acknowledged.v1",
    "messages": {
@@ -1007,6 +1015,28 @@
     },
     "x-schema-hash": "d9435740cdea0053"
    },
+   "reference_erased_v1": {
+    "contentType": "application/json",
+    "name": "reference.erased.v1",
+    "payload": {
+     "additionalProperties": false,
+     "properties": {
+      "organization_ref": {
+       "type": "string"
+      },
+      "person_ref": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "person_ref",
+      "organization_ref"
+     ],
+     "type": "object",
+     "x-aggregate": "person"
+    },
+    "x-schema-hash": "e8ebeb34e94cf148"
+   },
    "referral_acknowledged_v1": {
     "contentType": "application/json",
     "name": "referral.acknowledged.v1",
@@ -1609,6 +1639,13 @@
     "$ref": "#/channels/professional_privilege_revoked_v1"
    },
    "summary": "Zoiko publishes professional.privilege.revoked.v1"
+  },
+  "publish_reference_erased_v1": {
+   "action": "send",
+   "channel": {
+    "$ref": "#/channels/reference_erased_v1"
+   },
+   "summary": "Zoiko publishes reference.erased.v1"
   },
   "publish_referral_acknowledged_v1": {
    "action": "send",

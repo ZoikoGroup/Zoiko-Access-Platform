@@ -57,7 +57,8 @@ function View({ me, rows, onChanged }: { me: string; rows: AiPermit[]; onChanged
         <h1>AI permits</h1>
         <p>AI is switched off. A feature can run only while it holds an authorized permit, and a permit needs two
           other people to sign it off first. Nothing here turns anything on by itself, and no patient text is ever
-          stored: only fingerprints. Only administrators see this page.</p>
+          stored: only fingerprints. Only administrators see this page. Any lane except admin assist is clinical AI: where
+          country packs are enforced it can be authorized, tried in shadow or run only if your country's pack switches clinical AI on.</p>
       </div></div>
       {error && <div className="error" role="alert">{error}</div>}
       {note && <div className="success" role="status">{note}</div>}

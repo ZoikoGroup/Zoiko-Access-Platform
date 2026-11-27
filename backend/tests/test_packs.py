@@ -103,16 +103,22 @@ def test_the_fingerprint_changes_with_any_change_to_the_content(world):
     {"settings": {"data_request_days": True}}, {"settings": {"data_request_days": "30"}},
     {"settings": {"emergency_number": "call us"}}, {"settings": {"time_zone": "Mars/Base"}},
     {"settings": {"default_language": "English"}}, {"settings": {"surprise": 1}},
-    {"capabilities": {"clinical_ai": True}}, {"capabilities": {"diagnostics": True}},
-    {"capabilities": {"record_exchange": True}}, {"capabilities": {"teleport": True}},
+    {"capabilities": {"teleport": True}},
     {"capabilities": {"booking": "yes"}}, {"evidence": {"legal": "DONE"}},
     {"evidence": {"tax": "PROVIDED"}}, {"validity": {"expires_on": "next year"}},
     {"unknown_section": {}},
 ])
-def test_anything_unknown_or_not_built_is_refused_not_ignored(world, bad):
+def test_anything_unknown_is_refused_not_ignored(world, bad):
     r = call(world, "POST", "platform/packs", {
         "pack_ref": "gb-care", "country": "GB", "service": "care_navigation", "manifest": bad})
     assert r.status_code == 422
+
+
+@pytest.mark.parametrize("name", ["diagnostics", "clinical_ai", "record_exchange"])
+def test_the_three_later_capabilities_can_now_be_switched_on(world, name):
+    """DEV-365: each now gates a real feature, so a pack may switch it on."""
+    pack = make(world, manifest=full(capabilities={"booking": True, name: True}))
+    assert pack["manifest"]["capabilities"][name] is True
 
 
 @pytest.mark.parametrize("fields", [

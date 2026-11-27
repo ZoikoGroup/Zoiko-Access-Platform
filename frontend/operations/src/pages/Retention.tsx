@@ -29,7 +29,7 @@ function Erase({ c, onDone }: { c: RetentionClass; onDone: () => void }) {
     setBusy(true); setError("");
     try {
       const r = await eraseRecords(c.data_class, found.due);
-      setDone(`Erased the content of ${r.erased} ${r.erased === 1 ? "record" : "records"}.`);
+      setDone(`Erased the content of ${r.erased} ${r.erased === 1 ? "record" : "records"}.${c.data_class === "clinical_references" && r.erased ? " Each patient concerned gets a notice that the clinic removed pointers to their records." : ""}`);
       setFound(null); setTyped(""); onDone();
     } catch (err) {
       setError(err instanceof Error ? `${err.message}. Look again: the number may have changed.` : "That did not work");

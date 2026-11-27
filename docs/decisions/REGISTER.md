@@ -2142,3 +2142,29 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Lost, stated plainly:** installing a pack signed outside Zoiko (by a separate governance plane) and the cell-wide revocation floor. Suspending or retiring a pack takes its place; neither existed beyond tests.
 - **Checked:** `tests/test_packs_in_use.py` (rewritten against signed packs per country); `tests/test_signed_packs.py` and the signed-packs page tests in `tests/test_console.py` were removed with the module.
 
+### DEV-365: diagnostics, clinical AI and record exchange can be switched on by a country pack (CHANGE, TEMPORARY)
+
+- **What was done:** the three capabilities were listed but refused in every pack as "not built". Each now gates a real feature, so a pack may switch it on: `diagnostics` gates sending a lab order; `record_exchange` gates sending a pharmacy or home-care request to a partner and a doctor recording a new clinic record reference; `clinical_ai` gates authorizing, trying in shadow and running any AI permit outside lane A (admin assist). As for booking, messages and referrals (DEV-364), the gate applies only with `ZOIKO_PACKS_ENFORCED=1`, reads the signed pack for the customer's own country, and never gates reading what exists. Results coming back from partners (FHIR) are never refused. Staff Settings shows what the customer's country pack switches on; the platform pack form and the go-live release form list all nine capabilities.
+- **To confirm (TEMPORARY):** whether pharmacy and home-care requests belong under record exchange or a capability of their own.
+- **Checked:** `tests/test_switchable_and_followups.py`, `tests/test_packs.py`.
+
+### DEV-366: a clinic can enforce doctors' privileges (ADD, replaces DEV-357's "not enforced")
+
+- **What was done:** a clinic administrator can switch "Doctors' privileges" to enforced on the Settings page (off by default, audited). While on, staff cannot add times with a named doctor for a service the doctor holds no privilege for on the first day, and a patient cannot book a doctor's time unless the doctor holds a privilege for that service on the day of the visit (not withdrawn, started, not ended). Times without a named doctor are not affected.
+- **Checked:** `tests/test_switchable_and_followups.py`.
+
+### DEV-367: a clinic resets a patient's two-step sign-in (ADD)
+
+- **What was done:** on a patient's Identity card, staff who may change the patient's record see whether two-step sign-in is on and can turn it off for a patient who lost their phone and recovery codes. Only while the patient's identity is verified (an official document checked by staff and still valid), never for one's own login, only for a patient connected to the clinic. The patient is signed out everywhere and can set it up again; it is audited (`auth.second_factor_reset_patient`). The patient's Two-step card says this help exists.
+- **Checked:** `tests/test_switchable_and_followups.py`.
+
+### DEV-368: patients by region (ADD)
+
+- **What was done:** each site can give the region it serves, in its own words, on the Settings page (administrator, audited). The staff Dashboard shows administrators how many patients each site is connected to, grouped by region; a patient connected to two sites of one region counts once in it. Counts only, never a name. This replaces the "Patients by region: not planned" placeholder; it covers one customer's sites, not several cells.
+- **Checked:** `tests/test_switchable_and_followups.py`.
+
+### DEV-369: a patient is told when a clinic erases pointers to their records (ADD)
+
+- **What was done:** erasing clinical record references past the approved keeping period (DEV-351) now announces `reference.erased.v1` once per patient concerned, in the same transaction, carrying only the patient and the clinic. The notifier tells the patient in the app that the clinic removed pointers to records it keeps about them because the keeping period ended, and to ask the clinic for a copy. The notice never says which record. The staff Retention page says patients are told.
+- **Checked:** `tests/test_switchable_and_followups.py`.
+

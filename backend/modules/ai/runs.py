@@ -30,7 +30,7 @@ from .models import (
     Decision,
     PermitState,
 )
-from .permits import FORBIDDEN_TOOLS, check_permit, tool_digest
+from .permits import FORBIDDEN_TOOLS, check_permit, market_allows, tool_digest
 
 Provider = Callable[[str], str]
 _PROVIDERS: dict[str, tuple[Provider, str | None, str | None, str | None]] = {}
@@ -77,6 +77,7 @@ def run(
     if not actor_ref or not 1 <= len(input_text or "") <= MAX_INPUT_CHARS or not purpose_code:
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["input"])
     permit = check_permit(feature_id, clock=clock)  # default deny
+    market_allows(permit.lane)                       # DEV-365
     registered = _PROVIDERS.get(feature_id)
     if registered is None:
         raise ZoikoError(ErrorCode.NOT_FOUND)

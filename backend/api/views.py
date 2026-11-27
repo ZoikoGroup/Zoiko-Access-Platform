@@ -432,6 +432,9 @@ def _add_slots(request: HttpRequest, auth: trust.Authenticated, service_id: str)
         org = catalog.get_service(service_id)["organization_ref"]
     decision = _authorize(auth, "write:catalog", organization_public_id=org)
     with tenant_transaction():
+        provider = text(body, "provider", False)
+        if provider and not trust.privilege_allows(provider, org, service_id, first.date()):
+            raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["provider"])     # DEV-366
         made = scheduling.create_slots(
             service_ref=service_id,
             location_ref=text(body, "location"),
@@ -578,6 +581,12 @@ def _create_booking(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
                 raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["person"])
             person = mine[0]
         slot = scheduling.get_slot(slot_ref)
+        # DEV-366: where the clinic enforces privileges, a time with a named doctor is bookable
+        # only while that doctor holds a privilege for the service on that day.
+        if slot["provider_ref"] and not trust.privilege_allows(
+                slot["provider_ref"], slot["organization_ref"], slot["service_ref"],
+                dt.date.fromisoformat(slot["local_start"][:10])):
+            raise ZoikoError(ErrorCode.POLICY_DENIED)
     decision = _authorize(
         auth, "write:booking", organization_public_id=slot["organization_ref"], subject_ref=person
     )
@@ -1058,9 +1067,12 @@ def staff_dashboard(request: HttpRequest, auth: trust.Authenticated) -> HttpResp
             "messages": 0 if org is None else messaging.overdue_threads_for_staff(org, target),
             "data_requests": 0 if org is None else rights.overdue_count(org, target),
         }
+        # Counts only, for the administrator (DEV-368): never a name or a list of patients.
+        regions = trust.patients_by_region() if "R13" in auth.roles else None
     return JsonResponse(
         {
             "tenant": auth.tenant_name,
+            "patients_by_region": regions,
             "counts": numbers,
             "attention": attention,
             "late": late,
@@ -1494,15 +1506,32 @@ def staff_settings(request: HttpRequest, auth: trust.Authenticated) -> HttpRespo
                     org, sent["waitlist_offer_hours"], by=auth.actor_public_id)
             if "weekly_report" in sent:
                 comms.set_weekly_report(org, sent["weekly_report"], by=auth.actor_public_id)
-            if "hours" in sent or not {"waitlist_offer_hours", "weekly_report"} & set(sent):
+            if "region" in sent:
+                trust.set_region(org, sent["region"], by=auth.actor_public_id)
+            if "privileges_enforced" in sent:
+                if "R13" not in auth.roles:
+                    raise ZoikoError(ErrorCode.POLICY_DENIED)
+                trust.set_privileges_enforced(org, sent["privileges_enforced"],
+                                              by_ref=auth.actor_public_id)
+            if "hours" in sent or not {"waitlist_offer_hours", "weekly_report", "region",
+                                       "privileges_enforced"} & set(sent):
                 trust.set_response_target(org, sent.get("hours"), by=auth.actor_public_id)
     with tenant_transaction():
         recipients = len(trust.verified_emails_for_role(org, "R04"))
         target = trust.response_target_hours(org)
         offer_hours = waitlist.offer_hours_for(org)
         weekly = comms.weekly_report_enabled(org)
+        region = trust.region_of(org)
+        enforced_privileges = trust.privileges_enforced(org)
+    market = {"enforced": settings.PACKS_ENFORCED,
+              "country": trust.tenant_country(auth.context.tenant_id),
+              "on": sorted(_enabled_capabilities(auth)),
+              "all": list(jurisdiction.CAPABILITIES)}
     return JsonResponse(
         {
+            "region": region,
+            "privileges_enforced": enforced_privileges,
+            "market": market,
             "response_target_hours": target,
             "response_target_default": settings.RESPONSE_TARGET_HOURS,
             "can_set_target": "R13" in auth.roles,
@@ -3152,6 +3181,9 @@ def exchange_requests(request: HttpRequest, auth: trust.Authenticated) -> HttpRe
     mine = _my_customer(auth)
     if request.method == "POST":
         body = json_body(request)
+        # DEV-365: a lab order is diagnostics; a pharmacy or home-care request sends a patient's
+        # details to a partner, which is record exchange.
+        require_feature("diagnostics" if body.get("kind") == "lab_order" else "record_exchange")
         person = text(body, "patient")
         _authorize(auth, "write:referral", organization_public_id=org, subject_ref=person)
         target = next(
@@ -7036,6 +7068,8 @@ def clinician_patient_references(
 
     _clinical_references_on()
     _clinician_only(auth)
+    if request.method == "POST":
+        require_feature("record_exchange")          # DEV-365: reading what exists is never gated
     if request.method == "GET":
         _authorize(auth, "read:diagnostic", subject_ref=person_id)
         with tenant_transaction():
