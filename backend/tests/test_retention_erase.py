@@ -195,3 +195,71 @@ def test_another_organizations_conversations_are_never_counted_or_erased(p, swit
         assert message_retention.due_for_erasure(now, frozenset(), elsewhere) == 0
         assert message_retention.erase_older(now, frozenset(), elsewhere) == 0
     assert kept(p, thread)
+
+
+# ------------------------------------------------------------------ pointers to clinical records
+REFS = "staff/retention-erasure/clinical_references"
+
+
+def pointer(p, days_ago=900, person=None, org=None):
+    from modules.clinicalref.models import ClinicalReference
+
+    with tenant_transaction(p.clinic.ctx):
+        return ClinicalReference.objects.create(
+            person_ref=person or p.person, organization_ref=org or p.clinic.org,
+            author_ref=p.doc, system="emis", external_id=f"REC-{days_ago}-{utc_now().microsecond}",
+            kind="result", refers_to=(utc_now() - dt.timedelta(days=days_ago)).date(),
+            cell_id=p.clinic.ctx.cell_id, tenant_id=p.clinic.ctx.tenant_id).public_id
+
+
+def refs_rule(p):
+    _approved(p, days=365, key="clinical_references")
+
+
+def test_record_pointers_can_be_erased_and_keep_what_and_when(p, switched_on):
+    from modules.clinicalref.models import ClinicalReference
+
+    old, recent = pointer(p), pointer(p, days_ago=10)
+    refs_rule(p)
+    assert row(report(p), "clinical_references")["erasable"] is True
+    found = json.loads(p.get(REFS, subject="boss").content)
+    assert found["due"] == 1
+    done = p.post(REFS, {"confirm": 1}, subject="boss")
+    assert done.status_code == 200, done.content
+    with tenant_transaction(p.clinic.ctx):
+        gone = ClinicalReference.objects.get(public_id=old)
+        kept = ClinicalReference.objects.get(public_id=recent)
+    assert (gone.external_id, gone.status, gone.withdrawn_reason) == (
+        "", "withdrawn", "retention_period")
+    assert (gone.kind, gone.system) == ("result", "emis")
+    assert kept.external_id and kept.status == "active"
+    assert json.loads(p.get(REFS, subject="boss").content)["due"] == 0   # not counted again
+
+
+def test_a_held_patients_pointer_and_another_clinics_are_left_alone(p, switched_on):
+    from modules.clinicalref import retention as ref_retention
+
+    pointer(p)
+    with tenant_transaction(p.clinic.ctx):
+        elsewhere = trust.create_organization(name="Elsewhere").public_id
+    pointer(p, org=elsewhere)
+    refs_rule(p)
+    with tenant_transaction(p.clinic.ctx):
+        RightsCase.objects.create(
+            ref_no="DSR-TEST0003", person_ref=p.person, organization_ref=p.clinic.org,
+            requested_by_ref=p.patient_actor, request_type="erasure", lawful_hold=True,
+            hold_reason="Litigation", cell_id=p.clinic.ctx.cell_id,
+            tenant_id=p.clinic.ctx.tenant_id)
+        cutoff = utc_now()
+        held = frozenset({p.person})
+        assert ref_retention.due_for_erasure(cutoff, held, p.clinic.org) == 0
+        assert ref_retention.due_for_erasure(cutoff, frozenset(), elsewhere) == 1
+    assert json.loads(p.get(REFS, subject="boss").content)["due"] == 0
+
+
+def test_a_doctor_cannot_pick_the_erased_reason_by_hand(p, settings):
+    settings.CLINICAL_REFERENCES_ENABLED = True
+    ref = pointer(p, days_ago=5)
+    r = p.post(f"clinician/references/{ref}/withdraw", {"reason": "retention_period"},
+               subject="doc")
+    assert r.status_code in (403, 422)

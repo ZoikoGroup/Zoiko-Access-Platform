@@ -34,14 +34,14 @@ def _entry(entry_ref: str) -> dict[str, Any] | None:
         raise
 
 
-def _start(entry_ref: str, organization_ref: str) -> dict[str, Any]:
+def _start(entry_ref: str, organization_ref: str, service_ref: str) -> dict[str, Any]:
     existing = running_instance_for(entry_ref, DEFINITION)
     if existing is not None:
         return existing
 
-    # A person is given the clinic's own window (see waitlist.set_offer_hours) to use an offered
-    # time, and the journey's "offer_by" timer follows it.
-    offer_minutes = waitlist.offer_hours_for(organization_ref) * 60
+    # A person is given the service's own window, else the clinic's (waitlist.set_offer_hours), to
+    # use an offered time, and the journey's "offer_by" timer follows it.
+    offer_minutes = waitlist.offer_hours_for(organization_ref, service_ref) * 60
 
     def start() -> dict[str, Any]:
         return engine.start(
@@ -78,7 +78,7 @@ def _advance(entry_ref: str, transition: str, actor_ref: str, actor_kind: str) -
 def on_joined(entry_ref: str) -> None:
     found = _entry(entry_ref)
     if found is not None and found["state"] in ("waiting", "offered"):
-        _start(entry_ref, found["organization_ref"])
+        _start(entry_ref, found["organization_ref"], found["service_ref"])
 
 
 def on_offered(entry_ref: str) -> None:

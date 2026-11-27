@@ -146,7 +146,7 @@ export default function App() {
   else if (page === "careteam") body = <CareTeam />;
   else if (page === "privacy") body = <Privacy />;
   else if (page === "bills") body = <Bills />;
-  else if (page === "records") body = <Records />;
+  else if (page === "records") body = <Records goTo={setPage} />;
   else if (page === "insurance") body = <Insurance coverage={coverage} hasPatient={me.persons.length > 0} onChanged={refresh} />;
   else if (page === "profile") body = <Profile key={profiles.map((x) => x.name).join("|")} profiles={profiles} onSaved={refresh} />;
   else if (page === "referrals") body = <Referrals referrals={referrals} />;

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { changePassword, clearDisplayName, getBookingSystem, getBusinessHours, getDisplayName, getEmailStatus, getSettings, resendVerification, saveDisplayName, setBookingSystem, setBusinessHours, setEmail, setResponseTarget, setWaitlistOfferHours, setWeeklyReport, type Staff } from "../api";
+import { changePassword, clearDisplayName, getBookingSystem, getBusinessHours, getDisplayName, getEmailStatus, getSettings, resendVerification, saveDisplayName, setBookingSystem, setBusinessHours, setEmail, setResponseTarget, setWaitlistOfferHours, setWeeklyReport, type Staff, securityCall } from "../api";
+import { SecurityCards } from "@shared/Security";
 import { ChangePassword } from "../ChangePassword";
 import { EmailCard } from "../EmailCard";
 import { NameCard } from "../NameCard";
@@ -235,6 +236,7 @@ export function Settings({ staff }: { staff: Staff | null }) {
             <NameCard load={getDisplayName} onSave={saveDisplayName} onClear={clearDisplayName} />
             <EmailCard load={getEmailStatus} onSave={setEmail} onResend={resendVerification} />
             <ChangePassword onChange={changePassword} />
+            <SecurityCards call={securityCall} />
           </div>
         </>
       )}

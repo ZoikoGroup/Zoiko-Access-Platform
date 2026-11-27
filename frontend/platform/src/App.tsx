@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { dropDevLogin } from "@shared/devLogin";
-import { ApiError, changePassword, clearDisplayName, getDisplayName, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getOverview, loadSession, setSession, signOutEverywhere, type Session } from "./api";
+import { securityCall, ApiError, changePassword, clearDisplayName, getDisplayName, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getOverview, loadSession, setSession, signOutEverywhere, type Session } from "./api";
 import { Account } from "./Account";
 import { NAV, type PageId } from "./nav";
 import { Sidebar, Topbar } from "./Shell";
@@ -14,7 +14,6 @@ import { Planned } from "./pages/Planned";
 import { Hazards } from "./pages/Hazards";
 import { Packs } from "./pages/Packs";
 import { Keys } from "./pages/Keys";
-import { SignedPacks } from "./pages/SignedPacks";
 import { Incidents } from "./pages/Incidents";
 import { Matrix } from "./pages/Matrix";
 import { CodeMaps } from "./pages/CodeMaps";
@@ -83,11 +82,10 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   const shown = word && data ? data.tenants.filter((t) => t.name.toLowerCase().includes(word)) : data?.tenants ?? [];
   let body;
   if (!item.live) body = <Planned item={item} />;
-  else if (page === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} onChangePassword={changePassword}
+  else if (page === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} security={securityCall} onChangePassword={changePassword}
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
   else if (page === "hazards") body = <Hazards />;
-  else if (page === "signedpacks") body = <SignedPacks />;
   else if (page === "keys") body = <Keys />;
   else if (page === "purposes") body = <Purposes canPropose canDecide={session.roles.some((r) => r.role === "R12")} />;
   else if (page === "partnerchecks") body = <PartnerChecks canWrite={session.roles.some((r) => r.role === "R11")} />;

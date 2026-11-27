@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { inviteStaff, resendInvite, setMemberStatus } from "../api";
+import { inviteStaff, resendInvite, setMemberStatus, resetSecondFactor } from "../api";
 import { getDirectory } from "../api";
 import type { Directory } from "../types";
 import { Gate, useLoad } from "../useLoad";
@@ -81,6 +81,13 @@ function View({ dir, onChanged }: { dir: Directory; onChanged: () => void }) {
                         onClick={() => void run(m.id, () => setMemberStatus(m.id, m.status === "active" ? "suspended" : "active"),
                           m.status === "active" ? "Switched off" : "Switched back on")}>
                         {m.status === "active" ? "Switch off" : "Switch on"}
+                      </button>
+                    )}{" "}
+                    {!me && m.second_factor && (
+                      <button className="btn ghost" disabled={busy !== ""}
+                        title="For someone who lost their phone and recovery codes. It signs them out everywhere."
+                        onClick={() => void run(`f${m.id}`, () => resetSecondFactor(m.id), "Two-step sign-in is off for them, and they are signed out")}>
+                        Reset two-step sign-in
                       </button>
                     )}{" "}
                     {m.pending_invite && (

@@ -11,6 +11,7 @@ from .services import (
     list_entries,
     offer_hours_for,
     report,
+    service_rules,
     set_offer_hours,
     set_priority,
     waiting_counts,
@@ -18,5 +19,5 @@ from .services import (
 
 __all__ = [
     "WaitPriority", "get_entry", "join", "leave", "list_entries", "offer_hours_for", "report",
-    "set_offer_hours", "set_priority", "waiting_counts",
+    "service_rules", "set_offer_hours", "set_priority", "waiting_counts",
 ]

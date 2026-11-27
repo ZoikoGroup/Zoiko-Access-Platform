@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { dropDevLogin } from "@shared/devLogin";
-import { changePassword, clearDisplayName, getDisplayName, getNameCheck, getPartnerRequests, getThreads, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, getPurpose, loadSession, setPurpose, setSession, signOutEverywhere, type Purpose, type Session } from "./api";
+import { securityCall, changePassword, clearDisplayName, getDisplayName, getNameCheck, getPartnerRequests, getThreads, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, getPurpose, loadSession, setPurpose, setSession, signOutEverywhere, type Purpose, type Session } from "./api";
 import { NAV, type PageId } from "./nav";
 import { Account } from "./Account";
 import { AlertPhone } from "./pages/AlertPhone";
 import { Patients } from "./pages/Patients";
 import { Planned } from "./pages/Planned";
+import { Credentials } from "./pages/Credentials";
 import { Messages } from "./pages/Messages";
 import { Notes } from "./pages/Notes";
 import { PartnerResults } from "./pages/PartnerResults";
@@ -63,7 +64,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   const item = NAV.find((n) => n.id === page) ?? NAV[0];
   let body;
   if (!item.live) body = <Planned item={item} />;
-  else if (page === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} onChangePassword={changePassword}
+  else if (page === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} security={securityCall} onChangePassword={changePassword}
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
     nameCheck={getNameCheck}
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;
@@ -73,6 +74,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
   else if (page === "notes") body = <Notes />;
   else if (page === "messages") body = <Messages />;
   else if (page === "results") body = <PartnerResults />;
+  else if (page === "credentials") body = <Credentials />;
   else body = <Schedule />;
 
   return (

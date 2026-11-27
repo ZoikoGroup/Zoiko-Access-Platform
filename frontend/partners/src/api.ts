@@ -1,3 +1,4 @@
+import { finishSignIn } from "@shared/signInStep";
 import type { Step } from "@shared/StepHistory";
 // The only file that talks to the backend. Pages call these functions, never fetch().
 import { friendlyEmailError } from "@shared/EmailCard";
@@ -61,7 +62,7 @@ export async function signIn(organization: string, login: string, password: stri
   const body = (await res.json()) as LoginReply & { title?: string; code?: string };
   if (res.status === 401) throw new ApiError("Wrong organization, login or password.", "UNAUTHENTICATED");
   if (!res.ok) throw new ApiError(body.title ?? `Sign-in failed (${res.status})`, body.code);
-  return body;
+  return finishSignIn<LoginReply>(body);   // asks for a code if one is owed
 }
 
 /** Sign out everywhere: the server revokes every token this person was issued. */
@@ -267,3 +268,7 @@ export const checkSandboxMessage = (raw: string) => v1<SandboxCheck>("portal/san
 
 // One measured value of a result (DEV-330): a number or a short text, with unit, normal range, flag.
 export interface ResultValue { name: string; value: number | string; unit?: string; low?: number | null; high?: number | null; flag?: string; code?: string }
+
+/** How the account page's security cards call the API as this person. */
+export const securityCall = <T,>(path: string, body?: unknown): Promise<T> =>
+  v1<T>(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) });

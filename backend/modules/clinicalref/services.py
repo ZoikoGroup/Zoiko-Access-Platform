@@ -140,8 +140,8 @@ def withdraw(*, reference_ref: str, reason: Any, by: str, decision: policy.Decis
              clock: Clock | None = None) -> dict[str, Any]:
     """Mark a reference withdrawn. The row stays, so the history of what was pointed at is kept."""
     _require_on()
-    if reason not in WithdrawReason.values:
-        raise _bad("reason")
+    if reason not in WithdrawReason.values or reason == WithdrawReason.RETENTION_PERIOD:
+        raise _bad("reason")                       # erasing is retention's own step
     with transaction.atomic():
         ref = ClinicalReference.objects.select_for_update().filter(
             public_id=reference_ref, **_scope()).first()

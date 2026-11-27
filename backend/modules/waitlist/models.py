@@ -65,14 +65,17 @@ class WaitEntry(CellScopedModel):
 
 class WaitRule(CellScopedModel):
     """One clinic's own waiting-list rule: how many hours a person has to use an offered time
-    before it goes back to the queue. No row means the service default."""
+    before it goes back to the queue. A row with no service is the clinic's rule; a row with a
+    service is that service's own, which comes first. No row means the product default."""
 
     organization_ref = models.CharField(max_length=22)
+    service_ref = models.CharField(max_length=22, blank=True, default="")    # "": the whole clinic
     offer_hours = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="waitrule_scope_idx")]
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant_id", "organization_ref"], name="waitrule_one_per_clinic"),
+                fields=["tenant_id", "organization_ref", "service_ref"],
+                name="waitrule_one_per_clinic_and_service"),
         ]

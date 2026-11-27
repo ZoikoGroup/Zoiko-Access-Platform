@@ -1,5 +1,5 @@
 // The doctor app menu. `live` screens show real backend data; the rest say what they wait for.
-export type PageId = "schedule" | "patients" | "notes" | "referrals" | "messages" | "results" | "account";
+export type PageId = "schedule" | "patients" | "notes" | "referrals" | "messages" | "results" | "credentials" | "account";
 
 export interface NavItem {
   id: PageId;
@@ -16,5 +16,6 @@ export const NAV: NavItem[] = [
   { id: "referrals", label: "Referrals", icon: "referrals", live: true },
   { id: "results", label: "Orders & results", icon: "services", live: true },
   { id: "messages", label: "Messages", icon: "messages", live: true },
+  { id: "credentials", label: "My qualifications", icon: "services", live: true },
   { id: "account", label: "My account", icon: "settings", live: true },
 ];

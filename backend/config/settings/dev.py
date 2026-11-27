@@ -4,6 +4,7 @@ DEBUG = True
 DEV_AUTH_STUB = True
 # The pretend partner connector (modules/connector/simulator.py). Never set in production.
 CONNECTOR_SIMULATOR = True
+CONNECTOR_ALLOW_INSECURE = True
 # The pretend payment provider (modules/billing/payments.py). Never set in production.
 BILLING_PRETEND_PROVIDER = True
 # Paying a bill online uses the pretend provider in development; set BILLING_PAYMENT_PROVIDER= to

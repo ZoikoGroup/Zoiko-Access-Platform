@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { listWaitlist, removeFromWaitlist, setWaitlistPriority, type Staff } from "../api";
+import { getWaitRules, listWaitlist, removeFromWaitlist, setWaitRule, setWaitlistPriority, type Staff, type WaitRules, type WaitServiceRule } from "../api";
 import type { WaitingRow } from "../types";
 import { Card, Patient, Pill, Table } from "../ui";
 import { NoStaff } from "./Appointments";
@@ -39,6 +39,56 @@ function Ranking({ row, onDone }: { row: WaitingRow; onDone: () => void }) {
       <button className="btn ghost" onClick={() => setOpen(false)}>Cancel</button>
       {error && <small className="error" role="alert" style={{ display: "block" }}>{error}</small>}
     </span>
+  );
+}
+
+function ServiceRule({ rule, canSet, onSaved }: { rule: WaitServiceRule; canSet: boolean; onSaved: (r: WaitRules) => void }) {
+  const [hours, setHours] = useState(rule.hours === null ? "" : String(rule.hours));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { setHours(rule.hours === null ? "" : String(rule.hours)); }, [rule.hours]);
+  const n = Number(hours);
+  const valid = hours !== "" && Number.isInteger(n) && n >= 1 && n <= 168;
+  async function save(value: number | null) {
+    setBusy(true); setError("");
+    try { onSaved(await setWaitRule(rule.id, value)); }
+    catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="appt">
+      <div className="info">
+        <b>{rule.name} {rule.hours === null ? <Pill kind="info">follows the clinic</Pill> : <Pill kind="ok">own rule</Pill>}</b>
+        <small>A person has {rule.effective_hours} {rule.effective_hours === 1 ? "hour" : "hours"} to use an offered time.</small>
+        {error && <div className="error" role="alert">{error}</div>}
+      </div>
+      {canSet && (
+        <form className="row" onSubmit={(e) => { e.preventDefault(); void save(n); }}>
+          <input type="number" min={1} max={168} value={hours} onChange={(e) => setHours(e.target.value)}
+            aria-label={`Hours to use an offered ${rule.name} time`} placeholder="Hours" style={{ width: 110 }} />
+          <button className="btn" type="submit" disabled={busy || !valid || n === rule.hours}>Save</button>
+          <button className="btn ghost" type="button" disabled={busy || rule.hours === null} onClick={() => void save(null)}>Follow the clinic</button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+/** Each service may give people longer or shorter to use an offered time than the clinic does. */
+function ServiceRules() {
+  const [rules, setRules] = useState<WaitRules | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    getWaitRules().then(setRules).catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load the rules"));
+  }, []);
+  return (
+    <Card title="Time to use an offered slot, by service"
+      sub={rules ? `The clinic's own rule is ${rules.clinic_hours} hours (changed under Settings). ${rules.can_set ? "A service can have its own." : "Only your clinic administrator can change this."}` : undefined}>
+      {error && <div className="error" role="alert">{error}</div>}
+      {rules === null ? <div className="empty">{error ? "Could not load." : "Loading…"}</div>
+        : rules.services.length === 0 ? <div className="empty">No services yet.</div>
+        : rules.services.map((s) => <ServiceRule key={s.id} rule={s} canSet={rules.can_set} onSaved={setRules} />)}
+    </Card>
   );
 }
 
@@ -111,6 +161,7 @@ export function WaitingList({ staff }: { staff: Staff | null }) {
               ])} />
           )}
         </Card>
+        <ServiceRules />
       </div>
     </>
   );

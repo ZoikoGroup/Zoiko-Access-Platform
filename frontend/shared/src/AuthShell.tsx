@@ -1,3 +1,4 @@
+import { finishSignIn } from "./signInStep";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "./ui";
 
@@ -180,7 +181,7 @@ export function SsoButtons({ organization, onReply, onError }: {
     postJson("/api/v1/auth/sso/finish", { provider: pending.provider, code, state, redirect_uri: redirectUri })
       .then(async ({ ok, data }) => {
         if (!ok) throw new Error("failed");
-        await onReply(data);
+        await onReply(await finishSignIn(data));
       })
       .catch(() => onError("Sign-in with your provider did not work. Try again, or use your login and password."))
       .finally(() => setBusy(false));

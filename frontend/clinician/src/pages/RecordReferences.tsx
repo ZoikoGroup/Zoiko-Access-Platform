@@ -9,6 +9,7 @@ const REASON: Record<string, string> = {
   entered_in_error: "Entered in error", wrong_patient: "Recorded for the wrong patient",
   removed_at_source: "No longer held in the clinic's system", other: "Other",
 };
+const REASON_SHOWN: Record<string, string> = { ...REASON, retention_period: "Erased after the retention period" };
 
 function why(e: unknown): string {
   const code = e instanceof ApiError ? e.code : "";
@@ -33,7 +34,7 @@ function Row({ r, onDone }: { r: RecordReference; onDone: () => Promise<void> })
       <div className="info">
         <b>{KIND[r.kind] ?? r.kind} <Pill kind={r.status === "active" ? "ok" : "warn"}>{r.status === "active" ? "Held" : "Withdrawn"}</Pill></b>
         <small>Dated {r.refers_to} · {r.organization.name} · system {r.system} · record {r.external_id}</small>
-        {r.withdrawn_reason && <small>Withdrawn: {REASON[r.withdrawn_reason] ?? r.withdrawn_reason}</small>}
+        {r.withdrawn_reason && <small>Withdrawn: {REASON_SHOWN[r.withdrawn_reason] ?? r.withdrawn_reason}</small>}
         {error && <div className="error" role="alert">{error}</div>}
       </div>
       {r.status === "active" && (

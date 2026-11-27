@@ -1,6 +1,5 @@
 import datetime as dt
 import json
-import time
 import uuid
 
 import pytest
@@ -13,8 +12,6 @@ from modules.connector import api as connector
 from modules.connector.models import ExternalOperation
 from modules.connector.simulator import simulator
 from modules.evidence.models import AuditEvent
-from modules.packs import api as packs
-from modules.packs.signing import build_signed_pack, generate_keypair
 from modules.policy.api import decide
 from modules.trust import api as trust
 from modules.workflow import api as workflow
@@ -327,69 +324,13 @@ def test_webhooks_and_their_deliveries_are_visible_and_a_test_ping_can_be_sent(c
     assert c.post(f"staff/developer/clients/{client}/webhooks/nope/test").status_code == 404
 
 
-# ------------------------------------------------------------------ platform: country packs
+# ------------------------------------------------------------------ platform staff
 @pytest.fixture
 def platform():
     p = Platform()
     p.support = p.staff("sam", "R11")
     p.safety = p.staff("tess", "R12")
     return p
-
-
-def pack_page(p, subject):
-    return p.client.get(API + "platform/signed-packs", **p.header(p.tenant_public_id, subject))
-
-
-def test_support_and_safety_staff_can_read_the_packs_page_and_it_is_audited(platform, settings):
-    private, public = generate_keypair()
-    settings.PACK_PUBLIC_KEYS = f"g1:{public}"
-    now = dt.datetime.now(UTC)
-    packs.install_pack(build_signed_pack(
-        private_key_b64=private, key_id="g1", country="GB", version=1,
-        issued_at=now - dt.timedelta(days=1), valid_from=now - dt.timedelta(days=1),
-        expires_at=now + dt.timedelta(days=30), revocation_epoch=0,
-        capabilities={"booking.request": {"enabled": True},
-                      "referral.exchange": {"enabled": False}}))
-    for who in ("sam", "tess"):
-        response = pack_page(platform, who)
-        assert response.status_code == 200
-    body = json.loads(response.content)
-    (row,) = body["packs"]
-    assert (row["country"], row["version"], row["in_force"]) == ("GB", 1, True)
-    assert row["capabilities"] == ["booking.request"]               # only what is switched on
-    assert body["trusted_key_ids"] == ["g1"] and body["revocation_floor"] == 0
-    assert public not in response.content.decode()                  # key ids only, never keys
-    with tenant_transaction(platform.ctx):
-        assert AuditEvent.objects.filter(action="platform.packs").count() == 2
-
-
-def test_an_expired_pack_shows_as_not_in_force_even_though_it_is_still_installed(platform,
-                                                                                  settings):
-    private, public = generate_keypair()
-    settings.PACK_PUBLIC_KEYS = f"g1:{public}"
-    now = dt.datetime.now(UTC)
-    packs.install_pack(build_signed_pack(
-        private_key_b64=private, key_id="g1", country="FR", version=1,
-        issued_at=now - dt.timedelta(days=9), valid_from=now - dt.timedelta(days=9),
-        expires_at=now + dt.timedelta(seconds=2), revocation_epoch=0,
-        capabilities={"booking.request": {"enabled": True}}))
-    time.sleep(2.5)
-    (row,) = json.loads(pack_page(platform, "sam").content)["packs"]
-    assert (row["status"], row["in_force"]) == ("active", False)
-
-
-def test_customers_and_patients_cannot_open_the_packs_page(platform, c):
-    customer = c.web.client.get(API + "platform/signed-packs", **c.web.header("boss"))
-    assert customer.status_code == 403
-    assert c.web.client.get(API + "platform/signed-packs", **c.web.header("pat")).status_code == 403
-    assert platform.client.get(API + "platform/signed-packs").status_code == 401
-
-
-def test_an_empty_cell_says_so_honestly(platform, settings):
-    settings.PACK_PUBLIC_KEYS = ""
-    body = json.loads(pack_page(platform, "sam").content)
-    assert body == {"packs": [], "revocation_floor": 0, "trusted_key_ids": [], "enforced": False,
-                    "country": "", "country_capabilities": []}
 
 
 def test_operations_of_another_clinic_stay_untouched_by_all_of_this(c):

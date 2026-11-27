@@ -41,6 +41,7 @@ APPEND_ONLY = frozenset({
     "trust_matchdecision",
     "consent_consentevent",
     "coverage_covercheck",
+    "stages_stagestep",
     "foundation_emailattempt",
     "orchestration_transition",
     "readiness_evidence",

@@ -120,6 +120,7 @@ def _email_the_patient(person_ref: str, kind: str) -> None:
 _GUARDIAN_KINDS = frozenset(
     {"booking_confirmed", "booking_cancelled", "booking_rescheduled", "booking_reminder"})
 GUARDIAN_PURPOSE = "guardian_email"
+REMINDER_PURPOSE = "appointment_reminders"
 
 
 def _email_the_guardians(person_ref: str, kind: str) -> int:
@@ -191,6 +192,9 @@ def on_booking_event(event: PublishedEvent) -> None:
             return
     if kind == "booking_reminder" and booking["status"] != "confirmed":
         return                                       # cancelled since: do not remind
+    if kind == "booking_reminder" and not consent.is_granted(
+            str(booking["person_ref"]), REMINDER_PURPOSE):
+        return                     # the patient said no to reminders (DEV-358): nothing at all
     slot = booking["slot"]
     service = catalog.get_service(slot["service_ref"])["name"]
     org = (trust.get_organization(slot["organization_ref"]) or {}).get("name", "the clinic")

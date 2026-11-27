@@ -10,14 +10,14 @@ from typing import Any
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
-from foundation.cell_context import bind_context
+from foundation.cell_context import bind_context, require_context
 from foundation.errors import ErrorCode, ZoikoError
 from foundation.request_context import (
     get_stated_purpose,
     reset_audit_extra,
     set_audit_extra,
 )
-from modules.packs import api as packs
+from modules.jurisdiction import api as jurisdiction
 from modules.policy import api as policy
 from modules.trust import api as trust
 
@@ -69,12 +69,18 @@ View = Callable[..., HttpResponse]
 
 
 def require_feature(capability: str) -> None:
-    """Refuse a feature the country's pack does not switch on (GHE-04). Does nothing unless packs
-    are enforced (ZOIKO_PACKS_ENFORCED). With enforcement on, no country, no pack, an expired or
-    revoked pack, or a pack that does not list the capability all mean REFUSED. Reading what
-    already exists is never gated: only starting something new."""
-    if settings.PACKS_ENFORCED:
-        packs.require_capability(settings.ZOIKO_COUNTRY, capability)
+    """Refuse a feature the customer's country pack does not switch on (GHE-04, DEV-364). Does
+    nothing unless packs are enforced (ZOIKO_PACKS_ENFORCED). With enforcement on, a customer with
+    no country, no signed pack for it, or a pack that is expired, suspended, retired, not signed
+    properly or does not switch the capability on all mean REFUSED. The answer comes from the one
+    country-pack system (`modules/jurisdiction`), the same one booking with partners, texts,
+    workflows, data-request deadlines and go-live readiness read. Reading what already exists is
+    never gated: only starting something new."""
+    if capability not in jurisdiction.CAPABILITIES:
+        raise ValueError(f"unknown capability {capability!r}")       # a coding mistake, not input
+    if settings.PACKS_ENFORCED and capability not in jurisdiction.customer_capabilities(
+            require_context().tenant_id):
+        raise ZoikoError(ErrorCode.JURISDICTION_INACTIVE)
 
 
 def endpoint(*methods: str) -> Callable[[View], Callable[..., HttpResponse]]:

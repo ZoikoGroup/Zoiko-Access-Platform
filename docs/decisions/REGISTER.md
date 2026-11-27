@@ -2075,3 +2075,70 @@ Not fixed, by decision: **AI permits and name checks are managed by an administr
 - **Development only:** `config/settings/dev.py` now turns on the pretend payment provider (`BILLING_PAYMENT_PROVIDER=pretend`) and clinical references (DEV-041). Production and test settings keep both off, and the release check still refuses the pretend provider.
 - **Checked:** `tests/test_screen_gaps.py`, with `tests/test_payments.py`, `tests/test_orchestration.py`, `tests/test_traceability.py`, `tests/test_clinical_references.py` and `tests/test_lifecycles.py` for the rules behind the screens.
 
+### DEV-355: a service's own waiting-list window (ADD, table row 6)
+
+- **What was done:** a service may give people longer or shorter to use an offered time than its clinic does (`GET` and `POST staff/waitlist-rules`; the staff Waiting list page). The order is the service's rule, then the clinic's, then the product default; the journey's offer deadline follows the same rule.
+- **Rules held:** only the clinic administrator changes it, only for the clinic's own services, 1 to 168 hours, audited.
+- **Checked:** `tests/test_waitlist_rules.py`.
+
+### DEV-356: two-step sign-in, and unlinking an outside sign-in (ADD, table row 1)
+
+- **What was done:** any person with a password can turn on a six-digit code from an authenticator app (RFC 6238), with ten single-use recovery codes. Signing in, with a password or through a provider, then needs the code. A clinic administrator can reset it for their own staff. Each person can unlink an outside sign-in and allow it again, on their account page in every app.
+- **Rules held:** the secret is stored encrypted (and re-encrypted on key rotation); recovery codes only as hashes; a code works once; wrong codes count toward the same lock as wrong passwords and the password step does not reset that count; the step in between holds a five-minute signed challenge that is not a session; setting up and turning off need the password; an unlinked provider is refused rather than silently linked again.
+- **To confirm (TEMPORARY):** whether any role must use it (today it is each person's choice), and how a patient who loses both phone and codes is identified before a reset (no patient reset exists).
+- **Checked:** `tests/test_second_factor.py`.
+
+### DEV-357: doctors' qualifications and privileges (ADD, TEMPORARY rules, table row 4)
+
+- **What was done:** a doctor, or a clinic administrator for a doctor who works there, writes down a qualification; an administrator records that they checked it and against what, or withdraws it with a reason. The clinic also records which of its services a doctor may do, from and until which day. Doctor app "My qualifications", staff Providers page, and checked qualifications on the patient's Find a Doctor page.
+- **Rules held:** nobody checks their own qualification or grants themselves a privilege; a checked one is never edited; after its expiry date it counts for nothing; patients see only checked, unexpired ones, never a number, a note or who checked; a clinic changes only its own doctors and services; every step is audited.
+- **To confirm (TEMPORARY):** one administrator is enough to check; privileges are recorded but not enforced on booking or times until the clinic's policy is written; Zoiko verifies nothing itself.
+- **Checked:** `tests/test_qualifications.py`.
+
+### DEV-358: two more consent choices, on until the patient says no (ADD, TEMPORARY, table row 2)
+
+- **What was done:** patients can turn off appointment reminders (in the app, by email and by text) and can keep their messages to the clinic's desk, so the doctors who treat them do not see or answer them. Patient Privacy & Consent page. Changes to an appointment are always told.
+- **Rules held:** the choice is the patient's own, kept with its history like the other consents; a doctor's list leaves those conversations out and opening one is "not found"; the clinic's desk is not affected.
+- **Why on by default:** both were already happening before patients could choose. The register's other choices stay off until the patient says yes. **To confirm:** whether a country pack should make either of them off by default.
+- **Checked:** `tests/test_consent_choices.py`.
+
+### DEV-359: pointers to clinical records can be erased too (CHANGE to DEV-351, table row 15)
+
+- **What was done:** pointers to records held in a clinic's own system join closed conversations as a kind the clinic's administrator can erase after an approved period (staff Keeping records page). Erasing blanks the record's number in the other system and marks the pointer withdrawn "erased after the retention period"; what kind of record, its date and which clinic held it stay, so the patient still knows whom to ask.
+- **Rules held:** the same as DEV-351: switched off unless the deployment allows it, the exact number confirmed, only this clinic's, never a patient on lawful hold. A doctor cannot choose the "erased" reason by hand, and an erased pointer is not counted again.
+- **Not erasable:** appointments stay count-only, because their history and invoices depend on them.
+- **Checked:** `tests/test_retention_erase.py`.
+
+### DEV-360: bookings' and referrals' lifecycle stages are written down (ADD, table rows 5 and 7)
+
+- **What was done:** a new module, `modules/stages`, writes down each standard lifecycle stage (foundation/lifecycles.py) of a booking or referral when it is first seen: on every booking and referral event, and whenever someone opens its stages (`GET bookings/<id>/stages`, `GET referrals/<id>/stages`). That last part catches stages no event announces, such as a booking system that has gone quiet or a referral past its target. Staff Appointments ("Where this appointment stands") and Referrals pages show them.
+- **Rules held:** append-only (the database refuses changes); a stage is written only when it differs from the last one, so a repeated event adds nothing; read access is the same as for the record itself; the record's own status is still the truth, and the stages are its history.
+- **Limits:** a record from before this has its history start at the first look or event after this change.
+- **Checked:** `tests/test_stages.py`.
+
+### DEV-361: partner adapters plugged in by configuration (ADD, table row 12)
+
+- **What was done:** a partner adapter no longer needs a change to the product. `CONNECTOR_PLUGINS` names adapter code ("package.module:attribute"); `CONNECTOR_HTTP` lists partners speaking Zoiko's own simple JSON contract (`modules/connector/plugins.py`), served by a ready-made adapter that signs each request (HMAC-SHA256) and sends the idempotency key. The platform's Partner systems page shows where each adapter came from and lists any that did not load, with why.
+- **Rules held:** nothing that fails to load stops the server, and no secret is shown; an adapter must have a usable key, say whether it is idempotent, and have `submit` and `query`; a key cannot be taken twice; the pretend partner is still refused outside development; addresses must be https (plain http only in development, and the release check refuses that switch). A plugged-in adapter is usable only once its version is certified and live (DEV-230). An unclear or failed answer is "we do not know", never a guess; HTTP 501 halts the connector.
+- **Checked:** `tests/test_connector_plugins.py`.
+
+### DEV-362: the patient's health record in one place (ADD, table row 1)
+
+- **What was done:** `GET my/health` gathers the patient's signed visit notes (a list, no text), the results that came back with whether their values may be seen yet, and where clinics keep their records. Patient app: a full "My Health Records" page (results with their values, notes, records held, and "Download my records") and a real "My Health Overview" card on Home in place of "not built yet". The data download now includes these three sections.
+- **Rules held:** it is built from the patient's own screens, so the same rights, guardian limits and delays apply (notes a day after signing, values a day after a doctor's review). Note text is read only on the notes page, where each reading is recorded. Patients and guardians only.
+- **Not built:** vital signs and a clinic's own clinical record: Zoiko Access does not hold them.
+- **Checked:** `tests/test_health_record.py`.
+
+### DEV-363: matching a patient between separate customers (ADD, TEMPORARY, table row 3)
+
+- **What was done:** a new module, `modules/crossmatch`, in Zoiko's platform space. A customer that chooses to take part (its administrator, on the staff Duplicates page) shares, for each patient who did not say no, a fingerprint of the date of birth with the surname and one of the phone. When another taking-part customer has the same date-of-birth-and-surname fingerprint, a possible match is opened. Each organization answers for its own patient; only when both say "same" does either learn the other's name. Patients have a new choice on Privacy & Consent ("cross_matching", on until they say no).
+- **Rules held:** no name, date or number crosses between customers, only keyed fingerprints under a key the platform holds; customers' own tables are never read by another customer; leaving, or a patient saying no, removes the fingerprints at once; a phone match alone opens nothing; nothing is merged and no access is given; staff see only initials and birth year of their own patient; every step is audited.
+- **To confirm (TEMPORARY):** which countries allow this at all, and whether a patient must say yes first rather than being able to say no.
+- **Checked:** `tests/test_cross_matching.py`.
+
+### DEV-364: one country-pack system (CHANGE, replaces DEV-181's cell-wide packs)
+
+- **What was done:** there were two. `modules/jurisdiction` (DEV-128 onward: drafted, checked, approved by two people, signed with Ed25519 on approval and checked on every read, suspended, retired, per customer country) and `modules/packs` (DEV-181: signed documents installed into a cell by a command, for ONE country set on the server, `ZOIKO_COUNTRY`). Partner booking, texts, workflows, data-request deadlines, the emergency number and go-live readiness already read the first; only the booking, messaging and referral gate read the second. The gate now reads the first too: with `ZOIKO_PACKS_ENFORCED=1`, booking needs `booking`, messages `messaging` and referrals `referrals` switched on by a signed, current pack for the customer's own country. `modules/packs`, its `install_pack` command, the platform "Signed packs" page, `ZOIKO_COUNTRY` and `ZOIKO_PACK_PUBLIC_KEYS` are gone; a migration drops its two tables (configuration only, no patient data). The platform Country packs page shows, per country, what is in force and for how many customers.
+- **Lost, stated plainly:** installing a pack signed outside Zoiko (by a separate governance plane) and the cell-wide revocation floor. Suspending or retiring a pack takes its place; neither existed beyond tests.
+- **Checked:** `tests/test_packs_in_use.py` (rewritten against signed packs per country); `tests/test_signed_packs.py` and the signed-packs page tests in `tests/test_console.py` were removed with the module.
+

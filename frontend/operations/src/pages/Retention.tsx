@@ -41,7 +41,7 @@ function Erase({ c, onDone }: { c: RetentionClass; onDone: () => void }) {
       <button type="button" className="btn ghost" disabled={busy} onClick={() => void look()}>Check what would be erased</button>
       {found && (found.due === 0 ? <p>Nothing would be erased.</p> : (
         <form className="profile-form" onSubmit={(e) => void erase(e)}>
-          <p><b>{found.due}</b> {found.due === 1 ? "record" : "records"} older than {new Date(found.older_than).toLocaleDateString()} would have their content erased. Who and when stay, and so does the audit trail. Patients on a legal hold are left out. <b>This cannot be undone.</b></p>
+          <p><b>{found.due}</b> {found.due === 1 ? "record" : "records"} older than {new Date(found.older_than).toLocaleDateString()} would have their content erased (for conversations, what was said and any files; for record pointers, the record's number in the other system). Who and when stay, and so does the audit trail. Patients on a legal hold are left out. <b>This cannot be undone.</b></p>
           <label>Type {found.due} to confirm
             <input inputMode="numeric" value={typed} onChange={(e) => setTyped(e.target.value)} aria-label={`Confirm erasing ${c.label}`} style={{ maxWidth: 120 }} />
           </label>{" "}

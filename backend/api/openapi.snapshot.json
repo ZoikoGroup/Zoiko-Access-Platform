@@ -552,6 +552,112 @@
     "summary": "Always the same answer, whether or not an email was sent."
    }
   },
+  "/auth/identities": {
+   "get": {
+    "operationId": "get_auth_identities",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The outside sign-ins (Google, a company's own) linked to my login."
+   }
+  },
+  "/auth/identities/{identity_id}/{step}": {
+   "post": {
+    "operationId": "post_auth_identity_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "identity_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "unlink | allow, one of my own outside sign-ins: {password}."
+   }
+  },
   "/auth/login": {
    "post": {
     "operationId": "post_login",
@@ -848,6 +954,156 @@
     },
     "security": [],
     "summary": "auth reset password"
+   }
+  },
+  "/auth/second-factor": {
+   "get": {
+    "operationId": "get_auth_second_factor",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Whether two-step sign-in is on for me, and how many recovery codes I have left."
+   }
+  },
+  "/auth/second-factor/verify": {
+   "post": {
+    "operationId": "post_second_factor_verify",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [],
+    "summary": "The second step of signing in: {challenge, code}. The code is the six digits from the     person's authenticator, or one of their recovery codes. Every failure is the same 401."
+   }
+  },
+  "/auth/second-factor/{step}": {
+   "post": {
+    "operationId": "post_auth_second_factor_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "start {password}: a new secret for my authenticator. confirm {code}: turn it on and get my     recovery codes. disable {password, code}: turn it off. Only ever for my own login."
    }
   },
   "/auth/sso/finish": {
@@ -1789,6 +2045,49 @@
     "summary": "Move an appointment to another free time of the same service and organization."
    }
   },
+  "/bookings/{booking_id}/stages": {
+   "get": {
+    "operationId": "get_booking_stages",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "booking_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The stages this booking has been through, as written down when each was seen (DEV-360).     Gated like the booking itself."
+   }
+  },
   "/care-team": {
    "get": {
     "operationId": "get_my_care_team",
@@ -2681,6 +2980,94 @@
      }
     ],
     "summary": "Pointers to a patient's records kept in a clinic's OWN clinical system: never the record."
+   }
+  },
+  "/clinician/qualifications": {
+   "get": {
+    "operationId": "get_clinician_qualifications",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "My own qualifications and what my clinics let me do. POST writes one down, unchecked."
+   },
+   "post": {
+    "operationId": "post_clinician_qualifications",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "My own qualifications and what my clinics let me do. POST writes one down, unchecked."
    }
   },
   "/clinician/references/{reference_id}/withdraw": {
@@ -4699,6 +5086,40 @@
      }
     ],
     "summary": "A patient's (or guardian's) data as one JSON file: the same information the app shows them,     gathered from the same screens so the same rights apply, with the message texts included.     Only for p"
+   }
+  },
+  "/my/health": {
+   "get": {
+    "operationId": "get_my_health",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The patient's health record in one place (DEV-362): signed visit notes (no text here),     results that came back (and whether their values may be seen yet), and where clinics keep     records. Built "
    }
   },
   "/my/notes": {
@@ -7740,40 +8161,6 @@
     "summary": "The platform's release log. Zoiko support and safety staff may read it; only those who may     write the platform (support) may add an entry."
    }
   },
-  "/platform/signed-packs": {
-   "get": {
-    "operationId": "get_platform_signed_packs",
-    "parameters": [],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "type": "object"
-        }
-       }
-      },
-      "description": "Success."
-     },
-     "default": {
-      "content": {
-       "application/problem+json": {
-        "schema": {
-         "$ref": "#/components/schemas/Problem"
-        }
-       }
-      },
-      "description": "An error, in the standard shape."
-     }
-    },
-    "security": [
-     {
-      "bearerAuth": []
-     }
-    ],
-    "summary": "The country packs installed in this cell, which are in force right now, and what the cell     trusts (key ids only). Read only: packs are installed by a command, never from a screen."
-   }
-  },
   "/platform/slo": {
    "get": {
     "operationId": "get_platform_slo",
@@ -9622,6 +10009,49 @@
     "summary": "Accept, ask for more, or decline. Only the named owner of the receiving inbox, or the     fallback, who is a doctor (the domain re-checks all of this)."
    }
   },
+  "/referrals/{referral_id}/stages": {
+   "get": {
+    "operationId": "get_referral_stages",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "referral_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "The stages this referral has been through (DEV-360): for the sending or receiving clinic,     the referring doctor and the patient, as the policy engine allows each."
+   }
+  },
   "/rights": {
    "get": {
     "operationId": "get_rights_requests",
@@ -11453,6 +11883,166 @@
      }
     ],
     "summary": "Record, after checking with the partner, how an unknown or given-up operation ended."
+   }
+  },
+  "/staff/cross-matching": {
+   "get": {
+    "operationId": "get_staff_cross_matching",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Whether this customer takes part in matching with other customers, and the possible     matches about its patients. POST {active} (the clinic administrator) joins or leaves; leaving     removes every "
+   },
+   "post": {
+    "operationId": "post_staff_cross_matching",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "Whether this customer takes part in matching with other customers, and the possible     matches about its patients. POST {active} (the clinic administrator) joins or leaves; leaving     removes every "
+   }
+  },
+  "/staff/cross-matching/{case_id}/{answer}": {
+   "post": {
+    "operationId": "post_staff_cross_match_answer",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "case_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "answer",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "same | not_same, for this customer's own patient in one possible match."
    }
   },
   "/staff/dashboard": {
@@ -13416,6 +14006,70 @@
     "summary": "staff member resend"
    }
   },
+  "/staff/members/{member_id}/second-factor-reset": {
+   "post": {
+    "operationId": "post_staff_member_second_factor_reset",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "member_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "A clinic administrator turns two-step sign-in off for a team member who lost their phone     and recovery codes. It also signs that member out everywhere."
+   }
+  },
   "/staff/members/{member_id}/status": {
    "post": {
     "operationId": "post_staff_member_status",
@@ -13546,6 +14200,327 @@
      }
     ],
     "summary": "The clinic's doctors with their load for the next 14 days. Numbers and times only."
+   }
+  },
+  "/staff/providers/{provider_id}/privileges": {
+   "post": {
+    "operationId": "post_staff_provider_privileges",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "provider_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "{service, valid_from?, valid_until?, note?}: this clinic allows the doctor to do one of     its services. The clinic administrator."
+   }
+  },
+  "/staff/providers/{provider_id}/privileges/{privilege_id}/withdraw": {
+   "post": {
+    "operationId": "post_staff_provider_privilege_withdraw",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "provider_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "privilege_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "staff provider privilege withdraw"
+   }
+  },
+  "/staff/providers/{provider_id}/qualifications": {
+   "get": {
+    "operationId": "get_staff_provider_qualifications",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "provider_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "One doctor's qualifications and this clinic's privileges for them. POST (administrator     only) writes a qualification down for them, unchecked."
+   },
+   "post": {
+    "operationId": "post_staff_provider_qualifications",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "provider_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "One doctor's qualifications and this clinic's privileges for them. POST (administrator     only) writes a qualification down for them, unchecked."
+   }
+  },
+  "/staff/providers/{provider_id}/qualifications/{qualification_id}/{step}": {
+   "post": {
+    "operationId": "post_staff_provider_qualification_step",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "provider_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "qualification_id",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "step",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "verify {note: what was checked} or withdraw {note: why}. The clinic administrator."
    }
   },
   "/staff/providers/{provider_id}/unverify": {
@@ -14289,6 +15264,94 @@
      }
     ],
     "summary": "Everyone waiting for this organization's services, in queue order, with their place."
+   }
+  },
+  "/staff/waitlist-rules": {
+   "get": {
+    "operationId": "get_staff_waitlist_rules",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "How long a person has to use an offered time, for each of this clinic's services. POST     {service, hours}: that service's own window (1 to 168 hours), or null to follow the clinic's.     Only the cl"
+   },
+   "post": {
+    "operationId": "post_staff_waitlist_rules",
+    "parameters": [
+     {
+      "description": "16 to 128 letters, digits, dashes. Used where the operation says it repeats safely.",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "minLength": 16,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      },
+      "description": "Success."
+     },
+     "default": {
+      "content": {
+       "application/problem+json": {
+        "schema": {
+         "$ref": "#/components/schemas/Problem"
+        }
+       }
+      },
+      "description": "An error, in the standard shape."
+     }
+    },
+    "security": [
+     {
+      "bearerAuth": []
+     }
+    ],
+    "summary": "How long a person has to use an offered time, for each of this clinic's services. POST     {service, hours}: that service's own window (1 to 168 hours), or null to follow the clinic's.     Only the cl"
    }
   },
   "/staff/waitlist/{entry_id}/priority": {

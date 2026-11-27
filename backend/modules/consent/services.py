@@ -21,7 +21,7 @@ from .models import ConsentEvent, ConsentGrant, ConsentState
 
 # What a patient may be asked to share, and which right the policy engine checks for it. A purpose
 # is listed here only when something real reads the choice.
-PURPOSES: dict[str, dict[str, str]] = {
+PURPOSES: dict[str, dict[str, Any]] = {
     "insurance_details": {
         "resource": "coverage",
         "label": "Let this clinic's staff see my insurance details",
@@ -37,6 +37,36 @@ PURPOSES: dict[str, dict[str, str]] = {
         "label": "Let the clinic email my parent or guardian when my appointments change",
         "yes": "Allow emails",
         "no": "Stop the emails",
+    },
+    # DEV-358. These two were already happening before the register existed, so they stay ON until
+    # the patient says no ("default": True); the two above stay OFF until the patient says yes.
+    # Read by api/views.py: a doctor's messages list and opening a conversation.
+    "doctor_messages": {
+        "resource": "comms",
+        "label": "Let the doctors who treat me read and answer my messages to the clinic",
+        "yes": "Allow my doctors",
+        "no": "Only the clinic's desk",
+        "default": True,
+    },
+    # Read by api/views.py when a patient's details are saved (DEV-363): only a fingerprint of the
+    # date of birth with the surname, and of the phone, is shared, and only by a clinic that chose
+    # to take part. Saying no removes this patient's fingerprints.
+    "cross_matching": {
+        "resource": "person",
+        "label": ("Let my clinic check whether another organization on Zoiko Access also has a "
+                  "record for me"),
+        "yes": "Allow the check",
+        "no": "Do not check",
+        "default": True,
+    },
+    # Read by the notifier (modules/comms): the reminder before an appointment, in the app, by email
+    # and by text. Changes to an appointment are always told: only the reminder can be turned off.
+    "appointment_reminders": {
+        "resource": "booking",
+        "label": "Remind me before my appointments",
+        "yes": "Send reminders",
+        "no": "No reminders",
+        "default": True,
     },
 }
 AUDIENCES = ("clinic_staff",)
@@ -72,11 +102,25 @@ def states(
     return {r.person_ref: _effective(r, now) for r in rows}
 
 
+def _default(purpose: str) -> bool:
+    return bool(PURPOSES.get(purpose, {}).get("default", False))
+
+
 def is_granted(
     person_ref: str, purpose: str, audience: str = DEFAULT_AUDIENCE, clock: Clock | None = None
 ) -> bool:
-    """Has this patient said yes, and has that yes not run out? No choice means no."""
-    return states([person_ref], purpose, audience, clock).get(person_ref, False)
+    """Is it a yes right now? No choice means the purpose's own default: no, unless the purpose
+    was already happening before patients could choose (`"default": True`)."""
+    return states([person_ref], purpose, audience, clock).get(person_ref, _default(purpose))
+
+
+def allowed_for(
+    person_refs: list[str], purpose: str, audience: str = DEFAULT_AUDIENCE,
+    clock: Clock | None = None,
+) -> set[str]:
+    """Which of these patients it is a yes for right now, the default counted. One query."""
+    made = states(person_refs, purpose, audience, clock)
+    return {p for p in person_refs if made.get(p, _default(purpose))}
 
 
 def _expiry(days: Any, now: dt.datetime) -> dt.datetime | None:
@@ -151,6 +195,7 @@ def consent_dict(row: ConsentGrant, now: dt.datetime) -> dict[str, Any]:
         "purpose": row.purpose, "audience": row.audience, "label": PURPOSES[row.purpose]["label"],
         "yes_label": PURPOSES[row.purpose]["yes"], "no_label": PURPOSES[row.purpose]["no"],
         "state": "expired" if ran_out else row.state, "shared": live,
+        "default_on": _default(row.purpose), "chosen": True,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
         "changed_at": row.updated_at.isoformat(), "changed_by": row.changed_by_ref,
     }
@@ -166,9 +211,11 @@ def list_for_person(person_ref: str, clock: Clock | None = None) -> list[dict[st
         if purpose in rows:
             out.append(consent_dict(rows[purpose], now))
         else:
+            on = _default(purpose)
             out.append({"purpose": purpose, "audience": DEFAULT_AUDIENCE, "label": meta["label"],
                         "yes_label": meta["yes"], "no_label": meta["no"],
-                        "state": ConsentState.WITHDRAWN.value, "shared": False,
+                        "state": (ConsentState.GRANTED if on else ConsentState.WITHDRAWN).value,
+                        "shared": on, "default_on": on, "chosen": False,
                         "expires_at": None, "changed_at": None, "changed_by": ""})
     return out
 

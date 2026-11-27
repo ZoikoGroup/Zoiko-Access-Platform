@@ -66,10 +66,11 @@ modules = [
   "modules.messaging",
   "modules.comms",
   "modules.evidence",
-  "modules.packs",
   "modules.connector",
   "modules.developer",
   "modules.bookingflow",
+  "modules.stages",
+  "modules.crossmatch",
 ]
 ignore_imports = ["modules.** -> modules.*.api"]
 # No module imports another yet, so this allowance matches nothing until B4+. That is fine.
@@ -109,8 +110,9 @@ forbidden_modules = [
   "modules.messaging",
   "modules.comms",
   "modules.evidence",
-  "modules.packs",
   "modules.connector",
   "modules.developer",
   "modules.bookingflow",
+  "modules.stages",
+  "modules.crossmatch",
 ]

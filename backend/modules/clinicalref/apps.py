@@ -11,7 +11,8 @@ class ClinicalrefConfig(AppConfig):
     def ready(self) -> None:
         from foundation import retention
 
-        from .retention import count_older
+        from .retention import count_older, due_for_erasure, erase_older
 
-        retention.register("clinical_references", "Pointers to clinical records",
-                           "the day the record is about", count_older)
+        retention.register(
+            "clinical_references", "Pointers to clinical records", "the day the record is about",
+            count_older, retention.Eraser(due=due_for_erasure, erase=erase_older))

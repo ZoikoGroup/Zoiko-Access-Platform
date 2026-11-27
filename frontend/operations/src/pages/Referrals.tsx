@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { acknowledgeReferral, getReferralInbox, listIncomingReferrals, setReferralInbox } from "../api";
+import { StageList } from "@shared/StageList";
+import { acknowledgeReferral, getReferralInbox, getReferralStages, listIncomingReferrals, setReferralInbox } from "../api";
 import type { IncomingReferral, ReferralInbox } from "../types";
 import { Card, Patient, Pill, Table, type PillKind } from "../ui";
 
@@ -20,9 +21,11 @@ function Receipt({ r, onDone }: { r: IncomingReferral; onDone: () => Promise<voi
     catch (e) { setError(e instanceof Error ? e.message : "That did not work"); }
     finally { setBusy(false); }
   }
-  if (!open) return <span>{r.decision_reason}</span>;
+  const stages = <StageList label="this referral" load={() => getReferralStages(r.id)} />;
+  if (!open) return <span>{r.decision_reason}{stages}</span>;
   return (
     <span>
+      {stages}
       {r.acknowledged_at
         ? <small>Marked received {r.acknowledged_at.slice(0, 10)}. Only the doctor can accept.</small>
         : <button className="btn ghost" disabled={busy} onClick={() => void mark()}>Mark received</button>}

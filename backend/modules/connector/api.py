@@ -3,7 +3,7 @@
 This is the ONLY module other domain modules may import from `modules.connector`.
 Everything else (models, services, domain rules) is private. Enforced by import-linter.
 """
-from . import certification
+from . import certification, plugins
 from .adapters import (
     Adapter,
     AdapterTimeout,
@@ -34,7 +34,7 @@ from .services import (
 
 __all__ = [
     "Adapter", "AdapterTimeout", "AdapterUnavailable", "AdapterUnsupported", "OperationView",
-    "Outcome", "certification", "circuits", "is_down", "is_live", "is_simulated",
+    "Outcome", "certification", "circuits", "is_down", "is_live", "is_simulated", "plugins",
     "reset_circuit",
     "PartnerResult", "get_operation", "is_source_confirmed", "list_operations",
     "operation_history", "reconcile_due", "recover_stuck", "redrive", "register", "registered",

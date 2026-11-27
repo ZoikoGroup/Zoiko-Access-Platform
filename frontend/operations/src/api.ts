@@ -1,3 +1,6 @@
+import type { StoredStage } from "@shared/StageList";
+import type { NewQualification, Privilege, Qualification } from "@shared/Qualifications";
+import { finishSignIn } from "@shared/signInStep";
 // The only file that talks to the backend. Pages call these functions, never fetch().
 import type { BookingHistoryData } from "@shared/BookingHistory";
 import type { AttachmentPayload, AttachmentRef } from "@shared/Attachments";
@@ -113,7 +116,7 @@ export async function signIn(organization: string, login: string, password: stri
   const body = (await res.json()) as LoginReply & { title?: string; code?: string };
   if (res.status === 401) throw new ApiError("Wrong organization, login or password.", "UNAUTHENTICATED");
   if (!res.ok) throw new ApiError(body.title ?? `Sign-in failed (${res.status})`, body.code);
-  return body;
+  return finishSignIn<LoginReply>(body);   // asks for a code if one is owed
 }
 
 /** Sign out everywhere: the server revokes every token this person was issued. */
@@ -257,6 +260,20 @@ export const setWaitlistPriority = (id: string, priority: 0 | 1 | 2, reason: str
   post(`staff/waitlist/${encodeURIComponent(id)}/priority`, { priority, reason });
 export const getProviders = async () =>
   (await v1<{ days: number; can_manage: boolean; bases: Record<string, string>; providers: ProviderRow[] }>("staff/providers"));
+export interface ProviderCredentialsData {
+  qualifications: Qualification[]; privileges: Privilege[]; services: { id: string; name: string }[];
+  can_manage: boolean;
+}
+export const getProviderCredentials = (id: string) =>
+  v1<ProviderCredentialsData>(`staff/providers/${encodeURIComponent(id)}/qualifications`);
+export const addProviderQualification = (id: string, q: NewQualification) =>
+  post(`staff/providers/${encodeURIComponent(id)}/qualifications`, q);
+export const decideQualification = (id: string, qualification: string, step: "verify" | "withdraw", note: string) =>
+  post(`staff/providers/${encodeURIComponent(id)}/qualifications/${encodeURIComponent(qualification)}/${step}`, { note });
+export const grantPrivilege = (id: string, body: { service: string; valid_until: string; note: string }) =>
+  post(`staff/providers/${encodeURIComponent(id)}/privileges`, body);
+export const withdrawPrivilege = (id: string, privilege: string, reason: string) =>
+  post(`staff/providers/${encodeURIComponent(id)}/privileges/${encodeURIComponent(privilege)}/withdraw`, { reason });
 export const verifyProviderName = (id: string, basis: string, note: string) =>
   post(`staff/providers/${encodeURIComponent(id)}/verify`, { basis, note });
 export const withdrawProviderCheck = (id: string, reason: string) =>
@@ -345,9 +362,28 @@ export interface BookingIntent {
   status: string; label: string; final: boolean; next: string[]; source_confirmation: { by: string } | null;
 }
 export interface ProviderStage { stage: string; operation: string }
+export interface CrossCase {
+  id: string; state: "open" | "confirmed" | "not_same"; factors: string[]; person: string;
+  my_answer: "" | "same" | "not_same"; their_answer_given: boolean; other_organization: string | null;
+  created_at: string; patient: { initials: string; birth_year: string };
+}
+export const getCrossMatching = () =>
+  v1<{ active: boolean; can_set: boolean; cases: CrossCase[] }>("staff/cross-matching");
+export const setCrossMatching = (active: boolean) => post("staff/cross-matching", { active });
+export const answerCrossMatch = (id: string, answer: "same" | "not_same") =>
+  post(`staff/cross-matching/${encodeURIComponent(id)}/${answer}`);
+export const getBookingStages = async (id: string) =>
+  (await v1<{ stages: StoredStage[] }>(`bookings/${encodeURIComponent(id)}/stages`)).stages;
+export const getReferralStages = async (id: string) =>
+  (await v1<{ stages: StoredStage[] }>(`referrals/${encodeURIComponent(id)}/stages`)).stages;
 export const getBookingIntent = (id: string) => v1<BookingIntent>(`bookings/${encodeURIComponent(id)}/intent`);
 export const getProviderStage = async (id: string) =>
   (await v1<{ provider_stage: ProviderStage | null }>(`bookings/${encodeURIComponent(id)}/provider-stage`)).provider_stage;
+export interface WaitServiceRule { id: string; name: string; hours: number | null; effective_hours: number }
+export interface WaitRules { services: WaitServiceRule[]; clinic_hours: number; can_set: boolean }
+export const getWaitRules = () => v1<WaitRules>("staff/waitlist-rules");
+export const setWaitRule = (service: string, hours: number | null) =>
+  post<WaitRules>("staff/waitlist-rules", { service, hours });
 export const getBillingFees = () =>
   v1<{ fees: FeeRow[]; can_set: boolean }>("staff/billing/fees");
 export const setFee = (service: string, currency: string, amount_minor: number) =>
@@ -394,6 +430,8 @@ export const getPatients = async () => (await v1<{ patients: PatientRow[] }>("st
 export const inviteStaff = (email: string, role: string) => post("staff/members", { email, role });
 export const setMemberStatus = (id: string, status: "active" | "suspended") =>
   post(`staff/members/${encodeURIComponent(id)}/status`, { status });
+export const resetSecondFactor = (id: string) =>
+  post(`staff/members/${encodeURIComponent(id)}/second-factor-reset`);
 export const resendInvite = (id: string) => post(`staff/members/${encodeURIComponent(id)}/resend-invite`);
 
 // ---- links in emails (no sign-in needed): choosing a password from an invitation ----
@@ -611,3 +649,7 @@ export const setCriticalTexts = async (critical_texts: boolean) =>
   (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ critical_texts }) })).alert_phone;
 export const setHoldTexts = async (hold_texts: boolean) =>
   (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ hold_texts }) })).alert_phone;
+
+/** How the account page's security cards call the API as this person. */
+export const securityCall = <T,>(path: string, body?: unknown): Promise<T> =>
+  v1<T>(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) });

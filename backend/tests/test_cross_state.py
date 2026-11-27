@@ -195,7 +195,7 @@ def booking_snapshot(w):
 def test_the_booking_table_covers_every_state_and_step():
     assert set(BOOKING_STATUS.values()) == set(BookingStatus.values)
     assert set(BOOKING_STATUS) == set(BOOKING_ALLOWED)
-    read_only = {"history", "calendar", "provider-stage", "intent"}
+    read_only = {"history", "calendar", "provider-stage", "intent", "stages"}
     assert routes("bookings/<str:booking_id>/") - read_only == set(BOOKING_ACTIONS)
     check_table(BOOKING_ALLOWED, BOOKING_ACTIONS)
 
@@ -250,7 +250,8 @@ def referral_snapshot(c):
 
 def test_the_referral_table_covers_every_state_and_step():
     assert set(REFERRAL_ALLOWED) == set(ReferralState.values)
-    assert routes("referrals/<str:referral_id>/") == {"decide", "acknowledge"}
+    read_only = {"stages"}                       # DEV-360: the stored stages, a read
+    assert routes("referrals/<str:referral_id>/") - read_only == {"decide", "acknowledge"}
     check_table(REFERRAL_ALLOWED, REFERRAL_ACTIONS)
 
 

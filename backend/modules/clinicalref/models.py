@@ -32,6 +32,7 @@ class WithdrawReason(models.TextChoices):
     WRONG_PATIENT = "wrong_patient", "Recorded for the wrong patient"
     REMOVED_AT_SOURCE = "removed_at_source", "No longer held in the clinic's system"
     OTHER = "other", "Other"
+    RETENTION_PERIOD = "retention_period", "Erased after the retention period"   # system only
 
 
 class ClinicalReference(CellScopedModel):

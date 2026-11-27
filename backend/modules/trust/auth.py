@@ -154,6 +154,8 @@ class LoginResult:
     tenant_type: str
     roles: list[tuple[str, str, str]]   # (role code, organization id, organization name)
     remembered: bool = False            # a 30-day session, granted only to a patient who asked
+    # Set instead of a token when a second step is owed (two-step sign-in, DEV-356).
+    challenge: str = ""
 
 
 def _fail() -> ZoikoError:
@@ -163,6 +165,42 @@ def _fail() -> ZoikoError:
 def _audit(actor: str, action: str, outcome: AuditOutcome, reason: str = "") -> None:
     record(actor_ref=actor, action=action, object_type="actor", object_ref=actor,
            outcome=outcome, reason_code=reason)
+
+
+def session_for(
+    tenant: Tenant, cred: Credential, *, remember: bool, now: dt.datetime,
+    action: str = "auth.login", reason: str = "",
+) -> LoginResult:
+    """The signed session for a person who has passed every step. Call inside their tenant's
+    transaction. `remember` is honoured only for a patient."""
+    actor = cred.actor
+    cred.last_login_at = now
+    cred.save(update_fields=["last_login_at", "updated_at"])
+    names = organization_names()
+    roles = [(r, o, names.get(o, "")) for r, o in active_roles(actor.public_id, at=now)]
+    kept = remember and actor.actor_type == ActorType.PATIENT
+    lifetime = REMEMBER_LIFETIME if kept else TOKEN_LIFETIME
+    token = issue_token(
+        tenant_public_id=tenant.public_id, actor_public_id=actor.public_id,
+        epoch=cred.session_epoch, now=now, lifetime=lifetime)
+    _audit(actor.public_id, action, AuditOutcome.ALLOWED, reason or ("remembered" if kept else ""))
+    return LoginResult(
+        token, now + lifetime, actor.public_id, actor.actor_type, cred.login,
+        tenant.public_id, tenant.name, tenant.type, roles, remembered=kept)
+
+
+def challenge_for(tenant: Tenant, cred: Credential, *, remember: bool, now: dt.datetime
+                  ) -> LoginResult:
+    """The first step is done and a code is still owed: no session yet."""
+    from . import second_factor
+
+    challenge = second_factor.make_challenge(
+        tenant_public_id=tenant.public_id, actor_public_id=cred.actor.public_id,
+        epoch=cred.session_epoch, remember=remember, now=now)
+    _audit(cred.actor.public_id, "auth.second_factor_required", AuditOutcome.ALLOWED)
+    return LoginResult("", now + second_factor.CHALLENGE_LIFETIME, cred.actor.public_id,
+                       cred.actor.actor_type, cred.login, tenant.public_id, tenant.name,
+                       tenant.type, [], challenge=challenge)
 
 
 # ------------------------------------------------------------------ login and sign-out
@@ -200,21 +238,16 @@ def login(
             actor = cred.actor
             if (password_ok and not locked and actor.status == Status.ACTIVE
                     and not login_of_deceased(actor)):
-                cred.failed_attempts, cred.locked_until, cred.last_login_at = 0, None, now
-                cred.save(update_fields=["failed_attempts", "locked_until", "last_login_at",
-                                         "updated_at"])
-                names = organization_names()
-                roles = [(r, o, names.get(o, "")) for r, o in active_roles(actor.public_id, at=now)]
-                kept = remember and actor.actor_type == ActorType.PATIENT
-                lifetime = REMEMBER_LIFETIME if kept else TOKEN_LIFETIME
-                token = issue_token(
-                    tenant_public_id=tenant.public_id, actor_public_id=actor.public_id,
-                    epoch=cred.session_epoch, now=now, lifetime=lifetime)
-                _audit(actor.public_id, "auth.login", AuditOutcome.ALLOWED,
-                       "remembered" if kept else "")
-                result = LoginResult(
-                    token, now + lifetime, actor.public_id, actor.actor_type, login_id,
-                    tenant.public_id, tenant.name, tenant.type, roles, remembered=kept)
+                from . import second_factor
+
+                if second_factor.required_for(actor.pk):
+                    # The failure count is NOT reset here: it is reset when the code is right, so
+                    # codes cannot be guessed by signing in again.
+                    result = challenge_for(tenant, cred, remember=remember, now=now)
+                else:
+                    cred.failed_attempts, cred.locked_until = 0, None
+                    cred.save(update_fields=["failed_attempts", "locked_until", "updated_at"])
+                    result = session_for(tenant, cred, remember=remember, now=now)
             else:
                 reason = "locked" if locked else (
                     "inactive" if password_ok else "bad_password")

@@ -1,3 +1,4 @@
+import { finishSignIn } from "@shared/signInStep";
 import type { BookingHistoryData } from "@shared/BookingHistory";
 import type { AttachmentPayload, AttachmentRef } from "@shared/Attachments";
 import { friendlyEmailError } from "@shared/EmailCard";
@@ -248,7 +249,7 @@ export async function signIn(organization: string, login: string, password: stri
   const body = (await res.json()) as LoginReply & { title?: string; code?: string };
   if (res.status === 401) throw new ApiError("Wrong organization, login or password.", "UNAUTHENTICATED", 401);
   if (!res.ok) throw new ApiError(body.title ?? `Sign-in failed (${res.status})`, body.code ?? "ERROR", res.status);
-  return body;
+  return finishSignIn<LoginReply>(body);   // asks for a code if one is owed
 }
 
 /** Create a patient account (only works where the organization has turned self-registration on). */
@@ -443,6 +444,7 @@ export interface DirectoryDoctor {
   free_times: number;
   next_free: { local_start: string; zone: string; service: string } | null;
   booking_method: "clinic" | "booking_system";
+  qualifications: { title: string; issuer: string; kind: string; checked_on: string | null }[];
 }
 export interface Directory {
   doctors: DirectoryDoctor[]; disclaimer: string;
@@ -497,6 +499,12 @@ export interface RecordReference {
   id: string; kind: string; refers_to: string; system: string; status: "active" | "withdrawn";
   organization: { id: string; name: string };
 }
+export interface MyHealth {
+  notes: MyNote[]; notes_enabled: boolean; results: MyRequest[];
+  references: RecordReference[] | { available: false };
+  counts: { notes: number; results: number; values_ready: number; references: number };
+}
+export const getMyHealth = async () => (await request<MyHealth>("my/health")).body;
 export const getMyReferences = async () =>
   (await request<{ references: RecordReference[] }>("my/references")).body.references;
 
@@ -695,6 +703,8 @@ export interface ConsentRow {
   /** What the buttons for this choice say (for example "Allow emails" and "Stop the emails"). */
   yes_label?: string; no_label?: string;
   shared: boolean; expires_at: string | null; changed_at: string | null; changed_by: string;
+  /** On until the patient says no (it was already happening before patients could choose). */
+  default_on?: boolean; chosen?: boolean;
 }
 export interface AccessData {
   person: string | null; delegates: DelegateRow[]; consents: ConsentRow[]; age_of_majority: number;
@@ -726,3 +736,7 @@ export const sendPhoneCode = async () => { await request("my/phone-check", { met
 export const confirmPhoneCode = async (code: string) => {
   await request("my/phone-check/confirm", { method: "POST", body: JSON.stringify({ code }) });
 };
+
+/** How the account page's security cards call the API as this person. */
+export const securityCall = async <T,>(path: string, body?: unknown): Promise<T> =>
+  (await request<T>(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) })).body;

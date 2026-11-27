@@ -1,3 +1,5 @@
+import type { NewQualification, Privilege, Qualification } from "@shared/Qualifications";
+import { finishSignIn } from "@shared/signInStep";
 import type { AttachmentPayload, AttachmentRef } from "@shared/Attachments";
 // The only file that talks to the backend. Pages call these functions, never fetch().
 import { friendlyEmailError } from "@shared/EmailCard";
@@ -71,7 +73,7 @@ export async function signIn(organization: string, login: string, password: stri
   const body = (await res.json()) as LoginReply & { title?: string; code?: string };
   if (res.status === 401) throw new ApiError("Wrong organization, login or password.", "UNAUTHENTICATED");
   if (!res.ok) throw new ApiError(body.title ?? `Sign-in failed (${res.status})`, body.code);
-  return body;
+  return finishSignIn<LoginReply>(body);   // asks for a code if one is owed
 }
 
 /** Sign out everywhere: the server revokes every token this person was issued. */
@@ -150,6 +152,10 @@ export const addReference = (person: string, body: { system: string; external_id
   v1<unknown>(`clinician/patients/${encodeURIComponent(person)}/references`, { method: "POST", body: JSON.stringify(body) });
 export const withdrawReference = (id: string, reason: string) =>
   v1<unknown>(`clinician/references/${encodeURIComponent(id)}/withdraw`, { method: "POST", body: JSON.stringify({ reason }) });
+export const getMyCredentials = () =>
+  v1<{ qualifications: Qualification[]; privileges: Privilege[] }>("clinician/qualifications");
+export const addQualification = (q: NewQualification) =>
+  v1<unknown>("clinician/qualifications", { method: "POST", body: JSON.stringify(q) });
 export const getPartnerRequests = async () => (await v1<{ requests: PartnerRequest[] }>("exchange/requests")).requests;
 export const reviewPartnerResult = (id: string) =>
   v1<{ request: PartnerRequest }>(`exchange/requests/${encodeURIComponent(id)}/review`, { method: "POST", body: "{}" });
@@ -289,3 +295,7 @@ export const setCriticalTexts = async (critical_texts: boolean) =>
   (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ critical_texts }) })).alert_phone;
 export const setHoldTexts = async (hold_texts: boolean) =>
   (await v1<{ alert_phone: AlertPhone }>("staff/alert-phone", { method: "POST", body: JSON.stringify({ hold_texts }) })).alert_phone;
+
+/** How the account page's security cards call the API as this person. */
+export const securityCall = <T,>(path: string, body?: unknown): Promise<T> =>
+  v1<T>(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) });

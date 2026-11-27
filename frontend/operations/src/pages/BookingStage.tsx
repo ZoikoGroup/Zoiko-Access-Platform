@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { getBookingIntent, getProviderStage, type BookingIntent, type ProviderStage } from "../api";
+import { StageList } from "@shared/StageList";
+import { getBookingIntent, getBookingStages, getProviderStage, type BookingIntent, type ProviderStage } from "../api";
 import { Pill } from "../ui";
 
 const PROVIDER: Record<string, string> = {
@@ -35,6 +36,7 @@ export function BookingStage({ id }: { id: string }) {
           : "No booking system has been asked about this appointment."}</small>
         {intent.next.length > 0 && <small>What may happen next: {intent.next.map(words).join(", ")}.</small>}
       </div>
+      <StageList label="this appointment" load={() => getBookingStages(id)} />
     </div>
   );
 }

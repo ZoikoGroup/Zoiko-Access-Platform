@@ -20,4 +20,9 @@ class ConnectorConfig(AppConfig):
         # The pretend partner exists only where the settings allow it (development and tests).
         if getattr(settings, "CONNECTOR_SIMULATOR", False):
             adapters.register(simulator)
+        # Partners plugged in by configuration (DEV-361): code named in CONNECTOR_PLUGINS, and
+        # partners speaking Zoiko's JSON contract listed in CONNECTOR_HTTP.
+        from .plugins import load_configured
+
+        load_configured()
         periodic.register("connector.run", RUN_EVERY_SECONDS, run_all_tenants)

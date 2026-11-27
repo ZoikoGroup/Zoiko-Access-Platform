@@ -153,30 +153,41 @@ def set_priority(
         return entry_dict(entry)
 
 
-def offer_hours_for(organization_ref: str) -> int:
-    """How long this clinic gives a person to use an offered time: its own choice, or the
-    service default."""
-    own = WaitRule.objects.filter(organization_ref=organization_ref, **_scope()).values_list(
-        "offer_hours", flat=True).first()
-    return int(own or settings.WAITLIST_OFFER_HOURS)
+def offer_hours_for(organization_ref: str, service_ref: str = "") -> int:
+    """How long a person has to use an offered time: the service's own rule, else the clinic's,
+    else the product default."""
+    found = dict(WaitRule.objects.filter(
+        organization_ref=organization_ref, service_ref__in={"", service_ref}, **_scope()
+    ).values_list("service_ref", "offer_hours"))
+    return int(found.get(service_ref) or found.get("") or settings.WAITLIST_OFFER_HOURS)
 
 
-def set_offer_hours(organization_ref: str, hours: Any, *, by: str) -> int:
-    """Set this clinic's offer window (1 to 168 hours), or None to use the service default.
-    Returns the window now in force."""
+def service_rules(organization_ref: str) -> dict[str, int]:
+    """The services of this clinic that have their own window: {service_ref: hours}."""
+    rows = WaitRule.objects.filter(
+        organization_ref=organization_ref, offer_hours__isnull=False, **_scope()
+    ).exclude(service_ref="")
+    return {ref: hours for ref, hours in rows.values_list("service_ref", "offer_hours") if hours}
+
+
+def set_offer_hours(organization_ref: str, hours: Any, *, by: str, service_ref: str = "") -> int:
+    """Set the offer window (1 to 168 hours) for one service, or for the whole clinic when no
+    service is named. None goes back to the rule above it. Returns the window now in force. The
+    caller has checked that the service belongs to this clinic."""
     if hours is not None and (
             isinstance(hours, bool) or not isinstance(hours, int)
             or not 1 <= hours <= MAX_OFFER_HOURS):
         raise ZoikoError(ErrorCode.VALIDATION_FAILED, fields=["waitlist_offer_hours"])
     with transaction.atomic():
         rule, _ = WaitRule.objects.get_or_create(
-            organization_ref=organization_ref, defaults={"offer_hours": hours}, **_scope())
+            organization_ref=organization_ref, service_ref=service_ref,
+            defaults={"offer_hours": hours}, **_scope())
         if rule.offer_hours != hours:
             rule.offer_hours = hours
             rule.entity_version += 1
             rule.save(update_fields=["offer_hours", "entity_version", "updated_at"])
         _audit(by, "waitlist.set_offer_hours", rule.public_id)
-    return offer_hours_for(organization_ref)
+    return offer_hours_for(organization_ref, service_ref)
 
 
 def list_entries(
@@ -252,20 +263,21 @@ def expire_old_offers(*, older_than: dt.timedelta | None = None, clock: Clock | 
     offered again. The window is each clinic's own (`set_offer_hours`) unless `older_than` says
     otherwise. Runs in the worker for the bound tenant."""
     now = utc_now(clock)
-    windows: dict[str, dt.timedelta] = {}
+    windows: dict[tuple[str, str], dt.timedelta] = {}
 
-    def window(org: str) -> dt.timedelta:
+    def window(org: str, service: str) -> dt.timedelta:
         if older_than is not None:
             return older_than
-        if org not in windows:
-            windows[org] = dt.timedelta(hours=offer_hours_for(org))
-        return windows[org]
+        if (org, service) not in windows:
+            windows[org, service] = dt.timedelta(hours=offer_hours_for(org, service))
+        return windows[org, service]
 
     with transaction.atomic():
         offered = WaitEntry.objects.select_for_update(skip_locked=True).filter(
             state=WaitState.OFFERED, offered_at__isnull=False, **_scope())
         stale = [e for e in offered
-                 if e.offered_at is not None and e.offered_at <= now - window(e.organization_ref)]
+                 if e.offered_at is not None
+                 and e.offered_at <= now - window(e.organization_ref, e.service_ref)]
         for entry in stale:
             entry.state = WaitState.WAITING
             entry.offered_at = None

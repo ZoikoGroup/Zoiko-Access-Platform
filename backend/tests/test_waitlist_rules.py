@@ -197,6 +197,66 @@ def test_an_unused_offer_returns_to_the_queue_after_the_clinics_own_window(w):
     assert w.entries("pat")[0]["state"] == "waiting"
 
 
+# ------------------------------------------------------------------ a service's own window
+def rules(w, who="boss"):
+    r = w.get("staff/waitlist-rules", subject=who)
+    assert r.status_code == 200, r.content
+    return json.loads(r.content)
+
+
+def cardio_rule(w, who="boss"):
+    return next(s for s in rules(w, who)["services"] if s["id"] == w.cardio)
+
+
+def set_rule(w, hours, who="boss", service=None):
+    return w.post("staff/waitlist-rules", {"service": service or w.cardio, "hours": hours},
+                  subject=who)
+
+
+def test_a_service_follows_the_clinic_until_it_has_its_own_rule(w, settings):
+    settings.WAITLIST_OFFER_HOURS = 24
+    w.post("staff/settings", {"waitlist_offer_hours": 6}, subject="boss")
+    assert (cardio_rule(w)["hours"], cardio_rule(w)["effective_hours"]) == (None, 6)
+    assert set_rule(w, 2).status_code == 200
+    assert (cardio_rule(w)["hours"], cardio_rule(w)["effective_hours"]) == (2, 2)
+    others = [s for s in rules(w)["services"] if s["id"] != w.cardio]
+    assert others and all(s["effective_hours"] == 6 for s in others)
+    assert rules(w)["clinic_hours"] == 6                        # the clinic's rule is untouched
+    set_rule(w, None)
+    assert cardio_rule(w)["effective_hours"] == 6
+
+
+def test_an_offer_for_a_service_with_its_own_window_returns_after_that_window(w):
+    w.post("staff/settings", {"waitlist_offer_hours": 10}, subject="boss")
+    set_rule(w, 2)
+    offered_entry(w)
+    with tenant_transaction(w.clinic.ctx):
+        assert waitlist_services.expire_old_offers(
+            clock=FixedClock(utc_now() + dt.timedelta(hours=1))) == 0
+        assert waitlist_services.expire_old_offers(
+            clock=FixedClock(utc_now() + dt.timedelta(hours=3))) == 1
+
+
+def test_only_the_administrator_changes_a_services_window_and_patients_see_nothing(w):
+    assert cardio_rule(w, "desk")["hours"] is None and rules(w, "desk")["can_set"] is False
+    assert set_rule(w, 2, who="desk").status_code == 403
+    assert set_rule(w, 2, who="pat").status_code == 403
+    assert w.get("staff/waitlist-rules", subject="pat").status_code == 403
+    assert cardio_rule(w)["hours"] is None
+
+
+@pytest.mark.parametrize("bad", [0, 169, -1, "6", 1.5, True])
+def test_a_services_window_must_be_a_sensible_number_of_hours(w, bad):
+    assert set_rule(w, bad).status_code == 422
+    assert cardio_rule(w)["hours"] is None
+
+
+def test_another_clinics_service_is_not_found(w):
+    other = Waiting()
+    assert set_rule(w, 2, service=other.cardio).status_code == 404
+    assert set_rule(w, 2, service="nosuchservice00000000").status_code == 404
+
+
 def test_a_clinic_without_its_own_window_uses_the_service_default(w, settings):
     settings.WAITLIST_OFFER_HOURS = 24
     offered_entry(w)

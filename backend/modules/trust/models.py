@@ -6,6 +6,7 @@ hold this role at this organization during this period". The policy module decid
 from __future__ import annotations
 
 from django.db import models
+from django.db.models import Q
 
 from foundation.ids import new_internal_id, new_public_id
 from foundation.models import CellScopedModel
@@ -340,6 +341,20 @@ class Credential(CellScopedModel):
         ]
 
 
+class SecondFactor(CellScopedModel):
+    """A person's two-step sign-in (DEV-356): the secret their authenticator app holds, kept
+    encrypted, and hashes of their unused recovery codes. Off until `confirmed_at` is set."""
+
+    actor = models.OneToOneField(Actor, on_delete=models.PROTECT, related_name="second_factor")
+    secret_enc = models.TextField()                       # ciphertext only
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    last_used_step = models.BigIntegerField(default=0)    # a code works once
+    recovery_hashes = models.JSONField(default=list)
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="secondfactor_scope_idx")]
+
+
 class TokenPurpose(models.TextChoices):
     VERIFY_EMAIL = "verify_email", "Verify email"
     RESET_PASSWORD = "reset_password", "Reset password"
@@ -524,6 +539,58 @@ class NameCheck(CellScopedModel):
         indexes = [models.Index(fields=["cell_id", "tenant_id"], name="namecheck_scope_idx")]
 
 
+class QualificationStatus(models.TextChoices):
+    RECORDED = "recorded", "Written down, not checked"
+    VERIFIED = "verified", "Checked"
+    WITHDRAWN = "withdrawn", "Withdrawn"
+
+
+class Qualification(CellScopedModel):
+    """One qualification a doctor holds, and whether an administrator has checked it (DEV-357)."""
+
+    actor = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="qualifications")
+    kind = models.CharField(max_length=16)
+    title = models.CharField(max_length=120)
+    issuer = models.CharField(max_length=120)
+    reference = models.CharField(max_length=64, blank=True, default="")   # a registration number
+    obtained_on = models.DateField(null=True, blank=True)
+    expires_on = models.DateField(null=True, blank=True)
+    status = models.CharField(
+        max_length=12, choices=QualificationStatus.choices, default=QualificationStatus.RECORDED)
+    added_by_ref = models.CharField(max_length=22)
+    checked_by_ref = models.CharField(max_length=22, blank=True, default="")
+    checked_on = models.DateField(null=True, blank=True)
+    check_note = models.CharField(max_length=200, blank=True, default="")
+    withdrawn_by_ref = models.CharField(max_length=22, blank=True, default="")
+    withdrawn_reason = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="qualification_scope_idx")]
+
+
+class Privilege(CellScopedModel):
+    """What one clinic lets a doctor do there: one of its services, for a time (DEV-357)."""
+
+    actor = models.ForeignKey(Actor, on_delete=models.PROTECT, related_name="privileges")
+    organization_ref = models.CharField(max_length=22)
+    service_ref = models.CharField(max_length=22)
+    valid_from = models.DateField()
+    valid_until = models.DateField(null=True, blank=True)
+    note = models.CharField(max_length=200, blank=True, default="")
+    granted_by_ref = models.CharField(max_length=22)
+    withdrawn_at = models.DateTimeField(null=True, blank=True)
+    withdrawn_by_ref = models.CharField(max_length=22, blank=True, default="")
+    withdrawn_reason = models.CharField(max_length=200, blank=True, default="")
+
+    class Meta(CellScopedModel.Meta):
+        indexes = [models.Index(fields=["cell_id", "tenant_id"], name="privilege_scope_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant_id", "actor", "organization_ref", "service_ref"],
+                condition=Q(withdrawn_at__isnull=True), name="privilege_one_live"),
+        ]
+
+
 # --------------------------------------------------------------------------- identity (GHE-06)
 # Matching (are these two records the same person?) and proofing (has someone checked who this is?)
 # are different things, and neither grants access by itself (GHE-06 section 01).
@@ -696,6 +763,8 @@ class ExternalIdentity(CellScopedModel):
     email = models.CharField(max_length=254, blank=True, default="")
     linked_at = models.DateTimeField(default=utc_now)
     last_login_at = models.DateTimeField(null=True, blank=True)
+    # Set when the person unlinked it: kept, so it is refused rather than linked again (DEV-356).
+    unlinked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta(CellScopedModel.Meta):
         constraints = [

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, createPack, getPacks, packStep, type PackManifest, type PackRow } from "../api";
+import { ApiError, createPack, getPacksData, packStep, type PackManifest, type PackRow, type PacksData } from "../api";
 import { Card, Pill } from "../ui";
 
 type PillKind = "ok" | "warn" | "bad" | "info";
@@ -117,12 +117,14 @@ function PackCard({ p, canWrite, canAttest, onDone }: { p: PackRow; canWrite: bo
 /** Country packs: the recorded rules per country, how far they have been reviewed. Never makes one live. */
 export function Packs({ canWrite, canAttest }: { canWrite: boolean; canAttest: boolean }) {
   const [rows, setRows] = useState<PackRow[] | null>(null);
+  const [market, setMarket] = useState<Omit<PacksData, "packs"> | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ pack_ref: "", country: "", service: "care_navigation" });
   const [manifest, setManifest] = useState<PackManifest>(BLANK);
   const load = useCallback(async () => {
-    try { setRows(await getPacks()); setError(""); } catch (e) { setError(friendly(e)); setRows([]); }
+    try { const d = await getPacksData(); setRows(d.packs); setMarket({ enforced: d.enforced, countries: d.countries }); setError(""); }
+    catch (e) { setError(friendly(e)); setRows([]); }
   }, []);
   useEffect(() => { void load(); }, [load]);
   async function add(e: React.FormEvent) {
@@ -137,6 +139,7 @@ export function Packs({ canWrite, canAttest }: { canWrite: boolean; canAttest: b
       <div className="hero"><div>
         <h1>Country packs</h1>
         <p>The recorded rules for one country: data-request deadline, emergency number, language, what is switched on, and what evidence exists. A pack moves from draft to "approved on record" only when it is complete and two different people (support and clinical safety, neither the author) approve the exact content. "Approved on record" is not a licence and does not make anything live: going live needs steps that are not built yet.</p>
+        <p>This is the one country-pack system: everything that depends on a country (booking, messages, referrals when enforced; partner booking, texts, workflows, data-request deadlines, the emergency number and go-live readiness) reads the signed packs here, for each customer's own country.</p>
       </div></div>
       {error && <div className="error" role="alert">{error}</div>}
       <div className="grid">
@@ -148,6 +151,20 @@ export function Packs({ canWrite, canAttest }: { canWrite: boolean; canAttest: b
               <ManifestFields m={manifest} onChange={setManifest} />
               <div><button className="btn" type="submit" disabled={busy}>{busy ? "Adding…" : "Start the pack"}</button></div>
             </form>
+          </Card>
+        )}
+        {market && (
+          <Card title="In force now, by country"
+            sub={market.enforced ? "Enforced: booking, messages and referrals are refused for a customer whose country has no signed, current pack switching them on."
+              : "Not enforced on this server (ZOIKO_PACKS_ENFORCED is off): booking, messages and referrals work everywhere. The other country features still follow the packs."}>
+            {market.countries.length === 0 ? <div className="empty">No country has a pack yet.</div> : market.countries.map((c) => (
+              <div key={c.country} className="appt">
+                <div className="info">
+                  <b>{c.country} <Pill kind={c.on.length ? "ok" : "info"}>{c.on.length ? `${c.on.length} switched on` : "Nothing in force"}</Pill></b>
+                  <small>{c.on.length ? c.on.map((x) => x.replace(/_/g, " ")).join(", ") : "No signed, current pack."} · {c.customers} customer{c.customers === 1 ? "" : "s"} in this country</small>
+                </div>
+              </div>
+            ))}
           </Card>
         )}
         <Card title={`${rows?.length ?? 0} pack${rows?.length === 1 ? "" : "s"}`}>

@@ -1,3 +1,4 @@
+import { finishSignIn } from "@shared/signInStep";
 // The only file that talks to the backend. Pages call these functions, never fetch().
 import { friendlyEmailError } from "@shared/EmailCard";
 import { friendlyNameError } from "@shared/NameCard";
@@ -70,7 +71,7 @@ export async function signIn(organization: string, login: string, password: stri
   const body = (await res.json()) as LoginReply & { title?: string; code?: string };
   if (res.status === 401) throw new ApiError("Wrong organization, login or password.", "UNAUTHENTICATED");
   if (!res.ok) throw new ApiError(body.title ?? `Sign-in failed (${res.status})`, body.code);
-  return body;
+  return finishSignIn<LoginReply>(body);   // asks for a code if one is owed
 }
 
 /** Sign out everywhere: the server revokes every token this person was issued. */
@@ -286,7 +287,11 @@ export interface PackRow {
   expired: boolean;
   signature: { key_id: string; valid: boolean } | null;   // DEV-210: null unless signed
 }
-export const getPacks = async () => (await v1<{ packs: PackRow[] }>("platform/packs")).packs;
+/** Per country with a pack: what a signed, current pack switches on now, and for how many customers. */
+export interface PackCountry { country: string; on: string[]; customers: number }
+export interface PacksData { packs: PackRow[]; enforced: boolean; countries: PackCountry[] }
+export const getPacksData = () => v1<PacksData>("platform/packs");
+export const getPacks = async () => (await getPacksData()).packs;
 export const createPack = (body: { pack_ref: string; country: string; service: string; manifest: PackManifest }) =>
   v1<{ pack: PackRow }>("platform/packs", { method: "POST", body: JSON.stringify(body) });
 export const packStep = (id: string, step: string, body: Record<string, unknown> = {}) =>
@@ -408,21 +413,6 @@ export const reviewHazard = (id: string, verdict: "verified" | "rejected", note:
 export const acceptHazard = (id: string, note: string) => hazardPost(id, "accept", { note });
 export const retireHazard = (id: string, reason: string) => hazardPost(id, "retire", { reason });
 
-// Signed country packs (read only: packs are installed by a command, never from a screen).
-export interface SignedPackRow {
-  public_id: string; country: string; version: number; status: "active" | "superseded" | "revoked";
-  valid_from: string; expires_at: string; revocation_epoch: number; key_id: string;
-  capabilities: string[];
-  /** True only if the pack counts RIGHT NOW: signature, dates and revocation all check out. */
-  in_force: boolean;
-}
-export interface SignedPacksData {
-  packs: SignedPackRow[]; revocation_floor: number; trusted_key_ids: string[];
-  /** Whether features must be switched on by the country's pack, and which country this cell serves. */
-  enforced: boolean; country: string; country_capabilities: string[];
-}
-export const getSignedPacks = () => v1<SignedPacksData>("platform/signed-packs");
-
 /** A customer's partner waits for three checks by Zoiko support before it can have a secret. */
 export type PartnerCheckName = "identity" | "legal" | "security";
 export interface PartnerCheckRow {
@@ -470,9 +460,11 @@ export interface ConnectorCert {
 }
 export interface ConnectorRow {
   connector_key: string; profile_version: string; simulated: boolean; certification: ConnectorCert | null;
+  source?: "built_in" | "plugin" | "http";
 }
+export interface NotLoaded { name: string; reason: string }
 export const getConnectors = () =>
-  v1<{ connectors: ConnectorRow[]; can_write: boolean; can_attest: boolean }>("platform/connectors");
+  v1<{ connectors: ConnectorRow[]; can_write: boolean; can_attest: boolean; not_loaded?: NotLoaded[] }>("platform/connectors");
 export const connectorStep = (key: string, step: "enrol" | "certify" | "live" | "suspend", body: Record<string, unknown> = {}) =>
   v1<{ certification: ConnectorCert }>(`platform/connectors/${encodeURIComponent(key)}/${step}`, { method: "POST", body: JSON.stringify(body) });
 
@@ -497,3 +489,7 @@ export interface AttemptCustomer {
   id: string; name: string; status: string; counts: Record<string, number>; attempts: SupportAttempt[]; fhir_held: number;
 }
 export const getDeliveryAttempts = async () => (await v1<{ customers: AttemptCustomer[] }>("platform/delivery-attempts")).customers;
+
+/** How the account page's security cards call the API as this person. */
+export const securityCall = <T,>(path: string, body?: unknown): Promise<T> =>
+  v1<T>(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) });

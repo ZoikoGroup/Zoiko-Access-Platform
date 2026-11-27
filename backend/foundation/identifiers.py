@@ -242,6 +242,8 @@ FIELDS: dict[str, str] = {
     "member_ref": "member_ref", "member_id": "member_ref", "member_ref_enc": "member_ref",
     "coverage_ref": "coverage_ref", "source_ref": "external_ref",
     "record_ref": "object_ref", "recipient_ref": "recipient_ref",
+    "customer_a_ref": "tenant_ref", "customer_b_ref": "tenant_ref",
+    "person_a_ref": "person_ref", "person_b_ref": "person_ref",
 }
 # Every name for a login: who did, approved, checked, owns or watches something.
 FIELDS.update(dict.fromkeys((
@@ -260,6 +262,8 @@ FIELDS.update(dict.fromkeys((
     "merged_by_ref", "unmerged_by_ref",                            # identity merge
     "prioritized_by_ref",                                          # waiting-list priority
     "uploaded_by_ref",                                             # message attachments
+    "granted_by_ref",                                              # DEV-357
+    "a_answered_by_ref", "b_answered_by_ref",                      # DEV-363
     "deputy_ref",                                                  # DEV-202
     "delivered_by_ref", "replaced_by_ref",                         # DEV-325
     "death_recorded_by_ref",                                       # DEV-333
@@ -277,6 +281,7 @@ MODEL_FIELDS: dict[tuple[str, str], str] = {
 # Fields shaped like identifiers that are not identifiers, and why. A keyed fingerprint of personal
 # data finds duplicates; it must never be used to name, link or look up a record from outside.
 NOT_IDENTIFIERS: dict[str, str] = {
+    "match_key": "keyed fingerprint shared between customers for matching only (DEV-363)",
     "birth_key": "keyed fingerprint of a birth date (crypto.blind_index), for duplicate finding",
     "phone_key": "keyed fingerprint of a phone number (crypto.blind_index), for duplicate finding",
     "member_key": "keyed fingerprint of a payer's member number (crypto.blind_index), for lookup "

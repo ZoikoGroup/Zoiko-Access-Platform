@@ -20,6 +20,11 @@ function Listing({ d, onFind }: { d: DirectoryDoctor; onFind: (q: string) => voi
         {check.state === "verified" && (
           <small>Name checked on {check.checked_on}: {check.basis}.</small>
         )}
+        {d.qualifications.map((q) => (
+          <small key={`${q.title}-${q.issuer}`}>
+            <b>{q.title}</b>, {q.issuer}. Checked by the clinic{q.checked_on ? ` on ${q.checked_on}` : ""}.
+          </small>
+        ))}
         <small>
           {d.next_free ? `Next free time: ${when(d.next_free.local_start)} (${d.next_free.zone}), ${d.free_times} free in all.` : "No free times."}
           {" "}{d.booking_method === "booking_system"

@@ -95,7 +95,6 @@ INSTALLED_APPS = [
     "modules.messaging",
     "modules.comms",
     "modules.evidence",
-    "modules.packs",
     "modules.connector",
     "modules.developer",
     "modules.bookingflow",
@@ -103,6 +102,8 @@ INSTALLED_APPS = [
     "modules.claim",
     "modules.programme",
     "modules.codemap",
+    "modules.stages",
+    "modules.crossmatch",
 ]
 
 MIDDLEWARE = [
@@ -225,17 +226,13 @@ WAITLIST_OFFER_HOURS = int(env("WAITLIST_OFFER_HOURS", "24"))
 # The clinic's response target: a booking or message waiting longer than this is flagged late.
 RESPONSE_TARGET_HOURS = int(env("RESPONSE_TARGET_HOURS", "24"))
 # --- Country packs in use (GHE-04) ----------------------------------------------------------------
-# Which country this cell serves (ISO 3166-1 alpha-2, e.g. "GB"), and whether features must be
-# switched on by that country's signed pack. OFF by default: with enforcement on and no pack
-# installed, every gated feature refuses (fail closed), which is what the specification says but
-# would switch off a development setup. The lead decides when to turn it on (DEV-181).
-ZOIKO_COUNTRY = env("ZOIKO_COUNTRY", "").strip().upper()
+# Whether booking, messaging and referrals must be switched on by a signed country pack for the
+# customer's own country (set by Zoiko support per customer; DEV-364). OFF by default: with
+# enforcement on, a customer with no country or no signed pack is refused (fail closed), which is
+# what the specification says but would switch off a development setup (DEV-181).
 PACKS_ENFORCED = env("ZOIKO_PACKS_ENFORCED", "") == "1"
 
 # --- Partner connectors, webhooks, country packs -------------------------------------------------
-# Trusted public keys for signed country packs: "id:base64(32 bytes),id:base64(...)". Empty means no
-# pack is trusted, so every capability stays off (fail closed). Private halves never enter a cell.
-PACK_PUBLIC_KEYS = env("ZOIKO_PACK_PUBLIC_KEYS", "")
 # Whether this deployment may erase data past an approved retention period (DEV-351). Off by
 # default: with it off the product only counts. Erasing cannot be undone.
 RETENTION_DELETION_ENABLED = env("ZOIKO_RETENTION_DELETION", "") == "1"
@@ -244,6 +241,11 @@ RETENTION_DELETION_ENABLED = env("ZOIKO_RETENTION_DELETION", "") == "1"
 COVER_SIMULATOR = False
 # The pretend partner for building and testing connectors. Development only (release_check).
 CONNECTOR_SIMULATOR = False
+# Partner adapters plugged in by configuration (DEV-361): dotted paths to adapter code, and
+# partners speaking Zoiko's JSON contract ([{"key", "url", "secret"}]). Read at start-up.
+CONNECTOR_PLUGINS = env("ZOIKO_CONNECTOR_PLUGINS", "")
+CONNECTOR_HTTP = env("ZOIKO_CONNECTOR_HTTP", "")
+CONNECTOR_ALLOW_INSECURE = False      # http:// partner addresses: development only
 # Webhook addresses must be public https. Development may allow plain http and private addresses.
 WEBHOOK_ALLOW_INSECURE = False
 WEBHOOK_ALLOW_PRIVATE = False

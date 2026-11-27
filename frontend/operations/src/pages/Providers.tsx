@@ -4,6 +4,7 @@ import type { ProviderRow } from "../types";
 import { Gate, useLoad } from "../useLoad";
 import { Card, Pill, Table } from "../ui";
 import { NoStaff } from "./Appointments";
+import { ProviderCredentials } from "./ProviderCredentials";
 
 const next = (local: string | null, zone: string | null) =>
   local && zone ? `${local.replace("T", " ").slice(0, 16)} (${zone})` : "none booked";
@@ -18,6 +19,7 @@ export function Providers({ staff }: { staff: Staff | null }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [looking, setLooking] = useState<{ id: string; name: string } | null>(null);
   if (!staff) return <NoStaff />;
 
   async function run(work: () => Promise<unknown>, success: string) {
@@ -43,13 +45,13 @@ export function Providers({ staff }: { staff: Staff | null }) {
             <h1>Providers</h1>
             <p>The doctors of {staff.organizationName} and how busy they are in the next {d.days} days. A doctor chooses their own name.
               {d.can_manage ? " As an administrator you can record that you checked a name (for example on the licence register); patients then see a “Name checked” mark (a desk check by the clinic: Zoiko does not verify licences). If the doctor changes the name, the mark goes until it is checked again." : " An administrator can record that a name was checked."}
-              {" "}Qualifications and privileges are not built yet.</p>
+</p>
           </div></div>
           {error && <div className="error" role="alert">{error}</div>}
           {note && <div className="success" role="status">{note}</div>}
           <div className="grid">
             <Card title={`${d.providers.length} doctor${d.providers.length === 1 ? "" : "s"}`}>
-              <Table headers={["Doctor", "Name check", "Confirmed appointments", "Free times", "Next appointment"]}
+              <Table headers={["Doctor", "Name check", "Confirmed appointments", "Free times", "Next appointment", "Credentials"]}
                 empty="No doctors have been added to this clinic yet. Add one on the Team page."
                 rows={d.providers.map((p) => [
                   p.name || p.id,
@@ -89,8 +91,12 @@ export function Providers({ staff }: { staff: Staff | null }) {
                   p.upcoming,
                   p.open_times === 0 ? <Pill key="f" kind="warn">none free</Pill> : p.open_times,
                   next(p.next_local, p.next_zone),
+                  <button key="q" className="btn ghost" onClick={() => setLooking({ id: p.id, name: p.name || p.id })}>
+                    Qualifications<span className="sr-only"> of {p.name || p.id}</span>
+                  </button>,
                 ])} />
             </Card>
+            {looking && <ProviderCredentials key={looking.id} doctor={looking.id} name={looking.name} onClose={() => setLooking(null)} />}
           </div>
         </>
       )}

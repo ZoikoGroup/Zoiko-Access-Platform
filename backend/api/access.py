@@ -88,6 +88,15 @@ def my_consent(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
         done = consent.set_consent(
             person_ref=person, purpose=purpose, grant=grant, actor_ref=auth.actor_public_id,
             days=body.get("days"))
+    if purpose == "cross_matching" and not grant:     # DEV-363: the fingerprints go at once
+        from modules.crossmatch import api as crossmatch
+
+        try:
+            with tenant_transaction(_platform_context()):
+                crossmatch.forget(_my_customer(auth), person)
+        except ZoikoError as exc:
+            if exc.code != ErrorCode.SERVICE_UNAVAILABLE:
+                raise
     return JsonResponse({"consent": done})
 
 

@@ -3,6 +3,7 @@ import { decideMatch, getMatches, mergeMatch, unmergeMatch } from "../api";
 import type { MatchCase, MatchFactor, MatchesData, MatchState, MergeInfo } from "../consoleTypes";
 import { Gate, useLoad } from "../useLoad";
 import { Card, Pill, type PillKind } from "../ui";
+import { CrossMatches } from "./CrossMatches";
 
 const STATE: Record<MatchState, { text: string; kind: PillKind }> = {
   possible_match: { text: "Needs a decision", kind: "warn" },
@@ -50,7 +51,12 @@ const isOpen = (c: MatchCase) => c.state === "possible_match" || c.state === "ma
 export function Matches() {
   const [version, setVersion] = useState(0);
   const result = useLoad(getMatches, 15_000, version);
-  return <Gate result={result}>{(d) => <View data={d} onChanged={() => setVersion((v) => v + 1)} />}</Gate>;
+  return (
+    <>
+      <Gate result={result}>{(d) => <View data={d} onChanged={() => setVersion((v) => v + 1)} />}</Gate>
+      <div className="grid"><CrossMatches /></div>
+    </>
+  );
 }
 
 function View({ data, onChanged }: { data: MatchesData; onChanged: () => void }) {

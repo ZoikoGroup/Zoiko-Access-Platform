@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
-import { getServices, type Booking, type Me, type Notice, type Referral, type Service } from "../api";
+import { getMyHealth, getServices, type Booking, type Me, type MyHealth, type Notice, type Referral, type Service } from "../api";
 import type { PageId } from "../App";
 import { dateBlock, timeLabel, whenLabel } from "../format";
 import { Card, Icon, Pill, type PillKind } from "../ui";
 
-const HEALTH_OVERVIEW_NOTE = "Vitals and health records need the clinical record service (a later phase).";
 
 const REFERRAL: Record<Referral["state"], { text: string; kind: PillKind }> = {
   issued: { text: "Sent, waiting for the clinic", kind: "warn" },
@@ -18,6 +17,24 @@ const STATUS: Record<Booking["status"], { text: string; kind: PillKind }> = {
   confirmed: { text: "Confirmed", kind: "ok" },
   cancelled: { text: "Cancelled", kind: "bad" },
 };
+
+/** The patient's health record at a glance (DEV-362). */
+function HealthOverview({ goTo }: { goTo: (page: PageId) => void }) {
+  const [data, setData] = useState<MyHealth | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { getMyHealth().then(setData).catch(() => setFailed(true)); }, []);
+  return (
+    <Card title="My Health Overview" action={<button className="btn ghost" onClick={() => goTo("records")}>Open my records</button>}>
+      {failed ? <div className="error" role="alert">Your records could not be loaded. Try again in a moment.</div>
+        : data === null ? <div className="empty">Loading…</div> : (
+          <div className="info">
+            <b>{data.counts.notes} visit note{data.counts.notes === 1 ? "" : "s"} · {data.counts.results} result{data.counts.results === 1 ? "" : "s"} · {data.counts.references} record{data.counts.references === 1 ? "" : "s"} held by clinics</b>
+            <small style={{ display: "block", marginTop: 6 }}>{data.counts.values_ready > 0 ? `${data.counts.values_ready} result${data.counts.values_ready === 1 ? " has" : "s have"} values you can see.` : "No result values to see yet."}</small>
+          </div>
+        )}
+    </Card>
+  );
+}
 
 export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
   name: string; me: Me; bookings: Booking[]; notices: Notice[]; referrals: Referral[]; goTo: (p: PageId) => void;
@@ -86,9 +103,7 @@ export function Dashboard({ name, me, bookings, notices, referrals, goTo }: {
           })}
         </Card>
 
-        <Card title="My Health Overview" className="planned" action={<Pill kind="warn">not built yet</Pill>}>
-          <div className="empty">{HEALTH_OVERVIEW_NOTE}</div>
-        </Card>
+        <HealthOverview goTo={goTo} />
       </div>
 
       <div className="grid cols-2">

@@ -46,7 +46,8 @@ from foundation.errors import ErrorCode, ZoikoError
 from foundation.timeutil import UTC, Clock, utc_now
 from modules.evidence.api import AuditOutcome
 
-from .auth import TOKEN_LIFETIME, LoginResult, _audit, issue_token
+from . import second_factor
+from .auth import LoginResult, _audit, challenge_for, session_for
 from .models import (
     Credential,
     ExternalIdentity,
@@ -54,7 +55,6 @@ from .models import (
     Status,
     Tenant,
 )
-from .services import active_roles, organization_names
 
 ATTEMPT_LIFETIME = dt.timedelta(minutes=10)
 CLOCK_SKEW = dt.timedelta(seconds=60)
@@ -428,7 +428,10 @@ def _sign_in(provider: Provider, claims: dict[str, Any], tenant: Tenant, now: dt
                     reason = "ambiguous"
             elif email:
                 reason = "email_unverified"
-        if actor is None or cred is None:
+        if link is not None and link.unlinked_at is not None:      # the person unlinked it
+            _audit(link.actor.public_id, "auth.sso_login", AuditOutcome.DENIED,
+                   f"{provider.key}:unlinked")
+        elif actor is None or cred is None:
             _audit("system", "auth.sso_login", AuditOutcome.DENIED, f"{provider.key}:{reason}")
         elif actor.status != Status.ACTIVE:
             _audit(actor.public_id, "auth.sso_login", AuditOutcome.DENIED,
@@ -450,18 +453,11 @@ def _sign_in(provider: Provider, claims: dict[str, Any], tenant: Tenant, now: dt
             if link is not None:
                 link.last_login_at = now
                 link.save(update_fields=["last_login_at", "updated_at"])
-                cred.last_login_at = now
-                cred.save(update_fields=["last_login_at", "updated_at"])
-                names = organization_names()
-                roles = [(r, o, names.get(o, "")) for r, o in active_roles(actor.public_id, at=now)]
-                lifetime = TOKEN_LIFETIME          # "remember me" is a password-form choice only
-                token = issue_token(
-                    tenant_public_id=tenant.public_id, actor_public_id=actor.public_id,
-                    epoch=cred.session_epoch, now=now, lifetime=lifetime)
-                _audit(actor.public_id, "auth.sso_login", AuditOutcome.ALLOWED, provider.key)
-                result = LoginResult(
-                    token, now + lifetime, actor.public_id, actor.actor_type,
-                    cred.login, tenant.public_id, tenant.name, tenant.type, roles)
+                if second_factor.required_for(actor.pk):
+                    result = challenge_for(tenant, cred, remember=False, now=now)
+                else:                  # "remember me" is a password-form choice only
+                    result = session_for(tenant, cred, remember=False, now=now,
+                                         action="auth.sso_login", reason=provider.key)
     if result is None:
         raise _fail()       # after the transaction, so the audit row is kept
     return result

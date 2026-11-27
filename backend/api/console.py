@@ -8,9 +8,6 @@ references, states and codes.
 """
 from __future__ import annotations
 
-from typing import Any
-
-from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
 from foundation.cell_context import tenant_transaction
@@ -19,7 +16,6 @@ from modules.bookingflow import api as bookingflow
 from modules.connector import api as connector
 from modules.developer import api as developer
 from modules.evidence import api as evidence
-from modules.packs import api as packs
 from modules.trust import api as trust
 from modules.workflow import api as workflow
 
@@ -295,28 +291,6 @@ def staff_developer_delivery_redrive(
         developer.client_in_organization(client_id, org)
         done = developer.redrive_delivery(client_id, delivery_id)
     return JsonResponse({"delivery": done}, status=202)
-
-
-# --------------------------------------------------------------------------- platform: packs
-
-
-@endpoint("GET")
-def platform_signed_packs(request: HttpRequest, auth: trust.Authenticated) -> HttpResponse:
-    """The country packs installed in this cell, which are in force right now, and what the cell
-    trusts (key ids only). Read only: packs are installed by a command, never from a screen."""
-    org = _platform_only(auth)
-    _authorize(auth, "read:platform", organization_public_id=org)
-    with tenant_transaction():
-        evidence.record(
-            actor_ref=auth.actor_public_id, action="platform.packs", object_type="platform",
-            object_ref="packs", outcome=evidence.AuditOutcome.ALLOWED)
-    status: dict[str, Any] = packs.cell_status()
-    country = settings.ZOIKO_COUNTRY
-    return JsonResponse({
-        "packs": packs.list_packs(), **status,
-        "enforced": settings.PACKS_ENFORCED, "country": country,
-        "country_capabilities": packs.enabled_capabilities(country) if country else [],
-    })
 
 
 # --------------------------------------------------------------------------- platform: keys

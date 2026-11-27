@@ -60,12 +60,12 @@ export function WhoCanSee() {
         </div>
       ))}
       <div className="grid">
-        <Card title="What I have chosen to share" sub="Nothing is shared and no one is emailed unless you say so. You can stop at any time, or choose a date it ends.">
+        <Card title="What I have chosen to share" sub="You decide each of these, and can change your mind at any time. Two of them are on until you say no, because they were already happening: reminders, and your doctors reading your messages.">
           {data.consents.map((c) => (
             <div key={c.purpose} className="appt" style={{ flexDirection: "column", alignItems: "stretch" }}>
               <div className="info">
                 <b>{c.label}</b>{" "}
-                {c.state === "granted" && <Pill kind="ok">{c.expires_at ? `Allowed until ${day(c.expires_at)}` : "Allowed"}</Pill>}
+                {c.state === "granted" && <Pill kind="ok">{c.expires_at ? `Allowed until ${day(c.expires_at)}` : c.default_on && !c.chosen ? "On (you have not chosen)" : "Allowed"}</Pill>}
                 {c.state === "expired" && <Pill kind="warn">Ended {c.expires_at ? day(c.expires_at) : ""}</Pill>}
                 {c.state === "withdrawn" && <Pill kind="info">Not allowed</Pill>}
               </div>

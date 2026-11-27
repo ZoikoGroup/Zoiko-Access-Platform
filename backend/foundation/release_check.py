@@ -102,6 +102,8 @@ def release_problems(conf: Any = settings) -> list[str]:
     if getattr(conf, "COVER_SIMULATOR", False):
         problems.append("the pretend insurer (COVER_SIMULATOR) is on")
     # DEV-227: pretend partners and payments see synthetic data only; never on a real server.
+    if getattr(conf, "CONNECTOR_ALLOW_INSECURE", False):
+        problems.append("partner addresses may be plain http (CONNECTOR_ALLOW_INSECURE)")
     if getattr(conf, "CONNECTOR_SIMULATOR", False):
         problems.append("the pretend partner (CONNECTOR_SIMULATOR) is on")
     if getattr(conf, "BILLING_PRETEND_PROVIDER", False):

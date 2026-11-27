@@ -144,12 +144,16 @@ def overview() -> list[dict[str, Any]]:
     """Every adapter this deployment has, with the certification of its current version."""
     rows = {(r.connector_key, r.profile_version): r
             for r in ConnectorCertification.objects.filter(**_scope())}
+    from .plugins import sources
+
+    came_from = sources()
     out = []
     for key in adapters.registered():
         version = profile_of(key)
         found = rows.get((key, version))
         out.append({"connector_key": key, "profile_version": version,
                     "simulated": adapters.is_simulated(key),
+                    "source": came_from.get(key, "built_in"),
                     "certification": cert_dict(found) if found else None})
     return out
 

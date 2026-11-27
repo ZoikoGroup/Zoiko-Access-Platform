@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { dropDevLogin } from "@shared/devLogin";
-import { changePassword, clearDisplayName, getDisplayName, getNameCheck, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, loadSession, setSession, signOutEverywhere, type Session } from "./api";
+import { securityCall, changePassword, clearDisplayName, getDisplayName, getNameCheck, saveDisplayName, checkHealth, getEmailStatus, resendVerification, setEmail, getMe, loadSession, setSession, signOutEverywhere, type Session } from "./api";
 import { navFor, type PageId } from "./nav";
 import { Account } from "./Account";
 import { Documents } from "./pages/Documents";
@@ -48,7 +48,7 @@ function Console({ session, onSignOut }: { session: Session; onSignOut: () => vo
 
   const item = items.find((n) => n.id === page) ?? items[0];
   let body;
-  if (item.id === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} onChangePassword={changePassword}
+  if (item.id === "account") body = <Account login={session.login} tenantName={session.tenantName} roles={session.roles.map((r) => r.role)} security={securityCall} onChangePassword={changePassword}
     name={{ load: getDisplayName, onSave: saveDisplayName, onClear: clearDisplayName }}
     nameCheck={getNameCheck}
     email={{ load: getEmailStatus, onSave: setEmail, onResend: resendVerification }} />;

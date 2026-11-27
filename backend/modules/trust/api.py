@@ -49,6 +49,8 @@ from .family import (
     suspend_family_member,
     withdraw_family_member,
 )
+from .identities import change as change_identity
+from .identities import mine as my_identities
 from .identity_match import decide as decide_match
 from .identity_match import (
     linked_people,
@@ -107,7 +109,22 @@ from .people import (
     verified_login_email_of_person,
 )
 from .profile import get_person_profiles, profile_summary_for, set_person_profile
+from .qualifications import (
+    add_qualification,
+    decide_qualification,
+    grant_privilege,
+    privileges_for,
+    withdraw_privilege,
+)
+from .qualifications import list_for as qualifications_for
+from .qualifications import shown_to_patients as patient_qualifications
 from .releases import add_release, list_releases
+from .second_factor import confirm as second_factor_confirm
+from .second_factor import disable as second_factor_disable
+from .second_factor import reset_for_member as reset_second_factor
+from .second_factor import start_setup as second_factor_start
+from .second_factor import status as second_factor_status
+from .second_factor import verify as second_factor_verify
 from .services import (
     MAX_RESPONSE_TARGET_HOURS,
     active_roles,
@@ -168,6 +185,9 @@ __all__ = [
     "cancel_change", "decide_change", "list_changes", "request_change",
     "onboard_customer", "organization_names", "set_customer_country", "set_customer_sign_up",
     "sso_finish", "sso_providers", "sso_start",
+    "change_identity", "my_identities", "reset_second_factor", "second_factor_confirm",
+    "second_factor_disable", "second_factor_start", "second_factor_status",
+    "second_factor_verify",
     "access_overview", "narrow_access", "proxy_person_of", "end_access", "keep_access",
     "tenant_country", "tenant_public_id",
     "verified_emails_for_role", "clinicians_at",
@@ -191,6 +211,8 @@ __all__ = [
     "EmailChange", "PasswordChange", "verified_login_email_of_person", "clear_display_name",
     "display_name_of", "display_names", "NAME_CHECK_BASES", "verified_providers", "verify_name",
     "withdraw_check", "name_check_states",
+    "add_qualification", "decide_qualification", "grant_privilege", "privileges_for",
+    "withdraw_privilege", "qualifications_for", "patient_qualifications",
     "set_display_name", "change_password", "set_email", "reset_password",
     "revoke_proxy_grant",
     "revoke_sessions", "send_verification",
