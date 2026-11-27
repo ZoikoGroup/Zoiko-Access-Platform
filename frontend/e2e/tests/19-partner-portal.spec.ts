@@ -119,7 +119,7 @@ test("a partner developer makes a key, sees its secret once, and finds the docum
   const name = `Robot ERP ${Date.now()}`;
   await page.getByLabel("Name").fill(name);
   await page.getByRole("button", { name: "Add key" }).click();
-  // A new key has no secret until Zoiko support has recorded three checks (T-43).
+  // A new key has no secret until Zoiko support has recorded four checks (T-43, DEV-401).
   await expect(page.getByTestId("secret-note")).toContainText(`${name} was added. It has no secret yet`);
   const row = page.locator(".appt", { hasText: name });
   await expect(row.getByText("waiting for Zoiko's checks").first()).toBeVisible();
@@ -128,11 +128,11 @@ test("a partner developer makes a key, sees its secret once, and finds the docum
   const support = await (await page.context().browser()!.newContext()).newPage();
   await signIn(support, "platform", "vikram@zoiko.example", PLATFORM.org, PLATFORM.password);
   await support.locator(".nav-item", { hasText: "Partner checks" }).click();
-  for (const check of ["identity", "legal", "security"]) {
-    await support.getByLabel(`${check[0].toUpperCase()}${check.slice(1)} check note for ${name}`).fill("Robot looked at it");
-    await support.locator(".appt", { hasText: name }).getByRole("button", { name: `Record ${check} check` }).click();
+  for (const check of ["Identity", "Signed contract", "Security questionnaire", "Passed sandbox test"]) {
+    await support.getByLabel(`${check} check note for ${name}`).fill("Robot looked at it");
+    await support.locator(".appt", { hasText: name }).getByRole("button", { name: `Record ${check.toLowerCase()} check` }).click();
   }
-  await expect(support.locator(".appt", { hasText: name }).getByText("Recorded")).toHaveCount(3);   // all three are in
+  await expect(support.locator(".appt", { hasText: name }).getByText("Recorded")).toHaveCount(4);   // all four are in
 
   await page.reload();
   await page.locator(".nav-item", { hasText: "API keys" }).click();

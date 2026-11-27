@@ -5,8 +5,52 @@ on:
   pull_request:
 
 jobs:
-  backend:
+  # The backend tests, in 8 shares at once (each with its own database): run one after another, the
+  # whole suite outlasts GitHub's 6-hour job limit. tests/conftest.py deals whole test files out to
+  # the shares (ZOIKO_TEST_SHARD), so every test runs exactly once.
+  backend-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: zoiko_test
+          POSTGRES_USER: zoiko
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U zoiko -d zoiko_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      POSTGRES_PASSWORD: ci-only-not-a-secret
+      POSTGRES_HOST: localhost
+      ZOIKO_TEST_SHARD: "${{ matrix.shard }}/8"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements/*.txt
+      - run: pip install -r requirements/dev.txt
+      - name: Tests (one share of eight)
+        run: pytest
+
+  # Lint, architecture, types and migrations; it also waits for every test share, so a required
+  # "backend" check still means the whole suite passed.
+  backend:
+    needs: backend-tests
+    if: always()                  # never "skipped": a skipped required check would count as passed
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -25,6 +69,11 @@ jobs:
       POSTGRES_PASSWORD: ci-only-not-a-secret
       POSTGRES_HOST: localhost
     steps:
+      - name: Every test share passed
+        working-directory: .
+        run: |
+          echo "test shares: ${{ needs.backend-tests.result }}"
+          test "${{ needs.backend-tests.result }}" = "success"
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -42,8 +91,6 @@ jobs:
         run: python manage.py makemigrations --check --dry-run
         env:
           DJANGO_SETTINGS_MODULE: config.settings.test
-      - name: Tests
-        run: pytest
 
   # The five web apps (DEV-360): a clean install from each app's lock file, a type check and a
   # production build. Each app also reads ../shared, so the whole repository is checked out.

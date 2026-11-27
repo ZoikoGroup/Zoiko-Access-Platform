@@ -13,6 +13,36 @@ from foundation.rls import enable_rls_sql
 APP_ROLE = "zoiko_app"
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Run one share of the suite when ZOIKO_TEST_SHARD is "i/n" (CI runs n shares at once, each
+    with its own database, because the whole suite in one job outlasts GitHub's 6-hour limit).
+
+    Whole test files stay together (their fixtures and order are unchanged). Files are dealt out,
+    largest first, to the share with the fewest tests so far: the same split every time, every test
+    in exactly one share. Without the variable, everything runs, as before."""
+    import os
+
+    value = os.environ.get("ZOIKO_TEST_SHARD", "")
+    if not value:
+        return
+    index, total = (int(part) for part in value.split("/"))
+    if not 0 <= index < total:
+        raise pytest.UsageError("ZOIKO_TEST_SHARD must be i/n with 0 <= i < n")
+    by_file: dict[str, list[pytest.Item]] = {}
+    for item in items:
+        by_file.setdefault(item.nodeid.split("::")[0], []).append(item)
+    load = [0] * total
+    owner: dict[str, int] = {}
+    for name in sorted(by_file, key=lambda f: (-len(by_file[f]), f)):
+        share = min(range(total), key=lambda s: (load[s], s))
+        owner[name] = share
+        load[share] += len(by_file[name])
+    keep = [item for item in items if owner[item.nodeid.split("::")[0]] == index]
+    dropped = [item for item in items if owner[item.nodeid.split("::")[0]] != index]
+    items[:] = keep
+    config.hook.pytest_deselected(items=dropped)
+
+
 @pytest.fixture(scope="session")
 def rls_probe(django_db_setup, django_db_blocker):
     """Prepare the test table the way production will be set up:

@@ -15,7 +15,9 @@ test("a bill goes from the clinic to the patient", async ({ page, browser }) => 
   const options = await patient.locator("option").allTextContents();
   const mine = options.findIndex((t) => /e2e/i.test(t));
   await patient.selectOption({ index: mine > 0 ? mine : 1 });
-  await page.locator("label", { hasText: /^Service/ }).locator("select").selectOption({ label: SERVICE });
+  const service = page.locator("label", { hasText: /^Service/ }).locator("select");
+  await expect(service.locator("option", { hasText: SERVICE })).toHaveCount(1);   // loaded before choosing
+  await service.selectOption({ label: SERVICE });
   await page.getByRole("button", { name: "Make the invoice" }).click();
 
   const row = page.locator(".appt").filter({ hasText: /INV-\d+/ }).filter({ hasText: "Draft" }).first();
@@ -34,6 +36,7 @@ test("a bill goes from the clinic to the patient", async ({ page, browser }) => 
   await mineApp.getByRole("button", { name: /Bills & Payments/ }).first().click();
   const bill = mineApp.locator(".appt").filter({ hasText: number });
   await expect(bill.getByText("Paid")).toBeVisible();
-  await expect(bill.getByText(new RegExp(`1 x ${SERVICE}`))).toBeVisible();
-  await expect(mineApp.getByRole("button", { name: /^Pay/ })).toHaveCount(0);   // nothing to pay online
+  await expect(bill.getByText(new RegExp(`1 [x×] ${SERVICE}`))).toBeVisible();   // the app writes "1 × …"
+  // nothing to pay online: no "Pay £45.00" button ("Payment history" is not one)
+  await expect(mineApp.getByRole("button", { name: /^Pay \D?\d/ })).toHaveCount(0);
 });
