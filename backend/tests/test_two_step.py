@@ -188,7 +188,8 @@ def test_a_forged_or_expired_ticket_is_refused(site, clock):
     clock.wait(30)
     code = two_step.code_for(secret, clock.at)
     head, body, sig = ticket.split(".")
-    assert call("POST", "auth/login/second-step", ticket=f"{head}.{body}.x{sig[1:]}",
+    other = "y" if sig[0] == "x" else "x"   # a DIFFERENT first character, always
+    assert call("POST", "auth/login/second-step", ticket=f"{head}.{body}.{other}{sig[1:]}",
                 code=code).status_code == 401
     token = token_of(site, "ops")                                   # a session is not a ticket
     assert call("POST", "auth/login/second-step", ticket=token, code=code).status_code == 401
