@@ -1,0 +1,40 @@
+// Shapes returned by GET /api/v1/platform/overview. Aggregate numbers only: no patient data.
+
+export type Health = "ok" | "down" | "checking";
+
+export interface TenantRow {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  self_registration: boolean;
+  country?: string;
+  capabilities?: { on: string[]; off: string[] };
+  created_at: string;
+  counts: { patients: number; organizations: number; staff: number; roles_in_force: number; care_links: number };
+  services: { active: number; inactive: number };
+  bookings: { requested: number; confirmed: number; cancelled: number; open_slots: number };
+  audit: {
+    chain_ok: boolean; chain_checked: number; chain_bad_seq: number | null;
+    last_event_at: string | null; failed_logins: number;
+  };
+  decisions: { total: number; denied: number };
+}
+
+export interface Overview {
+  cell: string;
+  generated_at: string;
+  pack_gating?: string;
+  outbox: { pending: number; quarantined: number; oldest_pending_seconds: number | null };
+  mail: { queued: number; failed: number; failed_attempts_24h?: number; accepted_attempts_24h?: number };
+  tenants: TenantRow[];
+  /** What the platform team itself has open: counts only (titles are on the Incidents page). */
+  work: {
+    open_incidents: number;
+    high_incidents: number;
+    suspensions_waiting: number;
+    missing_control_tests?: number;
+    unverified_controls?: number;
+    latest_release: { version: string; released_on: string } | null;
+  };
+}

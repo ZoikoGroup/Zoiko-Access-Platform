@@ -1,0 +1,238 @@
+# Active only when this folder is the root of its own Git repository.
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  # The backend tests, in 8 shares at once (each with its own database): run one after another, the
+  # whole suite outlasts GitHub's 6-hour job limit. tests/conftest.py deals whole test files out to
+  # the shares (ZOIKO_TEST_SHARD), so every test runs exactly once.
+  backend-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: zoiko_test
+          POSTGRES_USER: zoiko
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U zoiko -d zoiko_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      POSTGRES_PASSWORD: ci-only-not-a-secret
+      POSTGRES_HOST: localhost
+      ZOIKO_TEST_SHARD: "${{ matrix.shard }}/8"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements/*.txt
+      - run: pip install -r requirements/dev.txt
+      - name: Tests (one share of eight)
+        run: pytest
+
+  # Lint, architecture, types and migrations; it also waits for every test share, so a required
+  # "backend" check still means the whole suite passed.
+  backend:
+    needs: backend-tests
+    if: always()                  # never "skipped": a skipped required check would count as passed
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: zoiko_test
+          POSTGRES_USER: zoiko
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U zoiko -d zoiko_test"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      POSTGRES_PASSWORD: ci-only-not-a-secret
+      POSTGRES_HOST: localhost
+    steps:
+      - name: Every test share passed
+        working-directory: .
+        run: |
+          echo "test shares: ${{ needs.backend-tests.result }}"
+          test "${{ needs.backend-tests.result }}" = "success"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements/*.txt
+      - run: pip install -r requirements/dev.txt
+      - name: Lint
+        run: ruff check .
+      - name: Architecture boundaries
+        run: lint-imports
+      - name: Type check
+        run: mypy .                # everything, tests included (DEV-361)
+      - name: No missing migrations
+        run: python manage.py makemigrations --check --dry-run
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+
+  # The five web apps (DEV-360): a clean install from each app's lock file, a type check and a
+  # production build. Each app also reads ../shared, so the whole repository is checked out.
+  apps:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [operations, patient, platform, clinician, partners]
+    defaults:
+      run:
+        working-directory: frontend/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/${{ matrix.app }}/package-lock.json
+      - name: Install (exactly the lock file)
+        run: npm ci --no-audit --no-fund
+      - name: Known vulnerabilities (fails on high or critical, DEV-371)
+        run: npm audit --audit-level=high
+      - name: Type check
+        run: npm run typecheck
+      - name: Production build
+        run: npx vite build
+
+  # The browser robots (DEV-362): the whole development stack, the seeded test customers and the five
+  # apps, exactly as frontend/e2e/README.md sets them up by hand, then every robot once. Development
+  # settings only: a throwaway field key made for this run, nothing real anywhere.
+  robots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5        # the seed scripts and robot 11 call `python`
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Development settings for this run
+        run: |
+          cp .env.example .env
+          key="k1:$(python -c 'import base64,secrets;print(base64.b64encode(secrets.token_bytes(32)).decode())')"
+          sed -i "s|^ZOIKO_FIELD_KEYS=.*|ZOIKO_FIELD_KEYS=${key}|" .env
+      - name: Start the stack
+        run: docker compose up -d --build db backend worker webhooks mail
+      - name: Wait for the API
+        run: |
+          for _ in $(seq 1 90); do
+            curl -fsS http://127.0.0.1:8000/readyz && exit 0
+            sleep 2
+          done
+          docker compose logs backend | tail -50
+          exit 1
+      - name: Seed the test customers
+        run: |
+          python scripts/seed_simple_demo.py
+          python scripts/seed_admins.py
+          python scripts/seed_platform_tenant.py
+          python scripts/seed_e2e.py
+          python scripts/seed_partners.py
+      - name: Start the five apps
+        run: |
+          mkdir -p app-logs
+          start() {
+            (cd "frontend/$1" && npm ci --no-audit --no-fund \
+              && nohup npm run dev -- --strictPort --port "$2" > "../../app-logs/$1.log" 2>&1 &)
+          }
+          start operations 5173
+          start patient 5174
+          start platform 5175
+          start clinician 5176
+          start partners 5177
+          for port in 5173 5174 5175 5176 5177; do
+            for _ in $(seq 1 150); do curl -fsS -o /dev/null "http://localhost:$port/" && break; sleep 2; done
+            curl -fsS -o /dev/null "http://localhost:$port/" || { echo "app on $port did not start"; cat app-logs/*.log; exit 1; }
+          done
+      - name: Install the robots
+        working-directory: frontend/e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Run the robots
+        working-directory: frontend/e2e
+        run: npx playwright test
+      - name: Keep screenshots, traces and logs of a failure
+        if: failure()
+        run: docker compose logs > app-logs/stack.log 2>&1 || true
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: robot-failures
+          path: |
+            frontend/e2e/test-results/
+            app-logs/
+          retention-days: 7
+
+  # Supply-chain checks (DEV-371): no secret in any commit, no dependency with a known high or
+  # critical flaw, and a software bill of materials (CycloneDX) kept with every run. Code scanning
+  # for Python already runs in the backend job: ruff's "S" rules are Bandit's security checks.
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                    # every commit, so a secret removed later still counts
+      - name: Secret scan of the whole history (gitleaks 8.18.4)
+        run: >-
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.18.4
+          detect --source /repo --no-banner --redact
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python dependencies with known flaws
+        working-directory: backend
+        run: |
+          pip install --quiet "pip-audit>=2.7,<3"
+          pip-audit -r requirements/base.txt -r requirements/production.txt -r requirements/dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: The browser robots' dependencies (the apps are checked in the "apps" job)
+        working-directory: frontend/e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit --audit-level=high
+      - name: Software bill of materials (CycloneDX)
+        run: |
+          mkdir -p sbom
+          pip install --quiet "cyclonedx-bom>=4,<6"
+          # exactly what a production image installs, with versions (ranges alone say too little)
+          python -m venv /tmp/prod
+          /tmp/prod/bin/pip install --quiet -r backend/requirements/base.txt -r backend/requirements/production.txt
+          cyclonedx-py environment /tmp/prod -o sbom/backend.cdx.json
+          for app in operations patient platform clinician partners; do
+            (cd "frontend/$app" && npm sbom --package-lock-only --sbom-format cyclonedx > "../../sbom/$app.cdx.json")
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
+          retention-days: 90

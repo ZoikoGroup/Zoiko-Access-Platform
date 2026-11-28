@@ -1,0 +1,668 @@
+import datetime as dt
+from typing import Any
+
+import pytest
+from django.db import DatabaseError, connection, transaction
+
+from foundation.cell_context import tenant_transaction
+from foundation.errors import ErrorCode, ZoikoError
+from foundation.timeutil import UTC, FixedClock
+from modules.ai import api as ai
+from modules.ai.models import AiActionApproval, AiPermitEvent, AiRequest, AiResponseEvidence
+from modules.evidence.models import AuditEvent
+from tests.conftest import as_app_role
+
+pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
+
+D = "a" * 64
+NOW = dt.datetime(2027, 3, 1, 9, 0, tzinfo=UTC)
+LATER = NOW + dt.timedelta(days=90)
+CLOCK = FixedClock(NOW)
+PATH = ["QUALIFICATION", "DESIGN_CONTROL", "VALIDATION", "SANDBOX", "SHADOW", "RELEASE_REVIEW"]
+
+
+@pytest.fixture(autouse=True)
+def builtin():
+    ai.register_builtin()
+
+
+def propose(**over):
+    args = {
+        "feature_id": ai.REPLY_DRAFT,
+        "purpose": "Draft a reply for staff to review",
+        "lane": "A",
+        "level": "A1",
+        "model_digest": D,
+        "prompt_digest": "b" * 64,
+        "created_by_ref": "creator",
+        **over,
+    }
+    return ai.create_permit(**args)
+
+
+def walk(permit, *, upto="RELEASE_REVIEW"):
+    for state in PATH:
+        ai.advance(permit["id"], state, actor_ref="creator", clock=CLOCK)
+        if state == upto:
+            break
+
+
+def authorize(permit, zoiko="zoiko-officer", **over):
+    """A clinic signer and (DEV-399) a Zoiko platform officer, then authorize."""
+    args = {
+        "actor_ref": "lead",
+        "approver_refs": ["legal", "clinical"],
+        "expiry": LATER,
+        "clock": CLOCK,
+        **over,
+    }
+    if zoiko:
+        try:
+            ai.zoiko_sign(permit["id"], officer_ref=zoiko)
+        except ZoikoError:
+            pass                      # not in review: the advance below says why
+    return ai.advance(permit["id"], "AUTHORIZED", **args)
+
+
+def live(ctx, **over):
+    """A permit taken all the way to AUTHORIZED."""
+    with tenant_transaction(ctx):
+        p = propose(**over)
+        walk(p)
+        authorize(p)
+    return p
+
+
+def code(excinfo):
+    return excinfo.value.code
+
+
+# ------------------------------------------------------------------ default deny
+def test_nothing_runs_without_a_permit(ctx_a):
+    with tenant_transaction(ctx_a), pytest.raises(ZoikoError) as e:
+        ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hello", clock=CLOCK
+        )
+    assert code(e) == ErrorCode.POLICY_DENIED
+
+
+def test_a_permit_that_is_only_proposed_does_not_let_anything_run(ctx_a):
+    with tenant_transaction(ctx_a):
+        propose()
+        with pytest.raises(ZoikoError) as e:
+            ai.run(
+                ai.REPLY_DRAFT,
+                actor_ref="staff",
+                purpose_code="reply",
+                input_text="hi",
+                clock=CLOCK,
+            )
+    assert code(e) == ErrorCode.POLICY_DENIED
+
+
+def test_an_authorized_feature_runs_and_the_answer_goes_to_a_human(ctx_a):
+    live(ctx_a)
+    with tenant_transaction(ctx_a):
+        r = ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="My knee hurts",
+            clock=CLOCK,
+        )
+    assert r["decision"] == "HUMAN_REVIEW" and r["mode"] == "live" and r["output"]
+    assert "knee" not in r["output"]  # the template never repeats what it was given
+
+
+def test_an_expired_permit_stops_working(ctx_a):
+    live(ctx_a)
+    with tenant_transaction(ctx_a), pytest.raises(ZoikoError) as e:
+        ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="hi",
+            clock=FixedClock(LATER + dt.timedelta(seconds=1)),
+        )
+    assert code(e) == ErrorCode.POLICY_DENIED
+
+
+def test_suspending_stops_it_at_once_and_it_cannot_just_restart(ctx_a):
+    p = live(ctx_a)
+    with tenant_transaction(ctx_a):
+        ai.advance(p["id"], "SUSPENDED", actor_ref="sre", reason="wrong answers seen", clock=CLOCK)
+        with pytest.raises(ZoikoError) as e:
+            ai.run(
+                ai.REPLY_DRAFT,
+                actor_ref="staff",
+                purpose_code="reply",
+                input_text="hi",
+                clock=CLOCK,
+            )
+        assert code(e) == ErrorCode.POLICY_DENIED
+        with pytest.raises(ZoikoError) as e2:  # no jump from SUSPENDED to AUTHORIZED
+            authorize(p)
+        assert code(e2) == ErrorCode.CONFLICT_VERSION
+
+
+def test_other_tenants_permits_do_not_count(ctx_a, ctx_b):
+    live(ctx_a)
+    with tenant_transaction(ctx_b), pytest.raises(ZoikoError) as e:
+        ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+    assert code(e) == ErrorCode.POLICY_DENIED
+
+
+# ------------------------------------------------------------------ the path to authorization
+def test_steps_cannot_be_skipped(ctx_a):
+    with tenant_transaction(ctx_a):
+        p = propose()
+        for target in ("SHADOW", "AUTHORIZED", "SUSPENDED"):
+            with pytest.raises(ZoikoError) as e:
+                ai.advance(p["id"], target, actor_ref="creator", reason="x", clock=CLOCK)
+            assert code(e) == ErrorCode.CONFLICT_VERSION
+
+
+def test_authorizing_needs_two_other_people_and_a_sensible_expiry(ctx_a):
+    with tenant_transaction(ctx_a):
+        p = propose()
+        walk(p)
+        cases: list[dict[str, Any]] = [
+            {"approver_refs": []},  # no clinic administrator signed (DEV-399)
+            {"approver_refs": ["legal", "creator"]},  # the creator signing off their own work
+            {"expiry": None},
+            {"expiry": NOW},  # no expiry / already over
+            {"expiry": NOW + dt.timedelta(days=366)},
+        ]
+        for bad in cases:  # the last one is too long
+            with pytest.raises(ZoikoError) as e:
+                authorize(p, **bad)
+            assert code(e) in (ErrorCode.POLICY_DENIED, ErrorCode.VALIDATION_FAILED), bad
+        assert authorize(p)["state"] == "AUTHORIZED"
+        assert AiPermitEvent.objects.filter(permit_ref=p["id"], to_state="AUTHORIZED").count() == 1
+
+
+def test_authorizing_needs_a_zoiko_officer_as_well_as_a_clinic_administrator(ctx_a):
+    """Decided 27 Nov 2026 (DEV-399)."""
+    with tenant_transaction(ctx_a):
+        p = propose()
+        walk(p)
+        with pytest.raises(ZoikoError) as e:
+            authorize(p, zoiko=None)
+        assert code(e) == ErrorCode.POLICY_DENIED
+        with pytest.raises(ZoikoError) as own:
+            ai.zoiko_sign(p["id"], officer_ref="creator")      # never the creator
+        assert code(own) == ErrorCode.POLICY_DENIED
+        ai.zoiko_sign(p["id"], officer_ref="zoiko-1")
+        with pytest.raises(ZoikoError) as second:
+            ai.zoiko_sign(p["id"], officer_ref="zoiko-2")      # one officer per permit
+        assert code(second) == ErrorCode.CONFLICT_VERSION
+        done = authorize(p, zoiko=None, approver_refs=["legal"])
+        assert done["state"] == "AUTHORIZED" and done["zoiko_signed"] is True
+
+
+def test_no_clinical_content_feature_can_be_authorized_even_with_a_clinical_owner(ctx_a):
+    """Decided 27 Nov 2026 (DEV-399): no clinical content at all for now."""
+    with tenant_transaction(ctx_a):
+        q = propose(
+            feature_id="notes.summary_assist", lane="B", level="A2", clinical_owner_ref="doc_1"
+        )
+        walk(q)
+        with pytest.raises(ZoikoError) as e:
+            authorize(q)
+        assert code(e) == ErrorCode.CLINICAL_ACCEPTANCE_ABSENT
+
+
+@pytest.mark.parametrize("over", [{"level": "A3"}, {"lane": "C"}, {"lane": "D"}])
+def test_regulated_device_style_features_cannot_be_authorized_here(ctx_a, over):
+    with tenant_transaction(ctx_a):
+        p = propose(**over)
+        walk(p)
+        with pytest.raises(ZoikoError) as e:
+            authorize(p)
+    assert code(e) == ErrorCode.CLINICAL_ACCEPTANCE_ABSENT
+
+
+def test_suspending_or_retiring_needs_a_reason(ctx_a):
+    p = live(ctx_a)
+    with tenant_transaction(ctx_a), pytest.raises(ZoikoError) as e:
+        ai.advance(p["id"], "SUSPENDED", actor_ref="sre", clock=CLOCK)
+    assert code(e) == ErrorCode.VALIDATION_FAILED
+
+
+def test_only_one_permit_per_feature_can_be_authorized_at_a_time(ctx_a):
+    old = live(ctx_a)
+    with tenant_transaction(ctx_a):
+        new = propose()
+        walk(new)
+        with pytest.raises(ZoikoError) as e:
+            authorize(new)
+        assert code(e) == ErrorCode.CONFLICT_VERSION
+        ai.advance(old["id"], "RETIRED", actor_ref="lead", reason="replaced", clock=CLOCK)
+        assert authorize(new)["state"] == "AUTHORIZED"
+        other = propose(feature_id="other.feature")  # a different feature is unaffected
+        walk(other)
+        assert authorize(other)["state"] == "AUTHORIZED"
+
+
+def test_a_retired_permit_is_final(ctx_a):
+    with tenant_transaction(ctx_a):
+        p = propose()
+        ai.advance(p["id"], "RETIRED", actor_ref="lead", reason="not needed", clock=CLOCK)
+        with pytest.raises(ZoikoError) as e:
+            ai.advance(p["id"], "QUALIFICATION", actor_ref="lead", clock=CLOCK)
+    assert code(e) == ErrorCode.CONFLICT_VERSION
+
+
+# ------------------------------------------------------------------ tools: whitelist only
+@pytest.mark.parametrize("tool", ["order_medication", "release_critical_result"])
+def test_the_forbidden_tools_can_never_be_on_a_list(ctx_a, tool):
+    for field in ("allowed_tools", "write_tools", "two_person_tools"):
+        with tenant_transaction(ctx_a), pytest.raises(ZoikoError) as e:
+            propose(**{"allowed_tools": [tool, "x_tool"], field: [tool]})
+        assert code(e) == ErrorCode.VALIDATION_FAILED, field
+
+
+def test_tool_lists_must_nest_and_have_no_repeats(ctx_a):
+    for over in (
+        {"write_tools": ["send_reply"]},  # write not allowed
+        {"allowed_tools": ["a_tool"], "two_person_tools": ["a_tool"]},  # two-person not a write
+        {"allowed_tools": ["a_tool", "a_tool"]},
+        {"allowed_tools": ["Bad Name"]},
+    ):
+        with tenant_transaction(ctx_a), pytest.raises(ZoikoError) as e:
+            propose(**over)
+        assert code(e) == ErrorCode.VALIDATION_FAILED, over
+
+
+def test_a_tool_not_on_the_list_is_rejected_and_nothing_is_produced(ctx_a):
+    live(ctx_a, allowed_tools=["lookup_hours"])
+    with tenant_transaction(ctx_a):
+        r = ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="hi",
+            tools=[{"tool": "delete_everything"}],
+            clock=CLOCK,
+        )
+        assert (
+            r["decision"] == "REJECTED" and r["output"] == "" and "tool_not_on_list" in r["flags"]
+        )
+        r = ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="hi",
+            tools=[{"tool": "lookup_hours"}],
+            clock=CLOCK,
+        )
+        assert r["decision"] == "HUMAN_REVIEW" and r["approvals"] == []  # a read tool: no approval
+
+
+def test_more_steps_than_the_permit_allows_is_rejected(ctx_a):
+    live(ctx_a, allowed_tools=["lookup_hours"], max_steps=1)
+    with tenant_transaction(ctx_a):
+        r = ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="hi",
+            tools=[{"tool": "lookup_hours"}, {"tool": "lookup_hours"}],
+            clock=CLOCK,
+        )
+    assert r["decision"] == "REJECTED" and "too_many_steps" in r["flags"]
+
+
+# ------------------------------------------------------------------ writes need a human
+def test_a_write_waits_for_a_human_who_is_not_the_proposer(ctx_a):
+    live(ctx_a, allowed_tools=["send_reply"], write_tools=["send_reply"])
+    with tenant_transaction(ctx_a):
+        r = ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="hi",
+            tools=[{"tool": "send_reply", "payload": {"to": "x"}}],
+            clock=CLOCK,
+        )
+        [approval] = r["approvals"]
+        assert AiActionApproval.objects.get(public_id=approval).state == "pending"
+        with pytest.raises(ZoikoError) as e:  # not the one who proposed it
+            ai.decide(approval, approver_ref="staff", approve=True)
+        assert code(e) == ErrorCode.POLICY_DENIED
+        assert ai.decide(approval, approver_ref="boss", approve=True)["state"] == "approved"
+        with pytest.raises(ZoikoError) as e2:  # decided once, final
+            ai.decide(approval, approver_ref="other", approve=False)
+        assert code(e2) == ErrorCode.CONFLICT_VERSION
+
+
+def test_a_two_person_write_needs_two_different_approvers(ctx_a):
+    live(
+        ctx_a,
+        allowed_tools=["send_reply"],
+        write_tools=["send_reply"],
+        two_person_tools=["send_reply"],
+    )
+    with tenant_transaction(ctx_a):
+        r = ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="hi",
+            tools=[{"tool": "send_reply"}],
+            clock=CLOCK,
+        )
+        [approval] = r["approvals"]
+        assert ai.decide(approval, approver_ref="boss", approve=True)["state"] == "pending"
+        with pytest.raises(ZoikoError) as e:  # the same person twice
+            ai.decide(approval, approver_ref="boss", approve=True)
+        assert code(e) == ErrorCode.POLICY_DENIED
+        assert ai.decide(approval, approver_ref="second", approve=True)["state"] == "approved"
+
+
+def test_a_suspended_or_expired_feature_cannot_have_old_writes_approved(ctx_a):
+    p = live(ctx_a, allowed_tools=["send_reply"], write_tools=["send_reply"])
+    with tenant_transaction(ctx_a):
+        first = ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="hi",
+            tools=[{"tool": "send_reply"}],
+            clock=CLOCK,
+        )["approvals"][0]
+        second = ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="hi",
+            tools=[{"tool": "send_reply"}],
+            clock=CLOCK,
+        )["approvals"][0]
+        with pytest.raises(ZoikoError) as e:  # past the expiry
+            ai.decide(
+                first,
+                approver_ref="boss",
+                approve=True,
+                clock=FixedClock(LATER + dt.timedelta(seconds=1)),
+            )
+        assert code(e) == ErrorCode.POLICY_DENIED
+        ai.advance(p["id"], "SUSPENDED", actor_ref="sre", reason="stop", clock=CLOCK)
+        with pytest.raises(ZoikoError) as e2:  # suspended
+            ai.decide(second, approver_ref="boss", approve=True, clock=CLOCK)
+        assert code(e2) == ErrorCode.POLICY_DENIED
+        assert (
+            ai.decide(second, approver_ref="boss", approve=False, clock=CLOCK)["state"]
+            == "rejected"
+        )
+
+
+def test_a_human_can_refuse_a_proposed_write(ctx_a):
+    live(ctx_a, allowed_tools=["send_reply"], write_tools=["send_reply"])
+    with tenant_transaction(ctx_a):
+        r = ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="hi",
+            tools=[{"tool": "send_reply"}],
+            clock=CLOCK,
+        )
+        assert (
+            ai.decide(r["approvals"][0], approver_ref="boss", approve=False)["state"] == "rejected"
+        )
+
+
+# ------------------------------------------------------------------ shadow mode acts on nothing
+def test_shadow_mode_runs_but_never_acts(ctx_a):
+    with tenant_transaction(ctx_a):
+        p = propose(allowed_tools=["send_reply"], write_tools=["send_reply"])
+        walk(p, upto="SHADOW")
+        r = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+        assert r["mode"] == "shadow" and r["decision"] == "HUMAN_REVIEW"
+        r = ai.run(
+            ai.REPLY_DRAFT,
+            actor_ref="staff",
+            purpose_code="reply",
+            input_text="hi",
+            tools=[{"tool": "send_reply"}],
+            clock=CLOCK,
+        )
+        assert r["decision"] == "REJECTED" and r["approvals"] == []
+        assert AiActionApproval.objects.count() == 0
+
+
+# ------------------------------------------------------------------ evidence
+def test_no_text_is_stored_only_fingerprints(ctx_a):
+    live(ctx_a)
+    secret = "Patient Asha Rao has chest pain"
+    with tenant_transaction(ctx_a):
+        r = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text=secret, clock=CLOCK
+        )
+        req = AiRequest.objects.get(public_id=r["request_id"])
+        ev = AiResponseEvidence.objects.get(request_ref=r["request_id"])
+        assert req.input_digest == ai_digest(secret) and len(ev.output_digest) == 64
+        dump = " ".join(str(v) for row in (req, ev) for v in vars(row).values())
+        assert "Asha" not in dump and "chest" not in dump
+        assert AuditEvent.objects.filter(action="ai.run", object_ref=r["request_id"]).exists()
+
+
+def ai_digest(text):
+    import hashlib
+
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def test_an_empty_answer_is_quarantined(ctx_a):
+    live(ctx_a)
+    ai.register_provider(ai.REPLY_DRAFT, lambda _t: "   ")
+    with tenant_transaction(ctx_a):
+        r = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+    assert r["decision"] == "QUARANTINED" and r["output"] == ""
+
+
+def test_input_must_be_present_and_bounded(ctx_a):
+    live(ctx_a)
+    with tenant_transaction(ctx_a):
+        for text in ("", "x" * 8001):
+            with pytest.raises(ZoikoError) as e:
+                ai.run(
+                    ai.REPLY_DRAFT,
+                    actor_ref="staff",
+                    purpose_code="reply",
+                    input_text=text,
+                    clock=CLOCK,
+                )
+            assert code(e) == ErrorCode.VALIDATION_FAILED
+
+
+def test_ai_history_cannot_be_changed_or_removed_even_by_the_owner(ctx_a):
+    live(ctx_a)
+    with tenant_transaction(ctx_a):
+        ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+    for table in ("ai_aipermitevent", "ai_airequest", "ai_airesponseevidence"):
+        for sql in (
+            f"UPDATE {table} SET created_at = now()",  # noqa: S608
+            f"DELETE FROM {table}",  # noqa: S608
+        ):
+            with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as c:
+                c.execute(sql)
+
+
+def test_the_app_role_sees_only_its_own_tenants_ai_rows(ctx_a, ctx_b):
+    live(ctx_a)
+    with tenant_transaction(ctx_b), as_app_role():
+        assert AiRequest.objects.count() == 0
+        from modules.ai.models import AiUsePermit
+
+        assert AiUsePermit.objects.count() == 0
+
+
+def test_the_forbidden_list_is_exactly_what_the_docs_say():
+    assert ai.FORBIDDEN_TOOLS == {"order_medication", "release_critical_result"}
+
+
+def test_a_change_review_goes_to_validation_if_material_or_back_to_authorized_if_not(ctx_a):
+    """GHE-23: CHANGE_REVIEW -> VALIDATION (if material) or AUTHORIZED (approved, not material)."""
+    p = live(ctx_a)
+    with tenant_transaction(ctx_a):
+        under = ai.advance(
+            p["id"], "CHANGE_REVIEW", actor_ref="lead", reason="new wording", clock=CLOCK
+        )
+        assert under["approvers"] == 0  # the old sign-offs do not carry over
+        with pytest.raises(ZoikoError) as stopped:  # nothing runs while a change is under review
+            ai.run(
+                ai.REPLY_DRAFT,
+                actor_ref="staff",
+                purpose_code="reply",
+                input_text="hi",
+                clock=CLOCK,
+            )
+        assert code(stopped) == ErrorCode.POLICY_DENIED
+        with pytest.raises(ZoikoError) as skipped:  # the old shortcut is not in the specification
+            ai.advance(p["id"], "RELEASE_REVIEW", actor_ref="lead", clock=CLOCK)
+        assert code(skipped) == ErrorCode.CONFLICT_VERSION
+        with pytest.raises(
+            ZoikoError
+        ) as unsigned:  # approving it as not material needs fresh signers
+            ai.advance(p["id"], "AUTHORIZED", actor_ref="lead", expiry=LATER, clock=CLOCK)
+        assert code(unsigned) == ErrorCode.POLICY_DENIED
+        ai.sign_off(p["id"], actor_ref="legal")
+        ai.sign_off(p["id"], actor_ref="clinical")
+        ai.zoiko_sign(p["id"], officer_ref="zoiko-officer")    # DEV-399: fresh, after a change
+        back = ai.advance(p["id"], "AUTHORIZED", actor_ref="lead", expiry=LATER, clock=CLOCK)
+        assert back["state"] == "AUTHORIZED"
+        ran = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+        assert ran["decision"] == "HUMAN_REVIEW"
+
+
+def test_a_material_change_goes_back_to_validation_and_must_climb_the_whole_path_again(ctx_a):
+    p = live(ctx_a)
+    with tenant_transaction(ctx_a):
+        ai.advance(p["id"], "CHANGE_REVIEW", actor_ref="lead", reason="new model", clock=CLOCK)
+        assert (
+            ai.advance(p["id"], "VALIDATION", actor_ref="lead", clock=CLOCK)["state"]
+            == "VALIDATION"
+        )
+        with pytest.raises(ZoikoError) as shortcut:  # no jump straight back to authorized
+            authorize(p)
+        assert code(shortcut) == ErrorCode.CONFLICT_VERSION
+        for state in ("SANDBOX", "SHADOW", "RELEASE_REVIEW"):
+            ai.advance(p["id"], state, actor_ref="creator", clock=CLOCK)
+        assert authorize(p)["state"] == "AUTHORIZED"
+
+
+def test_a_provider_that_is_not_the_approved_model_is_refused_before_it_is_called(ctx_a):
+    live(ctx_a)  # the permit pins model "a"*64, prompt "b"*64
+    called = []
+
+    def answer(_text):
+        called.append(1)
+        return "reply"
+
+    with tenant_transaction(ctx_a):
+        ai.register_provider(ai.REPLY_DRAFT, answer, model_digest="c" * 64, prompt_digest="b" * 64)
+        wrong_model = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+        ai.register_provider(ai.REPLY_DRAFT, answer, model_digest="a" * 64, prompt_digest="c" * 64)
+        wrong_prompt = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+        for r in (wrong_model, wrong_prompt):
+            assert (
+                r["decision"] == "REJECTED"
+                and r["output"] == ""
+                and "digest_mismatch" in r["flags"]
+            )
+        assert called == []  # never called
+        ai.register_provider(ai.REPLY_DRAFT, answer, model_digest="a" * 64, prompt_digest="b" * 64)
+        ok = ai.run(
+            ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi", clock=CLOCK
+        )
+        assert ok["decision"] == "HUMAN_REVIEW" and ok["output"] == "reply" and called == [1]
+
+
+# ------------------------------------------------------------ the tool policy is pinned (DEV-125)
+def _digest_of(allowed, write, two):
+    import hashlib
+    import json
+
+    body = {"allowed": sorted(allowed), "write": sorted(write), "two_person": sorted(two)}
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+
+
+TOOLS = {"allowed_tools": ["find_slot", "draft_note"], "write_tools": ["draft_note"]}
+
+
+def test_a_permit_records_a_fingerprint_of_its_tool_lists(ctx_a):
+    with tenant_transaction(ctx_a):
+        p = propose(**TOOLS)
+        q = propose(feature_id="message.other_draft", allowed_tools=["find_slot"])
+    assert p["tool_digest"] == _digest_of(["draft_note", "find_slot"], ["draft_note"], [])
+    assert q["tool_digest"] != p["tool_digest"] and len(q["tool_digest"]) == 64
+
+
+def test_the_order_of_the_tools_does_not_change_the_fingerprint(ctx_a):
+    with tenant_transaction(ctx_a):
+        a = propose(allowed_tools=["find_slot", "draft_note"], write_tools=["draft_note"])
+        b = propose(feature_id="message.other_draft", allowed_tools=["draft_note", "find_slot"],
+                    write_tools=["draft_note"])
+    assert a["tool_digest"] == b["tool_digest"]
+
+
+def test_tool_lists_that_changed_after_the_permit_was_made_stop_the_run(ctx_a):
+    from modules.ai.models import AiUsePermit
+
+    permit = live(ctx_a, allowed_tools=["find_slot"])
+    with tenant_transaction(ctx_a):
+        fine = ai.run(ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi",
+                      clock=CLOCK)
+        assert fine["decision"] == "HUMAN_REVIEW" and fine["flags"] == []
+        AiUsePermit.objects.filter(public_id=permit["id"]).update(
+            allowed_tools=["find_slot", "draft_note"])          # edited behind the permit's back
+        bad = ai.run(ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi",
+                     tools=[{"tool": "draft_note", "payload": {}}], clock=CLOCK)
+    assert bad["decision"] == "REJECTED" and bad["output"] == ""
+    assert "tool_policy_changed" in bad["flags"]
+
+
+def test_a_provider_whose_tool_policy_is_not_the_approved_one_is_refused(ctx_a):
+    permit = live(ctx_a, **TOOLS)
+    called = []
+
+    def answer(_text):
+        called.append(1)
+        return "reply"
+
+    with tenant_transaction(ctx_a):
+        ai.register_provider(ai.REPLY_DRAFT, answer, model_digest="a" * 64,
+                             prompt_digest="b" * 64, tool_digest="c" * 64)
+        wrong = ai.run(ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi",
+                       clock=CLOCK)
+        ai.register_provider(ai.REPLY_DRAFT, answer, model_digest="a" * 64,
+                             prompt_digest="b" * 64, tool_digest=permit["tool_digest"])
+        right = ai.run(ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi",
+                       clock=CLOCK)
+    assert wrong["decision"] == "REJECTED" and "digest_mismatch" in wrong["flags"]
+    assert right["decision"] == "HUMAN_REVIEW" and called == [1]   # only the right one ran
+
+
+def test_the_evidence_of_a_run_records_the_tool_policy_it_ran_under(ctx_a):
+    permit = live(ctx_a, **TOOLS)
+    with tenant_transaction(ctx_a):
+        r = ai.run(ai.REPLY_DRAFT, actor_ref="staff", purpose_code="reply", input_text="hi",
+                   clock=CLOCK)
+        ev = AiResponseEvidence.objects.get(request_ref=r["request_id"])
+    assert ev.tool_digest == permit["tool_digest"]

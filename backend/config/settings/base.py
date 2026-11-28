@@ -1,0 +1,262 @@
+"""Settings shared by every environment.
+
+Rules (from the architecture docs):
+- Everything that differs per deployment comes from the environment, never from code.
+- The same code runs in every cell. The cell is identified by ZOIKO_CELL_ID, not by `if country`.
+- Secrets are never logged and never given real defaults.
+"""
+import os
+from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+def env(name: str, default: str | None = None, *, required: bool = False) -> str:
+    value = os.environ.get(name, default)
+    if value is None or (required and value == ""):
+        # Report the NAME only. Never print values: they may be secrets.
+        raise ImproperlyConfigured(f"Missing required environment variable: {name}")
+    return value
+
+
+SECRET_KEY = env("DJANGO_SECRET_KEY", required=True)
+DEBUG = False
+ALLOWED_HOSTS = [h.strip() for h in env("DJANGO_ALLOWED_HOSTS", "").split(",") if h.strip()]
+
+# With DEBUG off, the web server and the worker refuse to start if their database login is a
+# superuser or has BYPASSRLS (PostgreSQL would then ignore row-level security). On in every real
+# deployment; only the test settings turn it off. See foundation/dbrole.py.
+REQUIRE_RESTRICTED_DB_ROLE = True
+
+# With DEBUG off, the web server and the worker also refuse to start while any development-only
+# setting remains (placeholder secrets, the unsigned sign-in, short passwords...). On in every real
+# deployment; only the test settings turn it off. See foundation/release_check.py.
+REQUIRE_PRODUCTION_SETTINGS = True
+
+# Identifies this deployment. Used later to bind every request and every row to one cell.
+ZOIKO_CELL_ID = env("ZOIKO_CELL_ID", required=True)
+# Which program wrote an audit row, and which build it was (a release id or commit; "dev" locally).
+ZOIKO_SERVICE_NAME = env("ZOIKO_SERVICE_NAME", "backend")
+ZOIKO_BUILD = env("ZOIKO_BUILD", "dev")
+# What happens when a customer's country pack has not switched a feature on (DEV-383, GHE-08
+# SAF-10 "fail closed"): enforce (refuse), report (allow and log) or off. Production must enforce;
+# development and test settings report, because demo customers have no signed pack.
+ZOIKO_PACK_GATING = env("ZOIKO_PACK_GATING", "enforce")
+# Outgoing addresses (DEV-384, GHE-09 SEC-07): only hosts Zoiko approved for the customer receive
+# its webhooks. enforce (do not send), report (send and log) or off. Production must enforce.
+ZOIKO_EGRESS = env("ZOIKO_EGRESS", "enforce")
+# Message wording (DEV-386, GHE-16): an email or text whose template version is not approved by a
+# safety officer and, separately, privacy is HELD (enforce), sent and logged (report) or not
+# checked (off). Production must enforce.
+ZOIKO_TEMPLATE_GATING = env("ZOIKO_TEMPLATE_GATING", "enforce")
+# How often one caller may call the API (DEV-387): enforce (429 with Retry-After), report (allow,
+# and log) or off. Production must enforce. Per minute; see foundation/ratelimit.py.
+ZOIKO_RATE_LIMITING = env("ZOIKO_RATE_LIMITING", "enforce")
+RATE_LIMITS = {"ip": 600, "ip_auth": 20, "actor_read": 300, "actor_write": 60, "tenant": 3000}
+# Count every request per minute for the 30-day error budget (DEV-388). Never off in production.
+ZOIKO_SLO_RECORDING = True
+# Report numbers (DEV-389, GHE-10): a part whose measure version is not approved is withheld
+# (enforce), shown and logged (report) or not checked (off). Production must enforce.
+ZOIKO_MEASURE_GATING = env("ZOIKO_MEASURE_GATING", "enforce")
+# The email provider's API may only be one of these hosts (a mistyped setting sends nothing).
+EGRESS_PROVIDER_HOSTS = ("api.sendgrid.com", "api.eu.sendgrid.com", "api.stripe.com",
+                         "events.pagerduty.com", "api.anthropic.com")  # DEV-400, DEV-399
+# Lets a monitoring system read /metrics (request numbers by route). Empty = the endpoint is off.
+METRICS_TOKEN = env("ZOIKO_METRICS_TOKEN", "")
+# Clinical workflow paths (review, handoff) stay unpublishable until this is "true" (DEV-132).
+WORKFLOW_CLINICAL_ENABLED = env("ZOIKO_WORKFLOW_CLINICAL", "").lower() == "true"
+# DEV-304: off unless set (DEV-324: development turns it on; production needs a safety sign-off)
+CLINICAL_NOTES_ENABLED = env("ZOIKO_CLINICAL_NOTES", "").lower() == "true"
+CLINICAL_REFERENCES_ENABLED = False  # pointers to records in a clinic's own system; off (DEV-041)
+if METRICS_TOKEN and len(METRICS_TOKEN) < 24:
+    raise ValueError("ZOIKO_METRICS_TOKEN must be at least 24 characters (or empty to turn it off)")
+# Google sign-in is offered only when a Google OAuth client id is configured (empty = off).
+GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", "")
+DEV_AUTH_STUB = False  # unsigned dev login; only dev settings turn it on
+
+# We deliberately do NOT install django.contrib.auth/admin/sessions.
+# Actors, roles and delegation are our own models (trust module) and authentication is
+# OIDC token validation. Django's built-in User model would be hard to replace later.
+INSTALLED_APPS = [
+    "django.contrib.contenttypes",
+    "foundation",
+    "modules.trust",
+    "modules.policy",
+    "modules.catalog",
+    "modules.scheduling",
+    "modules.workflow",
+    "modules.referral",
+    "modules.waitlist",
+    "modules.coverage",
+    "modules.ai",
+    "modules.safety",
+    "modules.rights",
+    "modules.sponsor",
+    "modules.integration",
+    "modules.jurisdiction",
+    "modules.retention",
+    "modules.clinicalref",
+    "modules.clinicalnote",
+    "modules.orchestration",
+    "modules.readiness",
+    "modules.traceability",
+    "modules.billing",
+    "modules.messaging",
+    "modules.comms",
+    "modules.evidence",
+    "modules.exchange",
+    "modules.claim",
+    "modules.programme",
+    "modules.codemap",
+    "modules.connector",
+    "modules.bookingflow",
+]
+
+MIDDLEWARE = [
+    "foundation.middleware.RequestIdMiddleware",        # first: every request gets an id
+    "foundation.middleware.MetricsMiddleware",          # second: times everything after it
+    "foundation.middleware.RateLimitMiddleware",        # per network address (DEV-387)
+    "django.middleware.security.SecurityMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "foundation.middleware.ErrorHandlingMiddleware",    # last: sees view exceptions first
+]
+
+ROOT_URLCONF = "config.urls"
+WSGI_APPLICATION = "config.wsgi.application"
+ASGI_APPLICATION = "config.asgi.application"
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": env("POSTGRES_DB", required=True),
+        "USER": env("POSTGRES_USER", required=True),
+        "PASSWORD": env("POSTGRES_PASSWORD", required=True),
+        "HOST": env("POSTGRES_HOST", "localhost"),
+        "PORT": env("POSTGRES_PORT", "5432"),
+        "CONN_MAX_AGE": 60,
+        # Every transaction must be explicit in our service layer; see ARCHITECTURE section 5.
+        "ATOMIC_REQUESTS": False,
+    }
+}
+
+# Time: store everything in UTC. Original source time zones are kept in separate columns.
+TIME_ZONE = "UTC"
+USE_TZ = True
+LANGUAGE_CODE = "en"
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"  # real IDs (UUIDv7 + public_id) arrive in B1
+
+# Logging: structured later. Rule from day one: NEVER log request bodies, tokens, or health data.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "filters": {
+        "request_id": {"()": "foundation.request_context.RequestIdFilter"},
+        # A secret that reaches a log line is a leak (GHE-20 B-05, DEV-186).
+        "secrets": {"()": "foundation.log_redaction.SecretRedactionFilter"},
+    },
+    "formatters": {
+        "plain": {"format": "%(asctime)s %(levelname)s %(name)s rid=%(request_id)s %(message)s"}
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "filters": ["secrets", "request_id"],
+            "formatter": "plain",
+        }
+    },
+    "root": {"handlers": ["console"], "level": env("DJANGO_LOG_LEVEL", "INFO")},
+}
+
+# --- Email ---------------------------------------------------------------------------------
+# The worker sends queued mail over SMTP. No host configured means "localhost": sending then
+# fails visibly and is retried, never silently dropped. Production must set a real provider.
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = env("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(env("EMAIL_PORT", "1025"))
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env("EMAIL_USE_TLS", "") == "1"
+EMAIL_TIMEOUT = 10
+DEFAULT_FROM_EMAIL = env("EMAIL_FROM", "Zoiko Access <no-reply@zoiko.example>")
+# The email provider (DEV-350, LEAD DECISION: SendGrid). "sendgrid" sends through SendGrid's web
+# API with SENDGRID_API_KEY; anything else keeps SMTP above (the development mailbox).
+MAIL_PROVIDER = env("MAIL_PROVIDER", "")
+SENDGRID_API_KEY = env("SENDGRID_API_KEY", "")
+SENDGRID_API_HOST = env("SENDGRID_API_HOST", "")
+SENDGRID_WEBHOOK_PUBLIC_KEY = env("SENDGRID_WEBHOOK_PUBLIC_KEY", "")  # DEV-354, base64 DER
+if MAIL_PROVIDER == "sendgrid":
+    EMAIL_BACKEND = "foundation.sendgrid_backend.SendGridBackend"
+# DEV-400 (decided 27 Nov 2026): AWS SES. Credentials and region from the environment (AWS_*).
+SES_CONFIGURATION_SET = env("SES_CONFIGURATION_SET", "")
+# DEV-403: the one SNS topic SES publishes delivery events to; any other topic is refused.
+SES_EVENTS_TOPIC_ARN = env("SES_EVENTS_TOPIC_ARN", "")
+# The first market is the UK (decided 27 Nov 2026): AWS in London unless the server says otherwise.
+AWS_REGION = env("AWS_REGION", "eu-west-2")
+if MAIL_PROVIDER == "ses":
+    EMAIL_BACKEND = "foundation.ses_backend.SesBackend"
+# Where the links in emails point (the patient web app).
+# Field-level encryption (foundation/crypto.py). "id:base64(32 bytes),id:base64(...)". No default:
+# a deployment without a key must not start. FIELD_KEY_ID picks the key that encrypts (default:
+# the first listed); the others stay valid for reading while keys are rotated.
+FIELD_KEYS = env("ZOIKO_FIELD_KEYS", required=True)
+FIELD_KEY_ID = env("ZOIKO_FIELD_KEY_ID", "")
+# Where the master keys come from (DEV-396): "env" (development) or "aws_kms" (production: the
+# entries above are KMS-encrypted and unwrapped by KMS; AWS credentials and region come from the
+# server's environment). The release check requires aws_kms.
+FIELD_KEY_SOURCE = env("ZOIKO_KEY_SOURCE", "env")
+# Country-pack signing key (DEV-210): base64 of 32 bytes (Ed25519). Empty in development, where a
+# key is derived from the secret key; the release check refuses that on a real server.
+PACK_SIGNING_KEY = env("ZOIKO_PACK_SIGNING_KEY", "")
+
+# Text messages (DEV-194): "sns" (AWS SNS, decided 27 Nov 2026, DEV-400) or "twilio" send for
+# real, "console" is the development stand-in, "" (the default) sends nothing. Provider values come
+# from the environment and are never logged.
+TEXT_PROVIDER = env("TEXT_PROVIDER", "")
+# Virus scanning of uploaded files (DEV-345): "clamav" (with CLAMAV_HOST/PORT) or "" (files wait,
+# never opened). Development uses "pretend" (dev.py).
+ATTACHMENT_SCANNER = env("ATTACHMENT_SCANNER", "")
+CLAMAV_HOST = env("CLAMAV_HOST", "")
+CLAMAV_PORT = env("CLAMAV_PORT", "3310")
+TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM = env("TWILIO_FROM", "")
+# Where Twilio sends delivery receipts: the public https address of /api/v1/webhooks/twilio/status.
+TWILIO_STATUS_URL = env("TWILIO_STATUS_URL", "")
+
+# Patients are reminded about a confirmed appointment this many hours ahead.
+REMINDER_LEAD_HOURS = int(env("REMINDER_LEAD_HOURS", "24"))
+# A waiting-list offer nobody used goes back to waiting after this many hours.
+WAITLIST_OFFER_HOURS = int(env("WAITLIST_OFFER_HOURS", "24"))
+# The clinic's response target: a booking or message waiting longer than this is flagged late.
+RESPONSE_TARGET_HOURS = int(env("RESPONSE_TARGET_HOURS", "24"))
+# AI (DEV-399): "" (the fixed template) or "anthropic" (Claude drafts staff replies, with
+# personal details removed, only under a permit signed by a clinic administrator and a Zoiko
+# officer). The key is ANTHROPIC_API_KEY in the server's environment, read by the SDK.
+AI_PROVIDER = env("AI_PROVIDER", "")
+AI_MODEL = env("AI_MODEL", "claude-opus-5-5")
+# Online payment of invoices: which provider ("" = switched off; none has been chosen yet).
+BILLING_PAYMENT_PROVIDER = env("BILLING_PAYMENT_PROVIDER", "")
+BILLING_PRETEND_PROVIDER = False  # pretend payment provider; only dev and test settings turn it on
+# DEV-400: Stripe (BILLING_PAYMENT_PROVIDER=stripe). The secret key only from the environment.
+STRIPE_SECRET_KEY = env("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", "")          # DEV-403, "whsec_..."
+# DEV-401 (decided 27 Nov 2026): which partner kinds may go live. First a laboratory and a
+# pharmacy; "partner.booking." is a clinic's own booking-system connection, not a care partner.
+PARTNER_LIVE_KINDS = ("partner.lab.", "partner.pharmacy.", "partner.booking.")
+# DEV-400: who is paged when an error budget burns or a serious incident is not acknowledged:
+# "pagerduty" (with PAGERDUTY_ROUTING_KEY) or "" (development: logged only, nobody is paged).
+PAGER_PROVIDER = env("PAGER_PROVIDER", "")
+PAGERDUTY_ROUTING_KEY = env("PAGERDUTY_ROUTING_KEY", "")
+PATIENT_APP_URL = env("PATIENT_APP_URL", "http://localhost:5174").rstrip("/")
+STAFF_APP_URL = env("STAFF_APP_URL", "http://localhost:5173").rstrip("/")
+CLINICIAN_APP_URL = env("CLINICIAN_APP_URL", "http://localhost:5176").rstrip("/")
+PLATFORM_APP_URL = env("PLATFORM_APP_URL", "http://localhost:5175").rstrip("/")
+PARTNER_APP_URL = env("PARTNER_APP_URL", "http://localhost:5177").rstrip("/")
+
+# --- Passwords ------------------------------------------------------------------------------
+# Minimum length. 10 unless the deployment says otherwise, and never below 8. Only the local
+# development Docker setup lowers it (so the demo logins can be short); production keeps 10.
+PASSWORD_MIN_LENGTH = max(8, int(env("PASSWORD_MIN_LENGTH", "10")))

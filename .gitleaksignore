@@ -1,0 +1,19 @@
+# Findings the secret scan (gitleaks, CI job "security", DEV-371) may ignore: each one checked by hand
+# and found to be a deliberate FAKE value in a test, never a real secret. Listed one by one (commit,
+# file, rule, line), so any NEW secret, in tests or anywhere else, still fails the scan.
+#
+# Release-check tests: values that must look real (not placeholders) for the check to accept them.
+f5dad9671a9314378adcad71bad29af0a990f656:backend/tests/test_release_check.py:generic-api-key:29
+f5dad9671a9314378adcad71bad29af0a990f656:backend/tests/test_release_check.py:generic-api-key:30
+4c1334e4da100f758fde416653436d119a309589:backend/tests/test_release_check.py:generic-api-key:34
+# Log-redaction test: fake secrets the log filter must hide.
+4c1334e4da100f758fde416653436d119a309589:backend/tests/test_log_redaction.py:generic-api-key:20
+# FHIR intake test: a dummy partner client's secret.
+73562b31ad16c9b2d4b55b4032c3da5e1820ff28:backend/tests/test_fhir_intake.py:generic-api-key:54
+# maruthi branch (CI fetches every branch, so it is scanned too). Confirmed test values by
+# Venkatesh on 27 Nov 2026. Two-step test: the RFC 6238 appendix B published test secret.
+191021ed6e1547614f04836ea2cf08285514ff6b:backend/tests/test_second_factor.py:generic-api-key:81
+# Mail-provider tests: made-up vendor API keys and a webhook secret for the test settings.
+4ff2c75678079e8c7ec5c2fa2b87ac79e7d21b31:backend/tests/test_mail_providers.py:generic-api-key:148
+4ff2c75678079e8c7ec5c2fa2b87ac79e7d21b31:backend/tests/test_mail_providers.py:generic-api-key:308
+4ff2c75678079e8c7ec5c2fa2b87ac79e7d21b31:backend/tests/test_mail_providers.py:generic-api-key:309

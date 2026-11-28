@@ -1,0 +1,19 @@
+"""Public interface of the readiness module (D17): go-live readiness for a release.
+
+This is the ONLY module other domain modules may import from `modules.readiness`.
+"""
+from .appointments import appoint, confirm, key_holders, list_named, withdraw
+from .services import (
+    ALL_REQUIREMENTS,
+    create_release,
+    get_release,
+    list_releases,
+    override_budget,
+    re_evaluate,
+    sign,
+    veto,
+)
+
+__all__ = ["ALL_REQUIREMENTS", "appoint", "confirm", "key_holders", "list_named", "withdraw",
+           "create_release", "get_release", "list_releases", "re_evaluate",
+           "sign", "veto", "override_budget"]

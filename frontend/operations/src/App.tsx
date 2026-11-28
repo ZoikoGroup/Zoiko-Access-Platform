@@ -1,0 +1,131 @@
+import { useCallback, useEffect, useState } from "react";
+import { dropDevLogin } from "@shared/devLogin";
+import { checkHealth, getDisplayName, getMe, loadSession, setSession, signOutEverywhere, staffFromSession, type Session } from "./api";
+import { NAV, type PageId } from "./nav";
+import { Sidebar, Topbar } from "./Shell";
+import type { Health } from "./types";
+import { useLoad } from "./useLoad";
+import { Compliance } from "./pages/Compliance";
+import { Appointments } from "./pages/Appointments";
+import { Dashboard } from "./pages/Dashboard";
+import { Organizations, Patients } from "./pages/Lists";
+import { Planned } from "./pages/Planned";
+import { Providers } from "./pages/Providers";
+import { PartnerSystems } from "./pages/PartnerSystems";
+import { Retention } from "./pages/Retention";
+import { Settings } from "./pages/Settings";
+import { AlertPhone } from "./pages/AlertPhone";
+import { WorkQueue } from "./pages/WorkQueue";
+import { FamilyRequests } from "./pages/FamilyRequests";
+import { Messages } from "./pages/Messages";
+import { Referrals } from "./pages/Referrals";
+import { Billing } from "./pages/Billing";
+import { Engine } from "./pages/Engine";
+import { Integrations } from "./pages/Integrations";
+import { Claims } from "./pages/Claims";
+import { InsuranceStatus } from "./pages/InsuranceStatus";
+import { PartnerRequests } from "./pages/PartnerRequests";
+import { RightsRequests } from "./pages/RightsRequests";
+import { Reports } from "./pages/Reports";
+import { WaitingList } from "./pages/WaitingList";
+import { Services } from "./pages/Services";
+import { AiPermits } from "./pages/AiPermits";
+import { Matches } from "./pages/Matches";
+import { Team } from "./pages/Team";
+import { SignIn } from "./pages/SignIn";
+import { clearLink, LinkPage, readLinkAction } from "./pages/LinkActions";
+
+function startPage(): PageId {
+  const wanted = new URLSearchParams(window.location.search).get("page");
+  return NAV.find((n) => n.id === wanted)?.id ?? "dashboard";
+}
+
+export default function App() {
+  const [session, setSessionState] = useState<Session | null>(loadSession());
+  useEffect(() => { if (session) dropDevLogin(); }, [session]);   // development only
+  const [link, setLink] = useState(readLinkAction());
+  if (link) {
+    return <LinkPage link={link} onDone={() => { clearLink(); setLink(null); }} />;
+  }
+  if (!session) {
+    return <SignIn onSignedIn={(s) => { setSession(s); setSessionState(s); }} />;
+  }
+  const signOut = () => { void signOutEverywhere().then(() => setSessionState(null)); };
+  return <Console session={session} onSignOut={signOut} />;
+}
+
+function Console({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const [page, setPage] = useState<PageId>(startPage());
+  const [shownName, setShownName] = useState("");      // the name this person chose, if any
+  useEffect(() => {
+    getDisplayName().then(setShownName).catch(() => setShownName(""));
+  }, [page, session.token]);                            // re-read after visiting another page
+  const [patientQuery, setPatientQuery] = useState("");      // set by the top-bar search
+  const [health, setHealth] = useState<{ api: Health; database: Health }>({ api: "checking", database: "checking" });
+  const me = useLoad(getMe, 60_000);
+
+  const pollHealth = useCallback(async () => setHealth(await checkHealth()), []);
+  useEffect(() => {
+    void pollHealth();
+    const timer = setInterval(() => void pollHealth(), 10_000);
+    return () => clearInterval(timer);
+  }, [pollHealth]);
+
+  const staff = staffFromSession(session);
+  const item = NAV.find((n) => n.id === page) ?? NAV[0];
+
+  // Every screen below fetches its own data from the signed-in /api/v1 staff endpoints, as you.
+  const off = me.data?.switched_off ?? [];
+  let body;
+  if (!item.live) body = <Planned item={item} />;
+  else if (item.capability && off.includes(item.capability)) body = <SwitchedOff label={item.label} />;
+  else if (page === "services") body = <Services staff={staff} />;
+  else if (page === "appointments") body = <Appointments staff={staff} />;
+  else if (page === "patients") body = <Patients key={patientQuery} initialSearch={patientQuery} />;
+  else if (page === "organizations") body = <Organizations />;
+  else if (page === "team") body = <Team />;
+  else if (page === "ai") body = <AiPermits />;
+  else if (page === "matches") body = <Matches />;
+  else if (page === "referrals") body = <Referrals />;
+  else if (page === "rights") body = <RightsRequests />;
+  else if (page === "exchange") body = <PartnerRequests />;
+  else if (page === "claims") body = <Claims />;
+  else if (page === "insurance") body = <InsuranceStatus />;
+  else if (page === "engine") body = <Engine />;
+  else if (page === "billing") body = <Billing />;
+  else if (page === "integrations") body = <Integrations />;
+  else if (page === "reports") body = <Reports staff={staff} />;
+  else if (page === "providers") body = <Providers staff={staff} />;
+  else if (page === "retention") body = <Retention staff={staff} />;
+  else if (page === "partner-systems") body = <PartnerSystems staff={staff} />;
+  else if (page === "settings") body = <><Settings staff={staff} /><AlertPhone admin={session.roles.some((r) => r.role === "R13")} /></>;
+  else if (page === "workflows") body = <WorkQueue staff={staff} onGo={setPage} />;
+  else if (page === "messages") body = <Messages staff={staff} />;
+  else if (page === "family") body = <FamilyRequests staff={staff} />;
+  else if (page === "waitlist") body = <WaitingList staff={staff} />;
+  else if (page === "compliance") body = <Compliance />;
+  else body = <Dashboard tenantName={session.tenantName} api={health.api} database={health.database} onGo={setPage} />;
+
+  return (
+    <div className="shell">
+      <a className="skip-link" href="#main">Skip to main content</a>
+      <Topbar displayName={shownName} tenantName={session.tenantName} login={session.login}
+        roles={session.roles.map((r) => r.role)} onSignOut={onSignOut}
+        onGo={(p, query) => { setPatientQuery(query ?? ""); setPage(p); }} />
+      <Sidebar page={page} onPage={(p) => { setPatientQuery(""); setPage(p); }} cell={me.data?.cell ?? ""} api={health.api} database={health.database} off={off} />
+      <main className="content" id="main" tabIndex={0}>{body}</main>
+    </div>
+  );
+}
+
+/** A screen whose feature the organization's country pack has not switched on (DEV-383). */
+function SwitchedOff({ label }: { label: string }) {
+  return (
+    <div className="card" role="status">
+      <h2>{label} is not switched on here</h2>
+      <p>This feature is not yet approved for your organization's country. Zoiko switches features on
+        country by country, once the legal, privacy and safety checks for that country are signed. Ask
+        Zoiko support if you expected to have it.</p>
+    </div>
+  );
+}
