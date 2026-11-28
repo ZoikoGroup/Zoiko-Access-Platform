@@ -11,7 +11,9 @@ from tests.test_policy import World
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.usefixtures("rls_probe")]
 
-QUIET = {"open_incidents": 0, "high_incidents": 0, "suspensions_waiting": 0, "latest_release": None}
+QUIET = {"open_incidents": 0, "high_incidents": 0, "suspensions_waiting": 0, "latest_release": None,
+         # DEV-382: hazard controls still missing a test, and controls not yet verified
+         "missing_control_tests": 0, "unverified_controls": 0}
 
 
 @pytest.fixture(autouse=True)

@@ -20,6 +20,9 @@ IST = ZoneInfo("Asia/Kolkata")
 def dev_login(settings):
     settings.DEBUG = True
     settings.DEV_AUTH_STUB = True
+    # These tests check the counting on tiny clinics; hiding counts under 5 (DEV-389) has its own
+    # tests, so here every count is shown, as in test_reports.py.
+    settings.REPORT_SMALL_CELL_K = 1
 
 
 @pytest.fixture

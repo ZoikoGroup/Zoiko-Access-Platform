@@ -61,6 +61,7 @@ GATED: dict[str, str] = {
     "messages/threads/<str:thread_id>": MESSAGING,
     "messages/threads/<str:thread_id>/close": MESSAGING,
     "messages/threads/<str:thread_id>/reply": MESSAGING,
+    "messages/threads/<str:thread_id>/draft-reply": MESSAGING,      # DEV-399
     "clinician/messages": MESSAGING,
     # referrals
     "referrals": REFERRALS,
@@ -113,7 +114,8 @@ UNGATED: dict[str, str] = {
     **{r: _RIGHTS for r in (
         "rights", "rights/<str:case_id>/withdraw", "my/export", "access-log", "staff/rights",
         "staff/rights/<str:case_id>/<str:step>", "staff/retention",
-        "staff/retention/<str:rule_id>/<str:step>")},
+        "staff/retention/<str:rule_id>/<str:step>", "staff/retention-batches",
+        "staff/retention-batches/<str:batch_id>/<str:step>")},
     **{r: _CLINICAL for r in (
         "care-team", "clinician/notes", "clinician/notes/<str:note_id>",
         "clinician/notes/<str:note_id>/<str:step>", "clinician/notes/<str:note_id>/attachments",
@@ -192,7 +194,8 @@ UNGATED: dict[str, str] = {
         "staff/integrations/inbound", "staff/integrations/partners",
         "staff/integrations/partners/<str:client_id>/<str:step>",
         "staff/integrations/webhooks", "staff/integrations/webhooks/<str:endpoint_id>/<str:step>",
-        "webhooks/sendgrid/events", "webhooks/twilio/status")},
+        "webhooks/sendgrid/events", "webhooks/twilio/status", "webhooks/ses/events",
+        "webhooks/stripe/events")},
 }
 
 PLATFORM_PREFIX = "platform/"          # every platform/... route: Zoiko's own console
